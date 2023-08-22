@@ -26,7 +26,6 @@ target_link_options(yt-cpp-mapreduce-util-ut PRIVATE
   -Wl,--no-as-needed
   -fPIC
   -fPIC
-  -lpthread
   -lrt
   -ldl
 )

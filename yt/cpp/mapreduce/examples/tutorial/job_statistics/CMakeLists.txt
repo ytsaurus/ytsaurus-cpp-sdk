@@ -24,7 +24,6 @@ target_link_options(job_statistics PRIVATE
   -Wl,--no-as-needed
   -fPIC
   -fPIC
-  -lpthread
   -lrt
   -ldl
   -lutil

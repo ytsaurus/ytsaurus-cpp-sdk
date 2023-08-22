@@ -25,7 +25,6 @@ target_link_options(operation_tracker PRIVATE
   -Wl,--no-as-needed
   -fPIC
   -fPIC
-  -lpthread
   -lrt
   -ldl
   -lutil

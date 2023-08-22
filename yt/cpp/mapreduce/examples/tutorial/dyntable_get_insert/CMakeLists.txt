@@ -25,7 +25,6 @@ target_link_options(dyntable_get_insert PRIVATE
   -Wl,--no-as-needed
   -fPIC
   -fPIC
-  -lpthread
   -lrt
   -ldl
   -lutil

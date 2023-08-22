@@ -24,7 +24,6 @@ target_link_options(simple_reduce_tnode PRIVATE
   -Wl,--no-as-needed
   -fPIC
   -fPIC
-  -lpthread
   -lrt
   -ldl
   -lutil

@@ -21,7 +21,6 @@ target_link_options(rescompiler PRIVATE
   -Wl,--no-as-needed
   -fPIC
   -fPIC
-  -lpthread
   -lrt
   -ldl
 )

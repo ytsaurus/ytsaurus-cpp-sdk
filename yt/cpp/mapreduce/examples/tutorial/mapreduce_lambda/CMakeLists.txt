@@ -38,7 +38,6 @@ target_link_options(mapreduce_lambda PRIVATE
   -Wl,--no-as-needed
   -fPIC
   -fPIC
-  -lpthread
   -lrt
   -ldl
   -lutil
