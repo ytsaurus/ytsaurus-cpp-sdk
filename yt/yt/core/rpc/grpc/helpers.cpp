@@ -267,7 +267,8 @@ struct TMessageTag
 
 TMessageWithAttachments ByteBufferToMessageWithAttachments(
     grpc_byte_buffer* buffer,
-    std::optional<ui32> messageBodySize)
+    std::optional<ui32> messageBodySize,
+    bool enveloped)
 {
     TMessageWithAttachments result;
 
@@ -279,28 +280,39 @@ TMessageWithAttachments ByteBufferToMessageWithAttachments(
         messageBodySize = bufferSize;
     }
 
-    NYT::NProto::TSerializedMessageEnvelope envelope;
-    // Codec remains "none".
+    TSharedMutableRef data;
+    char* targetMessage;
 
-    TEnvelopeFixedHeader fixedHeader;
-    fixedHeader.EnvelopeSize = envelope.ByteSize();
-    fixedHeader.MessageSize = *messageBodySize;
+    if (enveloped) {
+        NYT::NProto::TSerializedMessageEnvelope envelope;
+        // Codec remains "none".
 
-    size_t totalMessageSize =
-        sizeof (TEnvelopeFixedHeader) +
-        fixedHeader.EnvelopeSize +
-        fixedHeader.MessageSize;
+        TEnvelopeFixedHeader fixedHeader;
+        fixedHeader.EnvelopeSize = envelope.ByteSize();
+        fixedHeader.MessageSize = *messageBodySize;
 
-    auto data = TSharedMutableRef::Allocate<TMessageTag>(
-        totalMessageSize,
-        {.InitializeStorage = false});
+        size_t totalMessageSize =
+            sizeof (TEnvelopeFixedHeader) +
+            fixedHeader.EnvelopeSize +
+            fixedHeader.MessageSize;
 
-    char* targetFixedHeader = data.Begin();
-    char* targetHeader = targetFixedHeader + sizeof (TEnvelopeFixedHeader);
-    char* targetMessage = targetHeader + fixedHeader.EnvelopeSize;
+        data = TSharedMutableRef::Allocate<TMessageTag>(
+            totalMessageSize,
+            {.InitializeStorage = false});
 
-    memcpy(targetFixedHeader, &fixedHeader, sizeof (fixedHeader));
-    YT_VERIFY(envelope.SerializeToArray(targetHeader, fixedHeader.EnvelopeSize));
+        char* targetFixedHeader = data.Begin();
+        char* targetHeader = targetFixedHeader + sizeof (TEnvelopeFixedHeader);
+        targetMessage = targetHeader + fixedHeader.EnvelopeSize;
+
+        memcpy(targetFixedHeader, &fixedHeader, sizeof (fixedHeader));
+        YT_VERIFY(envelope.SerializeToArray(targetHeader, fixedHeader.EnvelopeSize));
+    } else {
+        data = TSharedMutableRef::Allocate<TMessageTag>(
+            *messageBodySize,
+            {.InitializeStorage = false});
+
+        targetMessage = data.begin();
+    }
 
     TGrpcByteBufferStream stream(buffer);
 
@@ -418,8 +430,17 @@ TErrorCode StatusCodeToErrorCode(grpc_status_code statusCode)
         case GRPC_STATUS_INVALID_ARGUMENT:
         case GRPC_STATUS_RESOURCE_EXHAUSTED:
             return NRpc::EErrorCode::ProtocolError;
-        default:
+        case GRPC_STATUS_UNAUTHENTICATED:
+            return NRpc::EErrorCode::AuthenticationError;
+        case GRPC_STATUS_PERMISSION_DENIED:
+            return NRpc::EErrorCode::InvalidCredentials;
+        case GRPC_STATUS_UNIMPLEMENTED:
+            return NRpc::EErrorCode::NoSuchMethod;
+        case GRPC_STATUS_UNAVAILABLE:
             return NRpc::EErrorCode::TransportError;
+        default:
+            // Do not retry request after unclassified error.
+            return NYT::EErrorCode::Generic;
     }
 }
 
@@ -559,7 +580,7 @@ void TGuardedGrpcCompletionQueue::Shutdown()
             return;
         }
         State_ = EState::Shutdown;
-        if (LocksCount_ != 0) {
+        if (LocksCount_.load() != 0) {
             guard.Release();
             ReleaseDone_.Wait();
         }
@@ -582,7 +603,7 @@ grpc_completion_queue* TGuardedGrpcCompletionQueue::UnwrapUnsafe()
 void TGuardedGrpcCompletionQueue::Release()
 {
     auto guard = ReaderGuard(SpinLock_);
-    if (LocksCount_.fetch_sub(1, std::memory_order::release) == 0 && State_ == EState::Shutdown) {
+    if (LocksCount_.fetch_sub(1, std::memory_order::release) == 1 && State_ == EState::Shutdown) {
         guard.Release();
         ReleaseDone_.NotifyOne();
     }

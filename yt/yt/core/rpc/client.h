@@ -104,7 +104,6 @@ public:
     DEFINE_BYVAL_RO_PROPERTY(bool, ResponseHeavy);
     DEFINE_BYVAL_RO_PROPERTY(TAttachmentsOutputStreamPtr, RequestAttachmentsStream);
     DEFINE_BYVAL_RO_PROPERTY(TAttachmentsInputStreamPtr, ResponseAttachmentsStream);
-    DEFINE_BYVAL_RO_PROPERTY(TMemoryTag, ResponseMemoryTag);
 
 public:
     TClientContext(
@@ -115,8 +114,7 @@ public:
         TFeatureIdFormatter featureIdFormatter,
         bool heavy,
         TAttachmentsOutputStreamPtr requestAttachmentsStream,
-        TAttachmentsInputStreamPtr responseAttachmentsStream,
-        TMemoryTag responseMemoryTag);
+        TAttachmentsInputStreamPtr responseAttachmentsStream);
 };
 
 DEFINE_REFCOUNTED_TYPE(TClientContext)
@@ -139,8 +137,8 @@ public:
     DEFINE_BYVAL_RW_PROPERTY(NCompression::ECodec, ResponseCodec, NCompression::ECodec::None);
     DEFINE_BYVAL_RW_PROPERTY(bool, EnableLegacyRpcCodecs, true);
     DEFINE_BYVAL_RW_PROPERTY(bool, GenerateAttachmentChecksums, true);
-    DEFINE_BYVAL_RW_PROPERTY(std::optional<TMemoryTag>, ResponseMemoryTag);
-    DEFINE_BYVAL_RW_PROPERTY(IMemoryReferenceTrackerPtr, MemoryReferenceTracker);
+    // Field is used on client side only. So it is never serialized.
+    DEFINE_BYREF_RW_PROPERTY(NTracing::TTraceContext::TTagList, TracingTags);
     // For testing purposes only.
     DEFINE_BYVAL_RW_PROPERTY(std::optional<TDuration>, SendDelay);
 
@@ -252,8 +250,6 @@ private:
 
     void PrepareHeader();
     TSharedRefArray GetHeaderlessMessage() const;
-
-    TSharedRefArray TrackMemory(TSharedRefArray array) const;
 };
 
 DEFINE_REFCOUNTED_TYPE(TClientRequest)
@@ -299,7 +295,7 @@ struct IClientResponseHandler
     /*!
      *  \param error An error that has occurred.
      */
-    virtual void HandleError(const TError& error) = 0;
+    virtual void HandleError(TError error) = 0;
 
     //! Enables passing streaming data from the service to clients.
     virtual void HandleStreamingPayload(const TStreamingPayload& payload) = 0;
@@ -350,7 +346,7 @@ protected:
     virtual bool TryDeserializeBody(TRef data, std::optional<NCompression::ECodec> codecId = {}) = 0;
 
     // IClientResponseHandler implementation.
-    void HandleError(const TError& error) override;
+    void HandleError(TError error) override;
     void HandleAcknowledgement() override;
     void HandleResponse(TSharedRefArray message, TString address) override;
     void HandleStreamingPayload(const TStreamingPayload& payload) override;
@@ -368,7 +364,7 @@ private:
     TSharedRefArray ResponseMessage_;
 
     void TraceResponse();
-    void DoHandleError(const TError& error);
+    void DoHandleError(TError error);
 
     void DoHandleResponse(TSharedRefArray message, TString address);
     void Deserialize(TSharedRefArray responseMessage);
@@ -452,7 +448,7 @@ struct TMethodDescriptor
     using TReq##method##Ptr = ::NYT::TIntrusivePtr<TReq##method>; \
     using TErrorOrRsp##method##Ptr = ::NYT::TErrorOr<TRsp##method##Ptr>; \
     \
-    TReq##method##Ptr method() \
+    TReq##method##Ptr method() const \
     { \
         static const auto Descriptor = ::NYT::NRpc::TMethodDescriptor(#method) __VA_ARGS__; \
         return CreateRequest<TReq##method>(Descriptor); \
@@ -485,7 +481,7 @@ protected:
         const TServiceDescriptor& descriptor);
 
     template <class T>
-    TIntrusivePtr<T> CreateRequest(const TMethodDescriptor& methodDescriptor);
+    TIntrusivePtr<T> CreateRequest(const TMethodDescriptor& methodDescriptor) const;
 };
 
 ////////////////////////////////////////////////////////////////////////////////

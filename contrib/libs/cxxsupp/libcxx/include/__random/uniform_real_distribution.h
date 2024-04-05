@@ -11,9 +11,9 @@
 
 #include <__config>
 #include <__random/generate_canonical.h>
+#include <__random/is_valid.h>
 #include <iosfwd>
 #include <limits>
-#include <type_traits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -64,7 +64,7 @@ public:
 #ifndef _LIBCPP_CXX03_LANG
     _LIBCPP_INLINE_VISIBILITY
     uniform_real_distribution() : uniform_real_distribution(0) {}
-    explicit uniform_real_distribution(result_type __a, result_type __b = 1)
+    _LIBCPP_HIDE_FROM_ABI explicit uniform_real_distribution(result_type __a, result_type __b = 1)
         : __p_(param_type(__a, __b)) {}
 #else
     _LIBCPP_INLINE_VISIBILITY
@@ -115,13 +115,14 @@ inline
 typename uniform_real_distribution<_RealType>::result_type
 uniform_real_distribution<_RealType>::operator()(_URNG& __g, const param_type& __p)
 {
+    static_assert(__libcpp_random_is_valid_urng<_URNG>::value, "");
     return (__p.b() - __p.a())
         * _VSTD::generate_canonical<_RealType, numeric_limits<_RealType>::digits>(__g)
         + __p.a();
 }
 
 template <class _CharT, class _Traits, class _RT>
-basic_ostream<_CharT, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_ostream<_CharT, _Traits>&
 operator<<(basic_ostream<_CharT, _Traits>& __os,
            const uniform_real_distribution<_RT>& __x)
 {
@@ -135,7 +136,7 @@ operator<<(basic_ostream<_CharT, _Traits>& __os,
 }
 
 template <class _CharT, class _Traits, class _RT>
-basic_istream<_CharT, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_istream<_CharT, _Traits>&
 operator>>(basic_istream<_CharT, _Traits>& __is,
            uniform_real_distribution<_RT>& __x)
 {

@@ -42,8 +42,8 @@ ITracerPtr GetGlobalTracer();
 
 ////////////////////////////////////////////////////////////////////////////////
 
-void SetTracingConfig(TTracingConfigPtr config);
-TTracingConfigPtr GetTracingConfig();
+void SetTracingTransportConfig(TTracingTransportConfigPtr config);
+TTracingTransportConfigPtr GetTracingTransportConfig();
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -70,7 +70,7 @@ DEFINE_ENUM(ETraceContextState,
  *
  *  \note Thread affininty: any unless noted otherwise.
  */
- class TTraceContext
+class TTraceContext
     : public TRefCounted
 {
 public:
@@ -126,6 +126,8 @@ public:
 
     TAllocationTagsPtr GetAllocationTagsPtr() const noexcept;
 
+    void SetAllocationTagsPtr(TAllocationTagsPtr allocationTags) noexcept;
+
     void ClearAllocationTagsPtr() noexcept;
 
     template <typename TTag>
@@ -168,7 +170,7 @@ public:
     template <class T>
     void AddTag(const TString& tagName, const T& tagValue);
 
-    //! Adds error tag. Spans containing errors are highlited in Jaeger UI.
+    //! Adds error tag. Spans containing errors are highlighted in Jaeger UI.
     void AddErrorTag();
 
     struct TTraceLogEntry
@@ -344,8 +346,9 @@ public:
     TTraceContextFinishGuard(TTraceContextFinishGuard&&) = default;
 
     TTraceContextFinishGuard& operator=(const TTraceContextFinishGuard&) = delete;
-    TTraceContextFinishGuard& operator=(TTraceContextFinishGuard&&) = default;
+    TTraceContextFinishGuard& operator=(TTraceContextFinishGuard&&);
 
+    void Release();
 private:
     TTraceContextPtr TraceContext_;
 };
@@ -387,6 +390,8 @@ private:
 };
 
 ////////////////////////////////////////////////////////////////////////////////
+
+bool IsCurrentTraceContextRecorded();
 
 template <class TFn>
 void AnnotateTraceContext(TFn&& fn);

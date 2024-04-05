@@ -134,15 +134,8 @@ class DFA {
                         // into this state, along with kFlagMatch if this
                         // is a matching state.
 
-// Work around the bug affecting flexible array members in GCC 6.x (for x >= 1).
-// (https://gcc.gnu.org/bugzilla/show_bug.cgi?id=70932)
-#if !defined(__clang__) && defined(__GNUC__) && __GNUC__ == 6 && __GNUC_MINOR__ >= 1
-    std::atomic<State*> next_[0];   // Outgoing arrows from State,
-                                    // one per input byte class
-#else
     std::atomic<State*> next_[];    // Outgoing arrows from State,
                                     // one per input byte class
-#endif
   };
 
   enum {
@@ -1374,7 +1367,7 @@ inline bool DFA::InlinedSearchLoop(SearchParams* params) {
     lastmatch = p;
     if (ExtraDebug)
       absl::FPrintF(stderr, "match @stx! [%s]\n", DumpState(s));
-    if (params->matches != NULL && kind_ == Prog::kManyMatch) {
+    if (params->matches != NULL) {
       for (int i = s->ninst_ - 1; i >= 0; i--) {
         int id = s->inst_[i];
         if (id == MatchSep)
@@ -1491,7 +1484,7 @@ inline bool DFA::InlinedSearchLoop(SearchParams* params) {
         lastmatch = p + 1;
       if (ExtraDebug)
         absl::FPrintF(stderr, "match @%d! [%s]\n", lastmatch - bp, DumpState(s));
-      if (params->matches != NULL && kind_ == Prog::kManyMatch) {
+      if (params->matches != NULL) {
         for (int i = s->ninst_ - 1; i >= 0; i--) {
           int id = s->inst_[i];
           if (id == MatchSep)
@@ -1558,7 +1551,7 @@ inline bool DFA::InlinedSearchLoop(SearchParams* params) {
     lastmatch = p;
     if (ExtraDebug)
       absl::FPrintF(stderr, "match @etx! [%s]\n", DumpState(s));
-    if (params->matches != NULL && kind_ == Prog::kManyMatch) {
+    if (params->matches != NULL) {
       for (int i = s->ninst_ - 1; i >= 0; i--) {
         int id = s->inst_[i];
         if (id == MatchSep)
@@ -1774,6 +1767,8 @@ bool DFA::Search(absl::string_view text, absl::string_view context,
   params.anchored = anchored;
   params.want_earliest_match = want_earliest_match;
   params.run_forward = run_forward;
+  // matches should be null except when using RE2::Set.
+  DCHECK(matches == NULL || kind_ == Prog::kManyMatch);
   params.matches = matches;
 
   if (!AnalyzeSearch(&params)) {

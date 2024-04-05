@@ -2,6 +2,8 @@
 
 #include "private.h"
 
+#include <yt/yt/core/misc/memory_usage_tracker.h>
+
 namespace NYT::NBus {
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -72,13 +74,11 @@ struct IPacketTranscoderFactory
         bool verifyChecksum) const = 0;
     virtual std::unique_ptr<IPacketEncoder> CreateEncoder(
         const NLogging::TLogger& logger) const = 0;
-
-    virtual bool SupportsHandshakes() const = 0;
 };
 
 ////////////////////////////////////////////////////////////////////////////////
 
-IPacketTranscoderFactory* GetYTPacketTranscoderFactory();
+IPacketTranscoderFactory* GetYTPacketTranscoderFactory(IMemoryUsageTrackerPtr memoryUsageTracker = GetNullMemoryUsageTracker());
 
 ////////////////////////////////////////////////////////////////////////////////
 

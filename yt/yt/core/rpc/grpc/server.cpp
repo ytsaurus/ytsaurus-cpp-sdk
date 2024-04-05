@@ -174,7 +174,8 @@ private:
             DoStop(graceful).Get().ThrowOnError();
         } catch (...) {
             if (auto* logFile = TryGetShutdownLogFile()) {
-                ::fprintf(logFile, "GRPC server shutdown failed: %s (ThreadId: %" PRISZT ")\n",
+                ::fprintf(logFile, "%s\tGRPC server shutdown failed: %s (ThreadId: %" PRISZT ")\n",
+                    GetInstant().ToString().c_str(),
                     CurrentExceptionMessage().c_str(),
                     GetCurrentThreadId());
             }
@@ -288,20 +289,28 @@ private:
         void SetTosLevel(TTosLevel /*tosLevel*/) override
         { }
 
-        void Terminate(const TError& /*error*/) override
-        { }
+        void Terminate(const TError& error) override
+        {
+            TerminatedList_.Fire(error);
+        }
 
-        void SubscribeTerminated(const TCallback<void(const TError&)>& /*callback*/) override
-        { }
+        void SubscribeTerminated(const TCallback<void(const TError&)>& callback) override
+        {
+            TerminatedList_.Subscribe(callback);
+        }
 
-        void UnsubscribeTerminated(const TCallback<void(const TError&)>& /*callback*/) override
-        { }
+        void UnsubscribeTerminated(const TCallback<void(const TError&)>& callback) override
+        {
+            TerminatedList_.Unsubscribe(callback);
+        }
 
     private:
         const TWeakPtr<TCallHandler> Handler_;
         const TNetworkAddress PeerAddress_;
         const TString PeerAddressString_;
         const IAttributeDictionaryPtr EndpointAttributes_;
+
+        TSingleShotCallbackList<void(const TError&)> TerminatedList_;
     };
 
     class TCallHandler
@@ -407,6 +416,8 @@ private:
         TString ServiceName_;
         TString MethodName_;
         std::optional<TDuration> Timeout_;
+        NCompression::ECodec RequestCodec_ = NCompression::ECodec::None;
+        NCompression::ECodec ResponseCodec_ = NCompression::ECodec::None;
         IServicePtr Service_;
 
         TGrpcMetadataArrayBuilder InitialMetadataBuilder_;
@@ -422,6 +433,8 @@ private:
         TString ErrorMessage_;
         TGrpcSlice ErrorMessageSlice_;
         int RawCanceled_ = 0;
+
+        IBusPtr ReplyBus_;
 
         YT_DECLARE_SPIN_LOCK(NThreading::TSpinLock, TraceContextSpinLock_);
         NTracing::TTraceContextHandler TraceContextHandler_;
@@ -466,6 +479,8 @@ private:
             ParseRpcCredentials();
             ParseCustomMetadata();
             ParseTimeout();
+            ParseRequestCodec();
+            ParseResponseCodec();
 
             try {
                 SslCredentialsExt_ = WaitFor(ParseSslCredentials())
@@ -539,6 +554,11 @@ private:
             // Drop ipvN: prefix.
             if (PeerAddressString_.StartsWith("ipv6:") || PeerAddressString_.StartsWith("ipv4:")) {
                 PeerAddressString_ = PeerAddressString_.substr(5);
+            }
+
+            if (PeerAddressString_.StartsWith("unix:")) {
+                PeerAddress_ = NNet::TNetworkAddress::CreateUnixDomainSocketAddress(PeerAddressString_.substr(5));
+                return true;
             }
 
             // Decode URL-encoded square brackets.
@@ -644,6 +664,54 @@ private:
             }
 
             UserAgent_ = TString(userAgentString);
+        }
+
+        void ParseRequestCodec()
+        {
+            auto requestCodecString = CallMetadata_.Find(RequestCodecKey);
+            if (!requestCodecString) {
+                return;
+            }
+
+            NCompression::ECodec codecId;
+            int intCodecId;
+            if (!TryFromString(requestCodecString, intCodecId)) {
+                YT_LOG_WARNING("Failed to parse request codec from request metadata (RequestId: %v)",
+                    RequestId_);
+                return;
+            }
+            if (!TryEnumCast(intCodecId, &codecId)) {
+                YT_LOG_WARNING("Request codec %v is not supported (RequestId: %v)",
+                    intCodecId,
+                    RequestId_);
+                return;
+            }
+
+            RequestCodec_ = codecId;
+        }
+
+        void ParseResponseCodec()
+        {
+            auto responseCodecString = CallMetadata_.Find(ResponseCodecKey);
+            if (!responseCodecString) {
+                return;
+            }
+
+            NCompression::ECodec codecId;
+            int intCodecId;
+            if (!TryFromString(responseCodecString, intCodecId)) {
+                YT_LOG_WARNING("Failed to parse response codec from request metadata (RequestId: %v)",
+                    RequestId_);
+                return;
+            }
+            if (!TryEnumCast(intCodecId, &codecId)) {
+                YT_LOG_WARNING("Response codec %v is not supported (RequestId: %v)",
+                    intCodecId,
+                    RequestId_);
+                return;
+            }
+
+            ResponseCodec_ = codecId;
         }
 
         void ParseRpcCredentials()
@@ -852,18 +920,6 @@ private:
                 return;
             }
 
-            TMessageWithAttachments messageWithAttachments;
-            try {
-                messageWithAttachments = ByteBufferToMessageWithAttachments(
-                    RequestBodyBuffer_.Unwrap(),
-                    RequestMessageBodySize_);
-            } catch (const std::exception& ex) {
-                YT_LOG_DEBUG(ex, "Failed to receive request body (RequestId: %v)",
-                    RequestId_);
-                Unref();
-                return;
-            }
-
             auto header = std::make_unique<NRpc::NProto::TRequestHeader>();
             ToProto(header->mutable_request_id(), RequestId_);
             if (User_) {
@@ -882,6 +938,9 @@ private:
             header->set_method(MethodName_);
             header->set_protocol_version_major(ProtocolVersion_.Major);
             header->set_protocol_version_minor(ProtocolVersion_.Minor);
+            header->set_request_codec(ToProto<int>(RequestCodec_));
+            header->set_response_codec(ToProto<int>(ResponseCodec_));
+
             if (Timeout_) {
                 header->set_timeout(ToProto<i64>(*Timeout_));
             }
@@ -893,6 +952,19 @@ private:
             }
             if (CustomMetadataExt_) {
                 *header->MutableExtension(NRpc::NProto::TCustomMetadataExt::custom_metadata_ext) = std::move(*CustomMetadataExt_);
+            }
+
+            TMessageWithAttachments messageWithAttachments;
+            try {
+                messageWithAttachments = ByteBufferToMessageWithAttachments(
+                    RequestBodyBuffer_.Unwrap(),
+                    RequestMessageBodySize_,
+                    !header->has_request_codec());
+            } catch (const std::exception& ex) {
+                YT_LOG_DEBUG(ex, "Failed to receive request body (RequestId: %v)",
+                    RequestId_);
+                Unref();
+                return;
             }
 
             {
@@ -931,14 +1003,16 @@ private:
                 StartBatch(ops, EServerCallCookie::Close);
             }
 
-            auto replyBus = New<TReplyBus>(this);
+            YT_VERIFY(!ReplyBus_);
+            ReplyBus_ = New<TReplyBus>(this);
+
             if (Service_) {
                 auto requestMessage = CreateRequestMessage(
                     *header,
                     messageWithAttachments.Message,
                     messageWithAttachments.Attachments);
 
-                Service_->HandleRequest(std::move(header), std::move(requestMessage), std::move(replyBus));
+                Service_->HandleRequest(std::move(header), std::move(requestMessage), ReplyBus_);
             } else {
                 auto error = TError(
                     NRpc::EErrorCode::NoSuchService,
@@ -947,7 +1021,7 @@ private:
                 YT_LOG_WARNING(error);
 
                 auto responseMessage = CreateErrorResponseMessage(RequestId_, error);
-                YT_UNUSED_FUTURE(replyBus->Send(std::move(responseMessage), NBus::TSendOptions(EDeliveryTrackingLevel::None)));
+                YT_UNUSED_FUTURE(ReplyBus_->Send(std::move(responseMessage)));
             }
         }
 
@@ -1011,7 +1085,7 @@ private:
                 YT_VERIFY(ResponseMessage_.Size() >= 2);
 
                 TMessageWithAttachments messageWithAttachments;
-                messageWithAttachments.Message = ExtractMessageFromEnvelopedMessage(ResponseMessage_[1]);
+                messageWithAttachments.Message = ResponseMessage_[1];
                 for (int index = 2; index < std::ssize(ResponseMessage_); ++index) {
                     messageWithAttachments.Attachments.push_back(ResponseMessage_[index]);
                 }

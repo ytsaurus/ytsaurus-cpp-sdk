@@ -8,7 +8,7 @@ namespace NYT {
 
 TRetrylessWriter::~TRetrylessWriter()
 {
-    NDetail::FinishOrDie(this, "TRetrylessWriter");
+    NDetail::FinishOrDie(this, AutoFinish_, "TRetrylessWriter");
 }
 
 void TRetrylessWriter::DoFinish()
@@ -38,6 +38,11 @@ void TRetrylessWriter::NotifyRowEnd()
 void TRetrylessWriter::Abort()
 {
     Running_ = false;
+}
+
+size_t TRetrylessWriter::GetBufferMemoryUsage() const
+{
+    return BufferSize_;
 }
 
 ////////////////////////////////////////////////////////////////////////////////

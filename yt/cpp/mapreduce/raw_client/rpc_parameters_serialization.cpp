@@ -32,9 +32,20 @@ static void SetOperationIdParam(TNode* node, const TOperationId& operationId)
     (*node)["operation_id"] = GetGuidAsString(operationId);
 }
 
+static void SetAliasParam(TNode* node, const TString& alias)
+{
+    (*node)["operation_alias"] = alias;
+}
+
 static void SetPathParam(TNode* node, const TString& pathPrefix, const TYPath& path)
 {
-    (*node)["path"] = AddPathPrefix(path, pathPrefix);
+    TYPath updatedPath = AddPathPrefix(path, pathPrefix);
+    // Translate "//" to "/"
+    // Translate "//some/constom/prefix/from/config/" to "//some/constom/prefix/from/config"
+    if (path.empty() && updatedPath.EndsWith('/')) {
+        updatedPath.pop_back();
+    }
+    (*node)["path"] = std::move(updatedPath);
 }
 
 static TNode SerializeAttributeFilter(const TAttributeFilter& attributeFilter)
@@ -187,6 +198,9 @@ TNode SerializeParamsForMultisetAttributes(
     TNode result;
     SetTransactionIdParam(&result, transactionId);
     SetPathParam(&result, pathPrefix, path);
+    if (options.Force_) {
+        result["force"] = *options.Force_;
+    }
     return result;
 }
 
@@ -383,14 +397,30 @@ TNode SerializeParamsForListOperations(
     return result;
 }
 
-TNode SerializeParamsForGetOperation(
-    const TOperationId& operationId,
-    const TGetOperationOptions& options)
+TNode SerializeParamsForGetOperation(const std::variant<TString, TOperationId>& aliasOrOperationId, const TGetOperationOptions& options)
 {
+    auto includeRuntime = options.IncludeRuntime_;
     TNode result;
-    SetOperationIdParam(&result, operationId);
+    std::visit([&] (const auto& value) {
+        using TValue = std::decay_t<decltype(value)>;
+        if constexpr (std::is_same_v<TValue, TString>) {
+            SetAliasParam(&result, value);
+            if (includeRuntime.Empty()) {
+                // Getting operation by operation alias requires enabling this option.
+                // So enable it unless user explicitly set it.
+                includeRuntime = true;
+            }
+        } else if constexpr (std::is_same_v<TValue, TOperationId>) {
+            SetOperationIdParam(&result, value);
+        } else {
+            static_assert(std::is_same_v<TValue, void>, "unreachable");
+        }
+    }, aliasOrOperationId);
     if (options.AttributeFilter_) {
         result["attributes"] = SerializeAttributeFilter(*options.AttributeFilter_);
+    }
+    if (includeRuntime.Defined()) {
+        result["include_runtime"] = *includeRuntime;
     }
     return result;
 }
@@ -520,6 +550,9 @@ TNode SerializeParamsForListJobs(
     if (options.WithFailContext_) {
         result["with_fail_context"] = *options.WithFailContext_;
     }
+    if (options.WithMonitoringDescriptor_) {
+        result["with_monitoring_descriptor"] = *options.WithMonitoringDescriptor_;
+    }
 
     if (options.SortField_) {
         result["sort_field"] = ToString(*options.SortField_);
@@ -567,7 +600,7 @@ TNode SerializeParametersForInsertRows(
         result["durability"] = ToString(*options.Durability_);
     }
     if (options.RequireSyncReplica_) {
-      result["require_sync_replica"] = *options.RequireSyncReplica_;
+        result["require_sync_replica"] = *options.RequireSyncReplica_;
     }
     return result;
 }

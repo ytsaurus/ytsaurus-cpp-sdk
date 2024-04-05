@@ -15,15 +15,15 @@ using namespace NYT;
 
 class TNormalizeNameMapper
     : public IMapper<
-          TTableReader<TLoginRecord>,
-          TTableWriter<TLoginRecord>>
+        TTableReader<TLoginRecord>,
+        TTableWriter<TLoginRecord>>
 {
 public:
     void Do(TReader* reader, TWriter* writer) override
     {
         for (auto& cursor : *reader) {
             auto row = cursor.GetRow();
-            row.SetName(ToLowerUTF8(row.GetName()));
+            row.set_name(ToLowerUTF8(TString(row.name())));
             writer->AddRow(row);
         }
     }
@@ -32,8 +32,8 @@ REGISTER_MAPPER(TNormalizeNameMapper)
 
 class TCountNameReducer
     : public IReducer<
-          TTableReader<TLoginRecord>,
-          TTableWriter<TNameStatistics>>
+        TTableReader<TLoginRecord>,
+        TTableWriter<TNameStatistics>>
 {
 public:
     void Do(TReader* reader, TWriter* writer) override
@@ -41,12 +41,12 @@ public:
         ui64 count = 0;
         for (auto& cursor : *reader) {
             const auto& row = cursor.GetRow();
-            if (!result.HasName()) {
-                result.SetName(row.GetName());
+            if (!result.has_name()) {
+                result.set_name(row.name());
             }
             ++count;
         }
-        result.SetCount(count);
+        result.set_count(count);
         writer->AddRow(result);
     }
 };
@@ -65,7 +65,7 @@ int main() {
     client->MapReduce(
         TMapReduceOperationSpec()
             .ReduceBy({"name"})
-            .AddInput<TLoginRecord>("//home/dev/tutorial/staff_unsorted")
+            .AddInput<TLoginRecord>("//home/tutorial/staff_unsorted")
             .AddOutput<TNameStatistics>(outputTable),
         new TNormalizeNameMapper,
         new TCountNameReducer);

@@ -8,10 +8,6 @@ namespace NYT::NTracing {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-constexpr auto MemoryTagLiteral = "memory_tag";
-
-////////////////////////////////////////////////////////////////////////////////
-
 namespace NProto {
 
 class TTracingExt;
@@ -20,7 +16,7 @@ class TTracingExt;
 
 DECLARE_REFCOUNTED_CLASS(TTraceContext)
 
-DECLARE_REFCOUNTED_CLASS(TTracingConfig)
+DECLARE_REFCOUNTED_CLASS(TTracingTransportConfig)
 
 DECLARE_REFCOUNTED_CLASS(TAllocationTags)
 

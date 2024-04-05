@@ -27,8 +27,10 @@ public:
 protected:
     void DoWrite(const void* buf, size_t len) override;
     void DoFinish() override;
+    size_t GetBufferMemoryUsage() const override;
 
 private:
+    const bool AutoFinish_;
     TRetryfulWriter RetryfulWriter_;
     static const size_t BUFFER_SIZE = 64 << 20;
 };

@@ -1,5 +1,7 @@
 #include "guid.h"
 
+#include <library/cpp/yt/exception/exception.h>
+
 #include <util/random/random.h>
 
 #include <util/string/printf.h>
@@ -196,6 +198,17 @@ char* WriteGuidToBuffer(char* ptr, TGuid value)
     writeComponent(value.Parts32[0]);
 
     return ptr;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+TFormattableGuid::TFormattableGuid(TGuid guid)
+    : End_(WriteGuidToBuffer(Buffer_.data(), guid))
+{ }
+
+TStringBuf TFormattableGuid::ToStringBuf() const
+{
+    return {Buffer_.data(), End_};
 }
 
 ////////////////////////////////////////////////////////////////////////////////

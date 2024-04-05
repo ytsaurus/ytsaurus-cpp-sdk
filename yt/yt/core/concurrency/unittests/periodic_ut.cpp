@@ -29,6 +29,7 @@ class TPeriodicTest
 TEST_W(TPeriodicTest, Simple)
 {
     std::atomic<int> count = {0};
+
     auto callback = BIND([&] () {
         TDelayedExecutor::WaitForDuration(TDuration::MilliSeconds(200));
         ++count;
@@ -61,11 +62,38 @@ TEST_W(TPeriodicTest, Simple)
         .ThrowOnError();
 }
 
-// TODO(achulkov2): Add simple out of band execution test.
+TEST_W(TPeriodicTest, SimpleScheduleOutOfBand)
+{
+    std::atomic<int> count = {0};
+
+    auto callback = BIND([&] () {
+        ++count;
+    });
+
+    auto actionQueue = New<TActionQueue>();
+    auto executor = New<TPeriodicExecutor>(
+        actionQueue->GetInvoker(),
+        callback,
+        TDuration::MilliSeconds(300));
+
+    executor->Start();
+    // Wait for first invocation.
+    TDelayedExecutor::WaitForDuration(TDuration::MilliSeconds(20));
+
+    auto future = executor->GetExecutedEvent();
+    const auto& now = TInstant::Now();
+    executor->ScheduleOutOfBand();
+    WaitFor(future)
+        .ThrowOnError();
+    auto executionDuration = TInstant::Now() - now;
+    EXPECT_LT(executionDuration, TDuration::MilliSeconds(20));
+    EXPECT_EQ(2, count.load());
+}
 
 TEST_W(TPeriodicTest, ParallelStop)
 {
     std::atomic<int> count = {0};
+
     auto callback = BIND([&] () {
         ++count;
         TDelayedExecutor::WaitForDuration(TDuration::MilliSeconds(500));
@@ -108,6 +136,7 @@ TEST_W(TPeriodicTest, ParallelOnExecuted1)
         TDelayedExecutor::WaitForDuration(TDuration::MilliSeconds(500));
         ++count;
     });
+
     auto actionQueue = New<TActionQueue>();
     auto executor = New<TPeriodicExecutor>(
         actionQueue->GetInvoker(),
@@ -144,6 +173,7 @@ TEST_W(TPeriodicTest, ParallelOnExecuted2)
         TDelayedExecutor::WaitForDuration(TDuration::MilliSeconds(100));
         ++count;
     });
+
     auto actionQueue = New<TActionQueue>();
     auto executor = New<TPeriodicExecutor>(
         actionQueue->GetInvoker(),
@@ -180,6 +210,7 @@ TEST_W(TPeriodicTest, OnExecutedEventCanceled)
         TDelayedExecutor::WaitForDuration(TDuration::MilliSeconds(100));
         ++count;
     });
+
     auto actionQueue = New<TActionQueue>();
     auto executor = New<TPeriodicExecutor>(
         actionQueue->GetInvoker(),
@@ -206,9 +237,11 @@ TEST_W(TPeriodicTest, Stop)
 {
     auto neverSetPromise = NewPromise<void>();
     auto immediatelyCancelableFuture = neverSetPromise.ToFuture().ToImmediatelyCancelable();
+
     auto callback = BIND([&] {
         WaitUntilSet(immediatelyCancelableFuture);
     });
+
     auto actionQueue = New<TActionQueue>();
     auto executor = New<TPeriodicExecutor>(
         actionQueue->GetInvoker(),

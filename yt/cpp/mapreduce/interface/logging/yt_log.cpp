@@ -53,13 +53,13 @@ public:
 
     const TLoggingCategory* GetCategory(TStringBuf categoryName) override
     {
-        Y_VERIFY(categoryName == CategoryName);
+        Y_ABORT_UNLESS(categoryName == CategoryName);
         return &Category_;
     }
 
     void UpdateCategory(TLoggingCategory* /*category*/) override
     {
-        Y_FAIL();
+        Y_ABORT();
     }
 
     bool GetAbortOnAlert() const override

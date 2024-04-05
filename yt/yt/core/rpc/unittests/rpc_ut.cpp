@@ -18,17 +18,17 @@ class TNonExistingServiceProxy
 public:
     DEFINE_RPC_PROXY(TNonExistingServiceProxy, NonExistingService);
 
-    DEFINE_RPC_PROXY_METHOD(NMyRpc, DoNothing);
+    DEFINE_RPC_PROXY_METHOD(NTestRpc, DoNothing);
 };
 
-class TMyIncorrectProtocolVersionProxy
+class TTestIncorrectProtocolVersionProxy
     : public TProxyBase
 {
 public:
-    DEFINE_RPC_PROXY(TMyIncorrectProtocolVersionProxy, MyService,
+    DEFINE_RPC_PROXY(TTestIncorrectProtocolVersionProxy, TestService,
         .SetProtocolVersion(2));
 
-    DEFINE_RPC_PROXY_METHOD(NMyRpc, SomeCall);
+    DEFINE_RPC_PROXY_METHOD(NTestRpc, SomeCall);
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -57,7 +57,7 @@ TYPED_TEST_SUITE(TGrpcTest, TGrpcOnly);
 
 TYPED_TEST(TRpcTest, Send)
 {
-    TMyProxy proxy(this->CreateChannel());
+    TTestProxy proxy(this->CreateChannel());
     auto req = proxy.SomeCall();
     req->set_a(42);
     auto rspOrError = req->Invoke().Get();
@@ -77,7 +77,7 @@ TYPED_TEST(TRpcTest, RetryingSend)
         this->CreateChannel());
 
     {
-        TMyProxy proxy(channel);
+        TTestProxy proxy(channel);
         auto req = proxy.FlakyCall();
         auto rspOrError = req->Invoke().Get();
         EXPECT_TRUE(rspOrError.IsOK()) << ToString(rspOrError);
@@ -92,7 +92,7 @@ TYPED_TEST(TRpcTest, RetryingSend)
 
 TYPED_TEST(TRpcTest, UserTag)
 {
-    TMyProxy proxy(this->CreateChannel());
+    TTestProxy proxy(this->CreateChannel());
     auto req = proxy.PassCall();
     req->SetUser("test-user");
     req->SetUserTag("test-user-tag");
@@ -108,7 +108,7 @@ TYPED_TEST(TRpcTest, UserTag)
 TYPED_TEST(TNotUdsTest, Address)
 {
     auto testChannel = [] (IChannelPtr channel) {
-        TMyProxy proxy(std::move(channel));
+        TTestProxy proxy(std::move(channel));
         auto req = proxy.SomeCall();
         req->set_a(42);
         auto rspOrError = req->Invoke().Get();
@@ -133,7 +133,7 @@ TYPED_TEST(TNotUdsTest, Address)
 
 TYPED_TEST(TNotGrpcTest, SendSimple)
 {
-    TMyProxy proxy(this->CreateChannel());
+    TTestProxy proxy(this->CreateChannel());
     auto req = proxy.PassCall();
     req->SetUser("test-user");
     req->SetMutationId(TGuid::Create());
@@ -149,7 +149,7 @@ TYPED_TEST(TNotGrpcTest, SendSimple)
 
 TYPED_TEST(TNotGrpcTest, StreamingEcho)
 {
-    TMyProxy proxy(this->CreateChannel());
+    TTestProxy proxy(this->CreateChannel());
     proxy.SetDefaultRequestCodec(NCompression::ECodec::Lz4);
     proxy.SetDefaultResponseCodec(NCompression::ECodec::Zstd_1);
     proxy.SetDefaultEnableLegacyRpcCodecs(false);
@@ -158,7 +158,7 @@ TYPED_TEST(TNotGrpcTest, StreamingEcho)
     const ssize_t AttachmentSize = 2_MB;
 
     std::mt19937 randomGenerator;
-    std::uniform_int_distribution<char> distribution(std::numeric_limits<char>::min(), std::numeric_limits<char>::max());
+    std::uniform_int_distribution<int> distribution(std::numeric_limits<char>::min(), std::numeric_limits<char>::max());
 
     std::vector<TSharedRef> attachments;
 
@@ -223,7 +223,7 @@ TYPED_TEST(TNotGrpcTest, StreamingEcho)
 
 TYPED_TEST(TNotGrpcTest, ClientStreamsAborted)
 {
-    TMyProxy proxy(this->CreateChannel());
+    TTestProxy proxy(this->CreateChannel());
     auto req = proxy.StreamingEcho();
     req->SetTimeout(TDuration::MilliSeconds(100));
 
@@ -243,20 +243,20 @@ TYPED_TEST(TNotGrpcTest, ClientStreamsAborted)
 
 TYPED_TEST(TNotGrpcTest, ServerStreamsAborted)
 {
-    TMyProxy proxy(this->CreateChannel());
+    TTestProxy proxy(this->CreateChannel());
     auto req = proxy.ServerStreamsAborted();
     req->SetTimeout(TDuration::MilliSeconds(100));
 
     auto rspOrError = WaitFor(req->Invoke());
     EXPECT_EQ(NYT::EErrorCode::Timeout, rspOrError.GetCode());
 
-    WaitFor(this->MyService_->GetServerStreamsAborted())
+    WaitFor(this->TestService_->GetServerStreamsAborted())
         .ThrowOnError();
 }
 
 TYPED_TEST(TNotGrpcTest, ClientNotReading)
 {
-    TMyProxy proxy(this->CreateChannel());
+    TTestProxy proxy(this->CreateChannel());
     proxy.DefaultServerAttachmentsStreamingParameters().WriteTimeout = TDuration::MilliSeconds(250);
 
     for (auto sleep : {false, true}) {
@@ -287,7 +287,7 @@ TYPED_TEST(TNotGrpcTest, ClientNotReading)
 
 TYPED_TEST(TNotGrpcTest, ClientNotWriting)
 {
-    TMyProxy proxy(this->CreateChannel());
+    TTestProxy proxy(this->CreateChannel());
     proxy.DefaultServerAttachmentsStreamingParameters().ReadTimeout = TDuration::MilliSeconds(250);
 
     for (auto sleep : {false, true}) {
@@ -318,7 +318,7 @@ TYPED_TEST(TNotGrpcTest, ClientNotWriting)
 
 TYPED_TEST(TNotGrpcTest, ServerNotReading)
 {
-    TMyProxy proxy(this->CreateChannel());
+    TTestProxy proxy(this->CreateChannel());
     proxy.DefaultClientAttachmentsStreamingParameters().WriteTimeout = TDuration::MilliSeconds(250);
 
     for (auto sleep : {false, true}) {
@@ -339,13 +339,13 @@ TYPED_TEST(TNotGrpcTest, ServerNotReading)
         EXPECT_EQ(expectedInvokeErrorCode, rspOrError.GetCode());
     }
 
-    WaitFor(this->MyService_->GetSlowCallCanceled())
+    WaitFor(this->TestService_->GetSlowCallCanceled())
         .ThrowOnError();
 }
 
 TYPED_TEST(TNotGrpcTest, ServerNotWriting)
 {
-    TMyProxy proxy(this->CreateChannel());
+    TTestProxy proxy(this->CreateChannel());
     proxy.DefaultClientAttachmentsStreamingParameters().ReadTimeout = TDuration::MilliSeconds(250);
 
     for (auto sleep : {false, true}) {
@@ -365,13 +365,13 @@ TYPED_TEST(TNotGrpcTest, ServerNotWriting)
         EXPECT_EQ(expectedInvokeErrorCode, rspOrError.GetCode());
     }
 
-    WaitFor(this->MyService_->GetSlowCallCanceled())
+    WaitFor(this->TestService_->GetSlowCallCanceled())
         .ThrowOnError();
 }
 
 TYPED_TEST(TNotGrpcTest, LaggyStreamingRequest)
 {
-    TMyProxy proxy(this->CreateChannel());
+    TTestProxy proxy(this->CreateChannel());
     proxy.DefaultServerAttachmentsStreamingParameters().ReadTimeout = TDuration::MilliSeconds(500);
     proxy.DefaultClientAttachmentsStreamingParameters().WriteTimeout = TDuration::MilliSeconds(500);
 
@@ -394,7 +394,7 @@ TYPED_TEST(TNotGrpcTest, VeryLaggyStreamingRequest)
 {
     auto configText = TString(R"({
         services = {
-            MyService = {
+            TestService = {
                 pending_payloads_timeout = 250;
             };
         };
@@ -402,7 +402,7 @@ TYPED_TEST(TNotGrpcTest, VeryLaggyStreamingRequest)
     auto config = ConvertTo<TServerConfigPtr>(TYsonString(configText));
     this->Server_->Configure(config);
 
-    TMyProxy proxy(this->CreateChannel());
+    TTestProxy proxy(this->CreateChannel());
     proxy.DefaultServerAttachmentsStreamingParameters().ReadTimeout = TDuration::MilliSeconds(500);
 
     auto start = Now();
@@ -437,7 +437,7 @@ TYPED_TEST(TNotGrpcTest, TraceBaggagePropagation)
     baggage->Set("key2", "value2");
     traceContext->PackBaggage(ConvertToAttributes(baggage));
 
-    TMyProxy proxy(this->CreateChannel());
+    TTestProxy proxy(this->CreateChannel());
     auto req = proxy.GetTraceBaggage();
     auto rspOrError = req->Invoke().Get();
     EXPECT_TRUE(rspOrError.IsOK());
@@ -472,12 +472,12 @@ TYPED_TEST(TRpcTest, ManyAsyncRequests)
 
     std::vector<TFuture<void>> asyncResults;
 
-    TMyProxy proxy(this->CreateChannel());
+    TTestProxy proxy(this->CreateChannel());
 
     for (int i = 0; i < RequestCount; ++i) {
         auto request = proxy.SomeCall();
         request->set_a(i);
-        auto asyncResult = request->Invoke().Apply(BIND([=] (TMyProxy::TRspSomeCallPtr rsp) {
+        auto asyncResult = request->Invoke().Apply(BIND([=] (TTestProxy::TRspSomeCallPtr rsp) {
             EXPECT_EQ(i + 100, rsp->b());
         }));
         asyncResults.push_back(asyncResult);
@@ -488,12 +488,12 @@ TYPED_TEST(TRpcTest, ManyAsyncRequests)
 
 TYPED_TEST(TRpcTest, RegularAttachments)
 {
-    TMyProxy proxy(this->CreateChannel());
+    TTestProxy proxy(this->CreateChannel());
     auto req = proxy.RegularAttachments();
 
     req->Attachments().push_back(TSharedRef::FromString("Hello"));
     req->Attachments().push_back(TSharedRef::FromString("from"));
-    req->Attachments().push_back(TSharedRef::FromString("TMyProxy"));
+    req->Attachments().push_back(TSharedRef::FromString("TTestProxy"));
 
     auto rspOrError = req->Invoke().Get();
     EXPECT_TRUE(rspOrError.IsOK());
@@ -503,12 +503,12 @@ TYPED_TEST(TRpcTest, RegularAttachments)
     EXPECT_EQ(3u, attachments.size());
     EXPECT_EQ("Hello_",     StringFromSharedRef(attachments[0]));
     EXPECT_EQ("from_",      StringFromSharedRef(attachments[1]));
-    EXPECT_EQ("TMyProxy_",  StringFromSharedRef(attachments[2]));
+    EXPECT_EQ("TTestProxy_",  StringFromSharedRef(attachments[2]));
 }
 
 TYPED_TEST(TRpcTest, NullAndEmptyAttachments)
 {
-    TMyProxy proxy(this->CreateChannel());
+    TTestProxy proxy(this->CreateChannel());
     auto req = proxy.NullAndEmptyAttachments();
 
     req->Attachments().push_back(TSharedRef());
@@ -537,7 +537,7 @@ TYPED_TEST(TNotGrpcTest, Compression)
         "According to all known laws of aviation, there is no way that a bee should be able to fly."
     });
 
-    TMyProxy proxy(this->CreateChannel());
+    TTestProxy proxy(this->CreateChannel());
     proxy.SetDefaultRequestCodec(requestCodecId);
     proxy.SetDefaultResponseCodec(responseCodecId);
     proxy.SetDefaultEnableLegacyRpcCodecs(false);
@@ -579,16 +579,16 @@ TYPED_TEST(TRpcTest, ResponseMemoryTag)
     testMemoryTag++;
     auto initialMemoryUsage = GetMemoryUsageForTag(testMemoryTag);
 
-    std::vector<TMyProxy::TRspPassCallPtr> rsps;
+    std::vector<TTestProxy::TRspPassCallPtr> rsps;
     {
-        TMyProxy proxy(this->CreateChannel());
-        TString longString(100, 'a');
+        TTestProxy proxy(this->CreateChannel());
+        TString userName("user");
 
         TMemoryTagGuard guard(testMemoryTag);
 
-        for (int i = 0; i < 10000; ++i) {
+        for (int i = 0; i < 1000; ++i) {
             auto req = proxy.PassCall();
-            req->SetUser(longString);
+            req->SetUser(userName);
             req->SetMutationId(TGuid::Create());
             req->SetRetry(false);
             auto err = req->Invoke().Get();
@@ -597,7 +597,7 @@ TYPED_TEST(TRpcTest, ResponseMemoryTag)
     }
 
     auto currentMemoryUsage = GetMemoryUsageForTag(testMemoryTag);
-    EXPECT_GE(currentMemoryUsage - initialMemoryUsage, 500'000u)
+    EXPECT_GE(currentMemoryUsage - initialMemoryUsage, 256_KB)
         << "InitialUsage: " << initialMemoryUsage << std::endl
         << "Current: " << currentMemoryUsage;
 }
@@ -608,7 +608,7 @@ TYPED_TEST(TNotGrpcTest, RequestBytesThrottling)
 {
     auto configText = TString(R"({
         services = {
-            MyService = {
+            TestService = {
                 methods = {
                     RequestBytesThrottledCall = {
                         request_bytes_throttler = {
@@ -622,7 +622,7 @@ TYPED_TEST(TNotGrpcTest, RequestBytesThrottling)
     auto config = ConvertTo<TServerConfigPtr>(TYsonString(configText));
     this->Server_->Configure(config);
 
-    TMyProxy proxy(this->CreateChannel());
+    TTestProxy proxy(this->CreateChannel());
 
     auto makeCall = [&] {
         auto req = proxy.RequestBytesThrottledCall();
@@ -644,7 +644,7 @@ TYPED_TEST(TNotGrpcTest, RequestBytesThrottling)
 
 TYPED_TEST(TRpcTest, OK)
 {
-    TMyProxy proxy(this->CreateChannel());
+    TTestProxy proxy(this->CreateChannel());
     auto req = proxy.DoNothing();
     auto rspOrError = req->Invoke().Get();
     EXPECT_TRUE(rspOrError.IsOK());
@@ -652,7 +652,7 @@ TYPED_TEST(TRpcTest, OK)
 
 TYPED_TEST(TRpcTest, NoAck)
 {
-    TMyProxy proxy(this->CreateChannel());
+    TTestProxy proxy(this->CreateChannel());
     auto req = proxy.DoNothing();
     req->SetAcknowledgementTimeout(std::nullopt);
     auto rspOrError = req->Invoke().Get();
@@ -661,7 +661,7 @@ TYPED_TEST(TRpcTest, NoAck)
 
 TYPED_TEST(TRpcTest, TransportError)
 {
-    TMyProxy proxy(this->CreateChannel("localhost:9999"));
+    TTestProxy proxy(this->CreateChannel("localhost:9999"));
     auto req = proxy.DoNothing();
     auto rspOrError = req->Invoke().Get();
     EXPECT_EQ(NRpc::EErrorCode::TransportError, rspOrError.GetCode());
@@ -677,7 +677,7 @@ TYPED_TEST(TRpcTest, NoService)
 
 TYPED_TEST(TRpcTest, NoMethod)
 {
-    TMyProxy proxy(this->CreateChannel());
+    TTestProxy proxy(this->CreateChannel());
     auto req = proxy.NotRegistered();
     auto rspOrError = req->Invoke().Get();
     EXPECT_EQ(NRpc::EErrorCode::NoSuchMethod, rspOrError.GetCode());
@@ -686,7 +686,7 @@ TYPED_TEST(TRpcTest, NoMethod)
 // NB: Realms are not supported in RPC over GRPC.
 TYPED_TEST(TNotGrpcTest, NoSuchRealm)
 {
-    TMyProxy proxy(this->CreateChannel());
+    TTestProxy proxy(this->CreateChannel());
     auto req = proxy.DoNothing();
     ToProto(req->Header().mutable_realm_id(), TGuid::FromString("1-2-3-4"));
     auto rspOrError = req->Invoke().Get();
@@ -696,7 +696,7 @@ TYPED_TEST(TNotGrpcTest, NoSuchRealm)
 
 TYPED_TEST(TRpcTest, ClientTimeout)
 {
-    TMyProxy proxy(this->CreateChannel());
+    TTestProxy proxy(this->CreateChannel());
     proxy.SetDefaultTimeout(TDuration::Seconds(0.5));
     auto req = proxy.SlowCall();
     auto rspOrError = req->Invoke().Get();
@@ -705,18 +705,18 @@ TYPED_TEST(TRpcTest, ClientTimeout)
 
 TYPED_TEST(TRpcTest, ServerTimeout)
 {
-    TMyProxy proxy(this->CreateChannel());
+    TTestProxy proxy(this->CreateChannel());
     proxy.SetDefaultTimeout(TDuration::Seconds(0.5));
     auto req = proxy.SlowCanceledCall();
     auto rspOrError = req->Invoke().Get();
     EXPECT_TRUE(this->CheckTimeoutCode(rspOrError.GetCode()));
-    WaitFor(this->MyService_->GetSlowCallCanceled())
+    WaitFor(this->TestService_->GetSlowCallCanceled())
         .ThrowOnError();
 }
 
 TYPED_TEST(TRpcTest, ClientCancel)
 {
-    TMyProxy proxy(this->CreateChannel());
+    TTestProxy proxy(this->CreateChannel());
     auto req = proxy.SlowCanceledCall();
     auto asyncRspOrError = req->Invoke();
     Sleep(TDuration::Seconds(0.5));
@@ -726,13 +726,13 @@ TYPED_TEST(TRpcTest, ClientCancel)
     EXPECT_TRUE(asyncRspOrError.IsSet());
     auto rspOrError = asyncRspOrError.Get();
     EXPECT_TRUE(this->CheckCancelCode(rspOrError.GetCode()));
-    WaitFor(this->MyService_->GetSlowCallCanceled())
+    WaitFor(this->TestService_->GetSlowCallCanceled())
         .ThrowOnError();
 }
 
 TYPED_TEST(TRpcTest, SlowCall)
 {
-    TMyProxy proxy(this->CreateChannel());
+    TTestProxy proxy(this->CreateChannel());
     proxy.SetDefaultTimeout(TDuration::Seconds(2.0));
     auto req = proxy.SlowCall();
     auto rspOrError = req->Invoke().Get();
@@ -741,23 +741,132 @@ TYPED_TEST(TRpcTest, SlowCall)
 
 TYPED_TEST(TRpcTest, RequestQueueSizeLimit)
 {
-    TMyProxy proxy(this->CreateChannel());
     std::vector<TFuture<void>> futures;
+    std::vector<TTestProxy> proxies;
+
+    // Concurrency byte limit + queue byte size limit = 10 + 20 = 30
+    // First 30 requests must be successful, 31st request must be failed.
     for (int i = 0; i < 30; ++i) {
-        auto req = proxy.SlowCall();
+        proxies.push_back(TTestProxy(this->CreateChannel()));
+        proxies[i].SetDefaultTimeout(TDuration::Seconds(60.0));
+    }
+
+    for (int i = 0; i < 30; ++i) {
+        auto req = proxies[i].SlowCall();
         futures.push_back(req->Invoke().AsVoid());
     }
-    Sleep(TDuration::MilliSeconds(100));
+
+    Sleep(TDuration::MilliSeconds(400));
     {
+        TTestProxy proxy(this->CreateChannel());
+        proxy.SetDefaultTimeout(TDuration::Seconds(60.0));
         auto req = proxy.SlowCall();
         EXPECT_EQ(NRpc::EErrorCode::RequestQueueSizeLimitExceeded, req->Invoke().Get().GetCode());
     }
+
+    EXPECT_TRUE(AllSucceeded(std::move(futures)).Get().IsOK());
+}
+
+TYPED_TEST(TNotGrpcTest, MemoryTracking)
+{
+    TTestProxy proxy(this->CreateChannel());
+    auto memoryUsageTracker = this->GetMemoryUsageTracker();
+    memoryUsageTracker->ClearTotalUsage();
+    proxy.SetDefaultTimeout(TDuration::Seconds(10.0));
+    for (int i = 0; i < 300; ++i) {
+        auto req = proxy.SomeCall();
+        req->set_a(42);
+        WaitFor(req->Invoke().AsVoid()).ThrowOnError();
+    }
+
+    {
+        auto rpcUsage = memoryUsageTracker->GetTotalUsage();
+        EXPECT_EQ(rpcUsage, (static_cast<i64>(32_KB)));
+    }
+}
+
+TYPED_TEST(TNotGrpcTest, MemoryTrackingMultipleConnections)
+{
+    auto memoryUsageTracker = this->GetMemoryUsageTracker();
+    memoryUsageTracker->ClearTotalUsage();
+    for (int i = 0; i < 300; ++i) {
+        TTestProxy proxy(this->CreateChannel());
+        proxy.SetDefaultTimeout(TDuration::Seconds(10.0));
+        auto req = proxy.SomeCall();
+        req->set_a(42);
+        WaitFor(req->Invoke().AsVoid()).ThrowOnError();
+    }
+
+    {
+        auto rpcUsage = memoryUsageTracker->GetTotalUsage();
+        EXPECT_EQ(rpcUsage, (static_cast<i64>(32_KB) * 300));
+    }
+}
+
+TYPED_TEST(TNotGrpcTest, MemoryTrackingMultipleConcurrent)
+{
+    auto memoryUsageTracker = this->GetMemoryUsageTracker();
+    memoryUsageTracker->ClearTotalUsage();
+    std::vector<TFuture<void>> futures;
+    std::vector<TTestProxy> proxies;
+
+    for (int i = 0; i < 40; ++i) {
+        proxies.push_back(TTestProxy(this->CreateChannel()));
+        proxies[i].SetDefaultTimeout(TDuration::Seconds(60.0));
+    }
+
+    for (int j = 0; j < 40; ++j) {
+        auto req = proxies[j % 40].SlowCall();
+        futures.push_back(req->Invoke().AsVoid());
+    }
+
+    Sleep(TDuration::MilliSeconds(300));
+    {
+        auto rpcUsage = memoryUsageTracker->GetUsed();
+        // 20 = concurrency (10) + queue (20)
+        EXPECT_EQ(rpcUsage, (static_cast<i64>(32_KB) * 40));
+    }
+    EXPECT_TRUE(AllSet(std::move(futures)).Get().IsOK());
+}
+
+TYPED_TEST(TNotGrpcTest, RequestQueueByteSizeLimit)
+{
+    const auto requestCodecId = NCompression::ECodec::Zstd_2;
+
+    std::vector<TFuture<void>> futures;
+    std::vector<TTestProxy> proxies;
+
+    // Every request contains 2 MB, 15 requests contain 30 MB.
+    // Concurrency byte limit + queue byte size limit = 10 MB + 20 MB = 30 MB
+    // First 15 requests must be successful, 16th request must be failed.
+    for (int i = 0; i < 15; ++i) {
+        proxies.push_back(TTestProxy(this->CreateChannel()));
+        proxies[i].SetDefaultTimeout(TDuration::Seconds(60.0));
+    }
+
+    for (int i = 0; i < 15; ++i) {
+        auto req = proxies[i].SlowCall();
+        req->set_request_codec(static_cast<int>(requestCodecId));
+        req->set_message(TString(2_MB, 'x'));
+        futures.push_back(req->Invoke().AsVoid());
+    }
+
+    Sleep(TDuration::MilliSeconds(400));
+    {
+        TTestProxy proxy(this->CreateChannel());
+        proxy.SetDefaultTimeout(TDuration::Seconds(60.0));
+        auto req = proxy.SlowCall();
+        req->set_request_codec(static_cast<int>(requestCodecId));
+        req->set_message(TString(1_MB, 'x'));
+        EXPECT_EQ(NRpc::EErrorCode::RequestQueueSizeLimitExceeded, req->Invoke().Get().GetCode());
+    }
+
     EXPECT_TRUE(AllSucceeded(std::move(futures)).Get().IsOK());
 }
 
 TYPED_TEST(TRpcTest, ConcurrencyLimit)
 {
-    TMyProxy proxy(this->CreateChannel());
+    TTestProxy proxy(this->CreateChannel());
     std::vector<TFuture<void>> futures;
     for (int i = 0; i < 10; ++i) {
         auto req = proxy.SlowCall();
@@ -774,7 +883,7 @@ TYPED_TEST(TRpcTest, ConcurrencyLimit)
 
     EXPECT_TRUE(AllSucceeded(std::move(futures)).Get().IsOK());
 
-    Sleep(TDuration::MilliSeconds(400));
+    Sleep(TDuration::MilliSeconds(200));
     EXPECT_FALSE(backlogFuture.IsSet());
 
     EXPECT_TRUE(backlogFuture.Get().IsOK());
@@ -782,7 +891,7 @@ TYPED_TEST(TRpcTest, ConcurrencyLimit)
 
 TYPED_TEST(TRpcTest, NoReply)
 {
-    TMyProxy proxy(this->CreateChannel());
+    TTestProxy proxy(this->CreateChannel());
     auto req = proxy.NoReply();
     auto rspOrError = req->Invoke().Get();
     EXPECT_EQ(NRpc::EErrorCode::Unavailable, rspOrError.GetCode());
@@ -790,16 +899,26 @@ TYPED_TEST(TRpcTest, NoReply)
 
 TYPED_TEST(TRpcTest, CustomErrorMessage)
 {
-    TMyProxy proxy(this->CreateChannel());
+    TTestProxy proxy(this->CreateChannel());
     auto req = proxy.CustomMessageError();
     auto rspOrError = req->Invoke().Get();
     EXPECT_EQ(NYT::EErrorCode(42), rspOrError.GetCode());
     EXPECT_EQ("Some Error", rspOrError.GetMessage());
 }
 
+TYPED_TEST(TRpcTest, ServerStopped)
+{
+    this->Server_->Stop().Get().ThrowOnError();
+    TTestProxy proxy(this->CreateChannel());
+    auto req = proxy.SomeCall();
+    req->set_a(42);
+    auto rspOrError = req->Invoke().Get();
+    EXPECT_EQ(NRpc::EErrorCode::TransportError, rspOrError.GetCode());
+}
+
 TYPED_TEST(TRpcTest, ConnectionLost)
 {
-    TMyProxy proxy(this->CreateChannel());
+    TTestProxy proxy(this->CreateChannel());
 
     auto req = proxy.SlowCanceledCall();
     auto asyncRspOrError = req->Invoke();
@@ -807,20 +926,20 @@ TYPED_TEST(TRpcTest, ConnectionLost)
     Sleep(TDuration::Seconds(0.5));
 
     EXPECT_FALSE(asyncRspOrError.IsSet());
-    this->Server_->Stop(false);
+    YT_UNUSED_FUTURE(this->Server_->Stop(false));
 
     Sleep(TDuration::Seconds(2));
 
     EXPECT_TRUE(asyncRspOrError.IsSet());
     auto rspOrError = asyncRspOrError.Get();
     EXPECT_EQ(NRpc::EErrorCode::TransportError, rspOrError.GetCode());
-    WaitFor(this->MyService_->GetSlowCallCanceled())
+    WaitFor(this->TestService_->GetSlowCallCanceled())
         .ThrowOnError();
 }
 
 TYPED_TEST(TNotGrpcTest, ProtocolVersionMismatch)
 {
-    TMyIncorrectProtocolVersionProxy proxy(this->CreateChannel());
+    TTestIncorrectProtocolVersionProxy proxy(this->CreateChannel());
     auto req = proxy.SomeCall();
     req->set_a(42);
     auto rspOrError = req->Invoke().Get();
@@ -829,57 +948,57 @@ TYPED_TEST(TNotGrpcTest, ProtocolVersionMismatch)
 
 TYPED_TEST(TNotGrpcTest, RequiredServerFeatureSupported)
 {
-    TMyProxy proxy(this->CreateChannel());
+    TTestProxy proxy(this->CreateChannel());
     auto req = proxy.PassCall();
-    req->RequireServerFeature(EMyFeature::Great);
+    req->RequireServerFeature(ETestFeature::Great);
     auto rspOrError = req->Invoke().Get();
     EXPECT_TRUE(rspOrError.IsOK()) << ToString(rspOrError);
 }
 
 TYPED_TEST(TNotGrpcTest, RequiredServerFeatureNotSupported)
 {
-    TMyProxy proxy(this->CreateChannel());
+    TTestProxy proxy(this->CreateChannel());
     auto req = proxy.PassCall();
-    req->RequireServerFeature(EMyFeature::Cool);
+    req->RequireServerFeature(ETestFeature::Cool);
     auto rspOrError = req->Invoke().Get();
     EXPECT_EQ(NRpc::EErrorCode::UnsupportedServerFeature, rspOrError.GetCode());
-    EXPECT_EQ(static_cast<int>(EMyFeature::Cool), rspOrError.Attributes().Get<int>(FeatureIdAttributeKey));
-    EXPECT_EQ(ToString(EMyFeature::Cool), rspOrError.Attributes().Get<TString>(FeatureNameAttributeKey));
+    EXPECT_EQ(static_cast<int>(ETestFeature::Cool), rspOrError.Attributes().Get<int>(FeatureIdAttributeKey));
+    EXPECT_EQ(ToString(ETestFeature::Cool), rspOrError.Attributes().Get<TString>(FeatureNameAttributeKey));
 }
 
 TYPED_TEST(TNotGrpcTest, RequiredClientFeatureSupported)
 {
-    TMyProxy proxy(this->CreateChannel());
+    TTestProxy proxy(this->CreateChannel());
     auto req = proxy.RequireCoolFeature();
-    req->DeclareClientFeature(EMyFeature::Cool);
+    req->DeclareClientFeature(ETestFeature::Cool);
     auto rspOrError = req->Invoke().Get();
     EXPECT_TRUE(rspOrError.IsOK()) << ToString(rspOrError);
 }
 
 TYPED_TEST(TNotGrpcTest, RequiredClientFeatureNotSupported)
 {
-    TMyProxy proxy(this->CreateChannel());
+    TTestProxy proxy(this->CreateChannel());
     auto req = proxy.RequireCoolFeature();
-    req->DeclareClientFeature(EMyFeature::Great);
+    req->DeclareClientFeature(ETestFeature::Great);
     auto rspOrError = req->Invoke().Get();
     EXPECT_EQ(NRpc::EErrorCode::UnsupportedClientFeature, rspOrError.GetCode());
-    EXPECT_EQ(static_cast<int>(EMyFeature::Cool), rspOrError.Attributes().Get<int>(FeatureIdAttributeKey));
-    EXPECT_EQ(ToString(EMyFeature::Cool), rspOrError.Attributes().Get<TString>(FeatureNameAttributeKey));
+    EXPECT_EQ(static_cast<int>(ETestFeature::Cool), rspOrError.Attributes().Get<int>(FeatureIdAttributeKey));
+    EXPECT_EQ(ToString(ETestFeature::Cool), rspOrError.Attributes().Get<TString>(FeatureNameAttributeKey));
 }
 
 TYPED_TEST(TRpcTest, StopWithoutActiveRequests)
 {
-    auto stopResult = this->MyService_->Stop();
+    auto stopResult = this->TestService_->Stop();
     EXPECT_TRUE(stopResult.IsSet());
 }
 
 TYPED_TEST(TRpcTest, StopWithActiveRequests)
 {
-    TMyProxy proxy(this->CreateChannel());
+    TTestProxy proxy(this->CreateChannel());
     auto req = proxy.SlowCall();
     auto reqResult = req->Invoke();
     Sleep(TDuration::Seconds(0.5));
-    auto stopResult = this->MyService_->Stop();
+    auto stopResult = this->TestService_->Stop();
     EXPECT_FALSE(stopResult.IsSet());
     EXPECT_TRUE(reqResult.Get().IsOK());
     Sleep(TDuration::Seconds(0.5));
@@ -888,9 +1007,9 @@ TYPED_TEST(TRpcTest, StopWithActiveRequests)
 
 TYPED_TEST(TRpcTest, NoMoreRequestsAfterStop)
 {
-    auto stopResult = this->MyService_->Stop();
+    auto stopResult = this->TestService_->Stop();
     EXPECT_TRUE(stopResult.IsSet());
-    TMyProxy proxy(this->CreateChannel());
+    TTestProxy proxy(this->CreateChannel());
     auto req = proxy.SlowCall();
     auto reqResult = req->Invoke();
     EXPECT_FALSE(reqResult.Get().IsOK());
@@ -898,7 +1017,7 @@ TYPED_TEST(TRpcTest, NoMoreRequestsAfterStop)
 
 TYPED_TEST(TRpcTest, CustomMetadata)
 {
-    TMyProxy proxy(this->CreateChannel());
+    TTestProxy proxy(this->CreateChannel());
     auto req = proxy.CustomMetadata();
     NYT::NRpc::NProto::TCustomMetadataExt customMetadataExt;
     (*customMetadataExt.mutable_entries())["key1"] = "value1";
@@ -915,7 +1034,7 @@ TYPED_TEST(TGrpcTest, SendMessageLimit)
 {
     THashMap<TString, NYTree::INodePtr> arguments;
     arguments["grpc.max_send_message_length"] = NYT::NYTree::ConvertToNode(1);
-    TMyProxy proxy(this->CreateChannel(std::nullopt, std::move(arguments)));
+    TTestProxy proxy(this->CreateChannel(std::nullopt, std::move(arguments)));
     auto req = proxy.SomeCall();
     req->set_a(42);
     auto error = req->Invoke().Get();

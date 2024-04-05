@@ -105,6 +105,7 @@ void TRemoteRegistry::Transfer(const NProto::TSensorDump& dump)
         options.Global = cube.global();
         options.DisableSensorsRename = cube.disable_sensors_rename();
         options.DisableDefault = cube.disable_default();
+        options.SummaryPolicy = NYT::FromProto<ESummaryPolicy>(cube.summary_policy());
 
         auto sensorName = cube.name();
         auto sensorSet = Registry_->FindSet(cube.name(), options);
@@ -144,7 +145,7 @@ void TRemoteRegistry::Transfer(const NProto::TSensorDump& dump)
                 transferValue(&sensorSet->TimeHistogramsCube_, ESensorType::TimeHistogram, NYT::FromProto<TTimeHistogramSnapshot>(projection.time_histogram()));
             } else if (projection.has_gauge_histogram()) {
                 transferValue(&sensorSet->GaugeHistogramsCube_, ESensorType::GaugeHistogram, NYT::FromProto<TGaugeHistogramSnapshot>(projection.gauge_histogram()));
-             } else if (projection.has_rate_histogram()) {
+            } else if (projection.has_rate_histogram()) {
                 transferValue(&sensorSet->RateHistogramsCube_, ESensorType::RateHistogram, NYT::FromProto<TRateHistogramSnapshot>(projection.rate_histogram()));
             } else {
                 // Ignore unknown types.

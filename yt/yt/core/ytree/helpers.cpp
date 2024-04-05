@@ -1,4 +1,6 @@
 #include "helpers.h"
+
+#include "attributes.h"
 #include "ypath_client.h"
 
 #include <yt/yt/core/misc/error.h>
@@ -8,6 +10,8 @@
 namespace NYT::NYTree {
 
 using namespace NYson;
+
+using NYT::FromProto;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -41,11 +45,6 @@ bool operator == (const IAttributeDictionary& lhs, const IAttributeDictionary& r
     }
 
     return true;
-}
-
-bool operator != (const IAttributeDictionary& lhs, const IAttributeDictionary& rhs)
-{
-    return !(lhs == rhs);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -236,8 +235,8 @@ IAttributeDictionaryPtr FromProto(const NProto::TAttributeDictionary& protoAttri
 {
     auto attributes = CreateEphemeralAttributes();
     for (const auto& protoAttribute : protoAttributes.attributes()) {
-        const auto& key = protoAttribute.key();
-        const auto& value = protoAttribute.value();
+        auto key = FromProto<TString>(protoAttribute.key());
+        auto value = FromProto<TString>(protoAttribute.value());
         attributes->SetYson(key, TYsonString(value));
     }
     return attributes;
@@ -333,7 +332,7 @@ std::vector<IAttributeDictionary::TKeyValuePair> ListAttributesPairs(const IAttr
     for (const auto& key : keys) {
         auto value = attributes.FindYson(key);
         if (value) {
-            result.push_back(std::make_pair(key, value));
+            result.push_back(std::pair(key, value));
         }
     }
     return result;

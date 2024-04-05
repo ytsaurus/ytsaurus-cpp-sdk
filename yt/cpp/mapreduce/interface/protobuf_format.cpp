@@ -2,6 +2,8 @@
 
 #include "errors.h"
 
+#include <yt/yt/core/misc/protobuf_helpers.h>
+
 #include <yt/yt_proto/yt/formats/extension.pb.h>
 
 #include <google/protobuf/text_format.h>
@@ -98,7 +100,7 @@ TFieldOption FieldFlagToOption(EWrapperFieldFlag::Enum flag)
         case EFlag::ENUM_CHECK_VALUES:
             return EProtobufEnumWritingMode::CheckValues;
     }
-    Y_FAIL();
+    Y_ABORT();
 }
 
 TMessageOption MessageFlagToOption(EWrapperMessageFlag::Enum flag)
@@ -110,7 +112,7 @@ TMessageOption MessageFlagToOption(EWrapperMessageFlag::Enum flag)
         case EFlag::SORT_FIELDS_BY_FIELD_NUMBER:
             return EProtobufFieldSortOrder::ByFieldNumber;
     }
-    Y_FAIL();
+    Y_ABORT();
 }
 
 TOneofOption OneofFlagToOption(EWrapperOneofFlag::Enum flag)
@@ -122,7 +124,7 @@ TOneofOption OneofFlagToOption(EWrapperOneofFlag::Enum flag)
         case EFlag::VARIANT:
             return EProtobufOneofMode::Variant;
     }
-    Y_FAIL();
+    Y_ABORT();
 }
 
 EWrapperFieldFlag::Enum OptionToFieldFlag(TFieldOption option)
@@ -142,7 +144,7 @@ EWrapperFieldFlag::Enum OptionToFieldFlag(TFieldOption option)
                 case EProtobufType::EnumString:
                     return EFlag::ENUM_STRING;
             }
-            Y_FAIL();
+            Y_ABORT();
         }
         EFlag::Enum operator() (EProtobufSerializationMode serializationMode)
         {
@@ -154,7 +156,7 @@ EWrapperFieldFlag::Enum OptionToFieldFlag(TFieldOption option)
                 case EProtobufSerializationMode::Embedded:
                     return EFlag::EMBEDDED;
             }
-            Y_FAIL();
+            Y_ABORT();
         }
         EFlag::Enum operator() (EProtobufListMode listMode)
         {
@@ -164,7 +166,7 @@ EWrapperFieldFlag::Enum OptionToFieldFlag(TFieldOption option)
                 case EProtobufListMode::Required:
                     return EFlag::REQUIRED_LIST;
             }
-            Y_FAIL();
+            Y_ABORT();
         }
         EFlag::Enum operator() (EProtobufMapMode mapMode)
         {
@@ -178,7 +180,7 @@ EWrapperFieldFlag::Enum OptionToFieldFlag(TFieldOption option)
                 case EProtobufMapMode::OptionalDict:
                     return EFlag::MAP_AS_OPTIONAL_DICT;
             }
-            Y_FAIL();
+            Y_ABORT();
         }
         EFlag::Enum operator() (EProtobufEnumWritingMode enumWritingMode)
         {
@@ -188,7 +190,7 @@ EWrapperFieldFlag::Enum OptionToFieldFlag(TFieldOption option)
                 case EProtobufEnumWritingMode::CheckValues:
                     return EFlag::ENUM_CHECK_VALUES;
             }
-            Y_FAIL();
+            Y_ABORT();
         }
     };
 
@@ -208,7 +210,7 @@ EWrapperMessageFlag::Enum OptionToMessageFlag(TMessageOption option)
                 case EProtobufFieldSortOrder::ByFieldNumber:
                     return EFlag::SORT_FIELDS_BY_FIELD_NUMBER;
             }
-            Y_FAIL();
+            Y_ABORT();
         }
     };
 
@@ -228,7 +230,7 @@ EWrapperOneofFlag::Enum OptionToOneofFlag(TOneofOption option)
                 case EProtobufOneofMode::Variant:
                     return EFlag::VARIANT;
             }
-            Y_FAIL();
+            Y_ABORT();
         }
     };
 
@@ -410,12 +412,12 @@ TProtobufOneofOptions GetDefaultOneofOptions(const Descriptor* descriptor)
                 case EProtobufSerializationMode::Embedded:
                     return defaultOneofOptions;
             }
-            Y_FAIL();
+            Y_ABORT();
         }
         case EProtobufOneofMode::SeparateFields:
             return defaultOneofOptions;
     }
-    Y_FAIL();
+    Y_ABORT();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -444,7 +446,7 @@ void ValidateProtobufType(const FieldDescriptor& fieldDescriptor, EProtobufType 
             ensureType(FieldDescriptor::TYPE_ENUM);
             return;
     }
-    Y_FAIL();
+    Y_ABORT();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -478,7 +480,7 @@ public:
     [[nodiscard]] TGuard Enter(const Descriptor* descriptor)
     {
         if (ActiveVertices_.contains(descriptor)) {
-            Y_VERIFY(!Stack_.empty());
+            Y_ABORT_UNLESS(!Stack_.empty());
             ythrow TApiUsageError() << "Cyclic reference found for protobuf messages. " <<
                 "Consider removing " << EWrapperFieldFlag::SERIALIZATION_YT << " flag " <<
                 "somewhere on the cycle containing " <<
@@ -531,15 +533,15 @@ TProtobufOneofOptions GetOneofOptions(
     auto variantFieldName = oneofDescriptor->options().GetExtension(variant_field_name);
     switch (options.Mode) {
         case EProtobufOneofMode::SeparateFields:
-            if (variantFieldName) {
+            if (!variantFieldName.empty()) {
                 ythrow TApiUsageError() << "\"variant_field_name\" requires (NYT.oneof_flags) = VARIANT";
             }
             break;
         case EProtobufOneofMode::Variant:
-            if (variantFieldName) {
-                options.VariantFieldName = variantFieldName;
+            if (variantFieldName.empty()) {
+                options.VariantFieldName = FromProto<TString>(oneofDescriptor->name());
             } else {
-                options.VariantFieldName = oneofDescriptor->name();
+                options.VariantFieldName = variantFieldName;
             }
             break;
     }
@@ -588,25 +590,25 @@ TString DeduceProtobufType(
                 case EProtobufSerializationMode::Embedded:
                     return "embedded_message";
             }
-            Y_FAIL();
+            Y_ABORT();
         default:
             return fieldDescriptor->type_name();
     }
-    Y_FAIL();
+    Y_ABORT();
 }
 
 TString GetColumnName(const ::google::protobuf::FieldDescriptor& field)
 {
     const auto& options = field.options();
-    const auto columnName = options.GetExtension(column_name);
+    const auto columnName = FromProto<TString>(options.GetExtension(column_name));
     if (!columnName.empty()) {
         return columnName;
     }
-    const auto keyColumnName = options.GetExtension(key_column_name);
+    const auto keyColumnName = FromProto<TString>(options.GetExtension(key_column_name));
     if (!keyColumnName.empty()) {
         return keyColumnName;
     }
-    return field.name();
+    return FromProto<TString>(field.name());
 }
 
 TNode MakeProtoFormatMessageFieldsConfig(
@@ -627,7 +629,7 @@ TNode MakeMapFieldsConfig(
     const TProtobufFieldOptions& fieldOptions,
     TCycleChecker& cycleChecker)
 {
-    Y_VERIFY(fieldDescriptor->is_map());
+    Y_ABORT_UNLESS(fieldDescriptor->is_map());
     auto message = fieldDescriptor->message_type();
     switch (fieldOptions.MapMode) {
         case EProtobufMapMode::ListOfStructsLegacy:
@@ -648,7 +650,7 @@ TNode MakeMapFieldsConfig(
                 cycleChecker);
         }
     }
-    Y_FAIL();
+    Y_ABORT();
 }
 
 TNode MakeProtoFormatFieldConfig(
@@ -680,7 +682,7 @@ TNode MakeProtoFormatFieldConfig(
     if (fieldDescriptor->type() == FieldDescriptor::TYPE_ENUM) {
         auto* enumeration = fieldDescriptor->enum_type();
         (*enumerations)[enumeration->full_name()] = MakeEnumerationConfig(enumeration);
-        fieldConfig["enumeration_name"] = enumeration->full_name();
+        fieldConfig["enumeration_name"] = FromProto<TString>(enumeration->full_name());
     }
 
     if (fieldOptions.SerializationMode != EProtobufSerializationMode::Yt) {
@@ -736,7 +738,7 @@ void MakeProtoFormatOneofConfig(
             return;
         }
     }
-    Y_FAIL();
+    Y_ABORT();
 }
 
 TNode MakeProtoFormatMessageFieldsConfig(
@@ -841,10 +843,10 @@ public:
         THashSet<TString> messageTypeNames;
         THashSet<TString> enumTypeNames;
         for (const auto* descriptor : AllDescriptors_) {
-            messageTypeNames.insert(descriptor->full_name());
+            messageTypeNames.insert(FromProto<TString>(descriptor->full_name()));
         }
         for (const auto* enumDescriptor : EnumDescriptors_) {
-            enumTypeNames.insert(enumDescriptor->full_name());
+            enumTypeNames.insert(FromProto<TString>(enumDescriptor->full_name()));
         }
         FileDescriptorSet fileDescriptorSetProto;
         for (const auto* file : fileTopoOrder) {
@@ -954,9 +956,9 @@ private:
         const THashSet<TString>& messageTypeNames,
         const THashSet<TString>& enumTypeNames)
     {
-        const auto prefix = fileProto->package().Empty()
+        const auto prefix = fileProto->package().empty()
             ? ""
-            : fileProto->package() + '.';
+            : FromProto<TString>(fileProto->package()) + '.';
 
         RemoveIf(fileProto->mutable_message_type(), [&] (const DescriptorProto& descriptorProto) {
             return !messageTypeNames.contains(prefix + descriptorProto.name());
@@ -992,10 +994,10 @@ TNode MakeProtoFormatConfigWithDescriptors(const TVector<const Descriptor*>& des
     auto typeNames = TNode::CreateList();
     for (const auto* descriptor : descriptors) {
         builder.AddDescriptor(descriptor);
-        typeNames.Add(descriptor->full_name());
+        typeNames.Add(FromProto<TString>(descriptor->full_name()));
     }
 
-    auto fileDescriptorSetText = builder.Build().ShortDebugString();
+    auto fileDescriptorSetText = FromProto<TString>(builder.Build().ShortDebugString());
     TNode config("protobuf");
     config.Attributes()
         ("file_descriptor_set_text", std::move(fileDescriptorSetText))
@@ -1029,7 +1031,7 @@ TValueTypeOrOtherColumns GetScalarFieldType(
             case EProtobufType::OtherColumns:
                 return TOtherColumns{};
         }
-        Y_FAIL();
+        Y_ABORT();
     }
 
     switch (fieldDescriptor.cpp_type()) {
@@ -1074,7 +1076,7 @@ void SortFields(TVector<const FieldDescriptor*>& fieldDescriptors, EProtobufFiel
             });
             return;
     }
-    Y_FAIL();
+    Y_ABORT();
 }
 
 NTi::TTypePtr CreateStruct(TStringBuf fieldName, TVector<TMember> members)
@@ -1217,7 +1219,7 @@ void TTableSchemaInferrer::ProcessOneofField(
             return;
         }
     }
-    Y_FAIL();
+    Y_ABORT();
 }
 
 TVector<TMember> TTableSchemaInferrer::GetMessageMembers(
@@ -1306,7 +1308,7 @@ NTi::TTypePtr TTableSchemaInferrer::GetMessageType(
     const FieldDescriptor& fieldDescriptor,
     TProtobufFieldOptions defaultFieldOptions)
 {
-    Y_VERIFY(fieldDescriptor.message_type());
+    Y_ABORT_UNLESS(fieldDescriptor.message_type());
     const auto& messageDescriptor = *fieldDescriptor.message_type();
     auto members = GetMessageMembers(
         fieldDescriptor.full_name(),
@@ -1320,7 +1322,7 @@ NTi::TTypePtr TTableSchemaInferrer::GetMapType(
     const FieldDescriptor& fieldDescriptor,
     const TProtobufFieldOptions& fieldOptions)
 {
-    Y_VERIFY(fieldDescriptor.is_map());
+    Y_ABORT_UNLESS(fieldDescriptor.is_map());
     switch (fieldOptions.MapMode) {
         case EProtobufMapMode::ListOfStructsLegacy:
         case EProtobufMapMode::ListOfStructs: {
@@ -1335,21 +1337,21 @@ NTi::TTypePtr TTableSchemaInferrer::GetMapType(
                 case EProtobufListMode::Optional:
                     return NTi::Optional(std::move(list));
             }
-            Y_FAIL();
+            Y_ABORT();
         }
         case EProtobufMapMode::Dict:
         case EProtobufMapMode::OptionalDict: {
             auto message = fieldDescriptor.message_type();
-            Y_VERIFY(message->field_count() == 2);
+            Y_ABORT_UNLESS(message->field_count() == 2);
             auto keyVariant = GetScalarFieldType(*message->field(0), TProtobufFieldOptions{});
-            Y_VERIFY(std::holds_alternative<EValueType>(keyVariant));
+            Y_ABORT_UNLESS(std::holds_alternative<EValueType>(keyVariant));
             auto key = std::get<EValueType>(keyVariant);
             TProtobufFieldOptions embeddedOptions;
             embeddedOptions.SerializationMode = EProtobufSerializationMode::Yt;
             auto valueVariant = GetFieldType(*message->field(1), embeddedOptions);
-            Y_VERIFY(std::holds_alternative<NTi::TTypePtr>(valueVariant));
+            Y_ABORT_UNLESS(std::holds_alternative<NTi::TTypePtr>(valueVariant));
             auto value = std::get<NTi::TTypePtr>(valueVariant);
-            Y_VERIFY(value->IsOptional());
+            Y_ABORT_UNLESS(value->IsOptional());
             value = value->AsOptional()->GetItemType();
             auto dict = NTi::Dict(ToTypeV3(key, true), value);
             if (fieldOptions.MapMode == EProtobufMapMode::OptionalDict) {
@@ -1396,7 +1398,7 @@ TTypePtrOrOtherColumns TTableSchemaInferrer::GetFieldType(
                     case EProtobufListMode::Optional:
                         return NTi::TTypePtr(NTi::Optional(NTi::List(*type)));
                 }
-                Y_FAIL();
+                Y_ABORT();
             }
             case FieldDescriptor::Label::LABEL_OPTIONAL:
                 return std::visit(TOverloaded{
@@ -1413,7 +1415,7 @@ TTypePtrOrOtherColumns TTableSchemaInferrer::GetFieldType(
                 return *type;
             }
         }
-        Y_FAIL();
+        Y_ABORT();
     };
 
     switch (fieldOptions.SerializationMode) {
@@ -1433,7 +1435,7 @@ TTypePtrOrOtherColumns TTableSchemaInferrer::GetFieldType(
             ythrow yexception() << "EMBEDDED field is not allowed for field "
                 << fieldDescriptor.full_name();
     }
-    Y_FAIL();
+    Y_ABORT();
 }
 
 TTableSchema TTableSchemaInferrer::InferSchema(const Descriptor& messageDescriptor)

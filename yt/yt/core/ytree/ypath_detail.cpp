@@ -44,6 +44,11 @@ void TYPathServiceContextWrapper::SetRequestHeader(std::unique_ptr<NRpc::NProto:
     UnderlyingContext_->SetRequestHeader(std::move(header));
 }
 
+void TYPathServiceContextWrapper::SetReadRequestComplexityLimiter(const TReadRequestComplexityLimiterPtr& limiter)
+{
+    UnderlyingContext_->SetReadRequestComplexityLimiter(limiter);
+}
+
 TReadRequestComplexityLimiterPtr TYPathServiceContextWrapper::GetReadRequestComplexityLimiter()
 {
     return UnderlyingContext_->GetReadRequestComplexityLimiter();
@@ -359,7 +364,7 @@ std::vector<IAttributeDictionary::TKeyValuePair> TSupportsAttributes::TCombinedA
                 auto value = provider->FindBuiltinAttribute(descriptor.InternedKey);
                 if (value) {
                     auto key = descriptor.InternedKey.Unintern();
-                    pairs.push_back(std::make_pair(std::move(key), std::move(value)));
+                    pairs.push_back(std::pair(std::move(key), std::move(value)));
                 }
             }
         }
@@ -403,7 +408,7 @@ void TSupportsAttributes::TCombinedAttributeDictionary::SetYson(const TString& k
         if (internedKey != InvalidInternedAttribute) {
             const auto& builtinKeys = provider->GetBuiltinAttributeKeys();
             if (builtinKeys.find(internedKey) != builtinKeys.end()) {
-                if (!provider->SetBuiltinAttribute(internedKey, value)) {
+                if (!provider->SetBuiltinAttribute(internedKey, value, false)) {
                     ThrowCannotSetBuiltinAttribute(key);
                 }
                 return;
@@ -577,8 +582,36 @@ TFuture<TYsonString> TSupportsAttributes::DoGetAttribute(
             &TSupportsAttributes::DoGetAttributeFragment,
             key,
             TYPath(tokenizer.GetInput())));
-   }
+    }
 }
+
+namespace {
+
+void OnAttributeRead(auto* context, auto* response, const TErrorOr<TYsonString>& ysonOrError)
+{
+    if (!ysonOrError.IsOK()) {
+        context->Reply(ysonOrError);
+        return;
+    }
+
+    auto yson = ysonOrError.Value().ToString();
+
+    if (auto limiter = context->GetReadRequestComplexityLimiter()) {
+        limiter->Charge({
+            .NodeCount = 1,
+            .ResultSize = std::ssize(yson),
+        });
+        if (auto error = limiter->CheckOverdraught(); !error.IsOK()) {
+            context->Reply(error);
+            return;
+        }
+    }
+
+    response->set_value(yson);
+    context->Reply();
+}
+
+} // namespace
 
 void TSupportsAttributes::GetAttribute(
     const TYPath& path,
@@ -593,24 +626,7 @@ void TSupportsAttributes::GetAttribute(
         : TAttributeFilter();
 
     DoGetAttribute(path, attributeFilter).Subscribe(BIND([=] (const TErrorOr<TYsonString>& ysonOrError) {
-        if (!ysonOrError.IsOK()) {
-            context->Reply(ysonOrError);
-            return;
-        }
-
-        {
-            auto resultSize = ysonOrError.Value().AsStringBuf().Size();
-            if (auto limiter = context->GetReadRequestComplexityLimiter()) {
-                limiter->Charge(TReadRequestComplexityUsage({/*nodeCount*/ 1, resultSize}));
-                if (auto error = limiter->CheckOverdraught(); !error.IsOK()) {
-                    context->Reply(error);
-                    return;
-                }
-            }
-        }
-
-        response->set_value(ysonOrError.Value().ToString());
-        context->Reply();
+        OnAttributeRead(context.Get(), response, ysonOrError);
     }));
 }
 
@@ -702,22 +718,7 @@ void TSupportsAttributes::ListAttribute(
     context->SetRequestInfo();
 
     DoListAttribute(path).Subscribe(BIND([=] (const TErrorOr<TYsonString>& ysonOrError) {
-        if (ysonOrError.IsOK()) {
-            {
-                auto resultSize = ysonOrError.Value().AsStringBuf().Size();
-                if (auto limiter = context->GetReadRequestComplexityLimiter()) {
-                    limiter->Charge(TReadRequestComplexityUsage({/*nodeCount*/ 1, resultSize}));
-                    if (auto error = limiter->CheckOverdraught(); !error.IsOK()) {
-                        context->Reply(error);
-                        return;
-                    }
-                }
-            }
-            response->set_value(ysonOrError.Value().ToString());
-            context->Reply();
-        } else {
-            context->Reply(ysonOrError);
-        }
+        OnAttributeRead(context.Get(), response, ysonOrError);
     }));
 }
 
@@ -805,7 +806,7 @@ void TSupportsAttributes::ExistsAttribute(
     }));
 }
 
-void TSupportsAttributes::DoSetAttribute(const TYPath& path, const TYsonString& newYson)
+void TSupportsAttributes::DoSetAttribute(const TYPath& path, const TYsonString& newYson, bool force)
 {
     TCachingPermissionValidator permissionValidator(this, EPermissionCheckScope::This);
 
@@ -875,7 +876,7 @@ void TSupportsAttributes::DoSetAttribute(const TYPath& path, const TYsonString& 
 
                         permissionValidator.Validate(descriptor.ModifyPermission);
 
-                        if (!GuardedSetBuiltinAttribute(internedKey, newAttributeYson)) {
+                        if (!GuardedSetBuiltinAttribute(internedKey, newAttributeYson, force)) {
                             ThrowCannotSetBuiltinAttribute(key);
                         }
 
@@ -916,7 +917,7 @@ void TSupportsAttributes::DoSetAttribute(const TYPath& path, const TYsonString& 
                 permissionValidator.Validate(descriptor->ModifyPermission);
 
                 if (tokenizer.Advance() == NYPath::ETokenType::EndOfStream) {
-                    if (!GuardedSetBuiltinAttribute(internedKey, newYson)) {
+                    if (!GuardedSetBuiltinAttribute(internedKey, newYson, force)) {
                         ThrowCannotSetBuiltinAttribute(key);
                     }
                 } else {
@@ -929,7 +930,7 @@ void TSupportsAttributes::DoSetAttribute(const TYPath& path, const TYsonString& 
                     SyncYPathSet(oldWholeNode, TYPath(tokenizer.GetInput()), newYson);
                     auto newWholeYson = ConvertToYsonString(oldWholeNode);
 
-                    if (!GuardedSetBuiltinAttribute(internedKey, newWholeYson)) {
+                    if (!GuardedSetBuiltinAttribute(internedKey, newWholeYson, force)) {
                         ThrowCannotSetBuiltinAttribute(key);
                     }
                 }
@@ -981,7 +982,7 @@ void TSupportsAttributes::SetAttribute(
     const auto& safeValue = requestValue.capacity() <= requestValue.length() * 5 / 4
         ? requestValue
         : TString(TStringBuf(requestValue));
-    DoSetAttribute(path, TYsonString(safeValue));
+    DoSetAttribute(path, TYsonString(safeValue), request->force());
     context->Reply();
 }
 
@@ -1076,7 +1077,7 @@ void TSupportsAttributes::DoRemoveAttribute(const TYPath& path, bool force)
                     }
 
                     if (!descriptor->Writable) {
-                        ThrowCannotSetBuiltinAttribute(key);
+                        ThrowCannotRemoveAttribute(key);
                     }
 
                     permissionValidator.Validate(descriptor->ModifyPermission);
@@ -1093,7 +1094,7 @@ void TSupportsAttributes::DoRemoveAttribute(const TYPath& path, bool force)
                     SyncYPathRemove(builtinNode, TYPath(tokenizer.GetInput()));
                     auto updatedSystemYson = ConvertToYsonString(builtinNode);
 
-                    if (!GuardedSetBuiltinAttribute(internedKey, updatedSystemYson)) {
+                    if (!GuardedSetBuiltinAttribute(internedKey, updatedSystemYson, force)) {
                         ThrowCannotSetBuiltinAttribute(key);
                     }
                 }
@@ -1140,7 +1141,7 @@ void TSupportsAttributes::SetAttributes(
             attributePath = path + "/" + attribute;
         }
 
-        DoSetAttribute(attributePath, TYsonString(value));
+        DoSetAttribute(attributePath, TYsonString(value), request->force());
     }
 }
 
@@ -1172,12 +1173,12 @@ bool TSupportsAttributes::GuardedGetBuiltinAttribute(TInternedAttributeKey key, 
     }
 }
 
-bool TSupportsAttributes::GuardedSetBuiltinAttribute(TInternedAttributeKey key, const TYsonString& yson)
+bool TSupportsAttributes::GuardedSetBuiltinAttribute(TInternedAttributeKey key, const TYsonString& yson, bool force)
 {
     auto* provider = GetBuiltinAttributeProvider();
 
     try {
-        return provider->SetBuiltinAttribute(key, yson);
+        return provider->SetBuiltinAttribute(key, yson, force);
     } catch (const std::exception& ex) {
         THROW_ERROR_EXCEPTION("Error setting builtin attribute %Qv",
             ToYPathLiteral(key.Unintern()))
@@ -1280,7 +1281,7 @@ const THashSet<TString>& TOpaqueAttributeKeysCache::GetOpaqueAttributeKeys(
 ////////////////////////////////////////////////////////////////////////////////
 
 class TNodeSetterBase
-    : public NYson::TForwardingYsonConsumer
+    : public TTypedConsumer
 {
 public:
     void Commit();
@@ -1288,20 +1289,6 @@ public:
 protected:
     TNodeSetterBase(INode* node, ITreeBuilder* builder);
     ~TNodeSetterBase();
-
-    void ThrowInvalidType(ENodeType actualType);
-    virtual ENodeType GetExpectedType() = 0;
-
-    void OnMyStringScalar(TStringBuf value) override;
-    void OnMyInt64Scalar(i64 value) override;
-    void OnMyUint64Scalar(ui64 value) override;
-    void OnMyDoubleScalar(double value) override;
-    void OnMyBooleanScalar(bool value) override;
-    void OnMyEntity() override;
-
-    void OnMyBeginList() override;
-
-    void OnMyBeginMap() override;
 
     void OnMyBeginAttributes() override;
     void OnMyEndAttributes() override;
@@ -1408,9 +1395,6 @@ public:
 private:
     IMapNode* const Map_;
 
-    TString ItemKey_;
-
-
     ENodeType GetExpectedType() override
     {
         return ENodeType::Map;
@@ -1423,15 +1407,15 @@ private:
 
     void OnMyKeyedItem(TStringBuf key) override
     {
-        ItemKey_ = key;
+        YT_VERIFY(TreeBuilder_);
+
         TreeBuilder_->BeginTree();
-        Forward(TreeBuilder_, std::bind(&TNodeSetter::OnForwardingFinished, this));
+        Forward(TreeBuilder_, std::bind(&TNodeSetter::OnForwardingFinished, this, TString(key)));
     }
 
-    void OnForwardingFinished()
+    void OnForwardingFinished(TString itemKey)
     {
-        YT_VERIFY(Map_->AddChild(ItemKey_, TreeBuilder_->EndTree()));
-        ItemKey_.clear();
+        YT_VERIFY(Map_->AddChild(itemKey, TreeBuilder_->EndTree()));
     }
 
     void OnMyEndMap() override
@@ -1468,6 +1452,8 @@ private:
 
     void OnMyListItem() override
     {
+        YT_VERIFY(TreeBuilder_);
+
         TreeBuilder_->BeginTree();
         Forward(TreeBuilder_, [this] {
             List_->AddChild(TreeBuilder_->EndTree());
@@ -1536,6 +1522,55 @@ private:
 
 ////////////////////////////////////////////////////////////////////////////////
 
+void TTypedConsumer::ThrowInvalidType(ENodeType actualType)
+{
+    THROW_ERROR_EXCEPTION("Cannot update %Qlv node with %Qlv value; types must match",
+        GetExpectedType(),
+        actualType);
+}
+
+void TTypedConsumer::OnMyStringScalar(TStringBuf /*exists*/)
+{
+    ThrowInvalidType(ENodeType::String);
+}
+
+void TTypedConsumer::OnMyInt64Scalar(i64 /*exists*/)
+{
+    ThrowInvalidType(ENodeType::Int64);
+}
+
+void TTypedConsumer::OnMyUint64Scalar(ui64 /*exists*/)
+{
+    ThrowInvalidType(ENodeType::Uint64);
+}
+
+void TTypedConsumer::OnMyDoubleScalar(double /*exists*/)
+{
+    ThrowInvalidType(ENodeType::Double);
+}
+
+void TTypedConsumer::OnMyBooleanScalar(bool /*exists*/)
+{
+    ThrowInvalidType(ENodeType::Boolean);
+}
+
+void TTypedConsumer::OnMyEntity()
+{
+    ThrowInvalidType(ENodeType::Entity);
+}
+
+void TTypedConsumer::OnMyBeginList()
+{
+    ThrowInvalidType(ENodeType::List);
+}
+
+void TTypedConsumer::OnMyBeginMap()
+{
+    ThrowInvalidType(ENodeType::Map);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
 TNodeSetterBase::TNodeSetterBase(INode* node, ITreeBuilder* builder)
     : Node_(node)
     , TreeBuilder_(builder)
@@ -1543,53 +1578,6 @@ TNodeSetterBase::TNodeSetterBase(INode* node, ITreeBuilder* builder)
 { }
 
 TNodeSetterBase::~TNodeSetterBase() = default;
-
-void TNodeSetterBase::ThrowInvalidType(ENodeType actualType)
-{
-    THROW_ERROR_EXCEPTION("Cannot update %Qlv node with %Qlv value; types must match",
-        GetExpectedType(),
-        actualType);
-}
-
-void TNodeSetterBase::OnMyStringScalar(TStringBuf /*exists*/)
-{
-    ThrowInvalidType(ENodeType::String);
-}
-
-void TNodeSetterBase::OnMyInt64Scalar(i64 /*exists*/)
-{
-    ThrowInvalidType(ENodeType::Int64);
-}
-
-void TNodeSetterBase::OnMyUint64Scalar(ui64 /*exists*/)
-{
-    ThrowInvalidType(ENodeType::Uint64);
-}
-
-void TNodeSetterBase::OnMyDoubleScalar(double /*exists*/)
-{
-    ThrowInvalidType(ENodeType::Double);
-}
-
-void TNodeSetterBase::OnMyBooleanScalar(bool /*exists*/)
-{
-    ThrowInvalidType(ENodeType::Boolean);
-}
-
-void TNodeSetterBase::OnMyEntity()
-{
-    ThrowInvalidType(ENodeType::Entity);
-}
-
-void TNodeSetterBase::OnMyBeginList()
-{
-    ThrowInvalidType(ENodeType::List);
-}
-
-void TNodeSetterBase::OnMyBeginMap()
-{
-    ThrowInvalidType(ENodeType::Map);
-}
 
 void TNodeSetterBase::OnMyBeginAttributes()
 {
@@ -1615,7 +1603,6 @@ void SetNodeFromProducer(
     ITreeBuilder* builder)
 {
     YT_VERIFY(node);
-    YT_VERIFY(builder);
 
     switch (node->GetType()) {
         #define XX(type) \
@@ -1652,7 +1639,6 @@ public:
     template <class... TArgs>
     TYPathServiceContext(TArgs&&... args)
         : TServiceContextBase(std::forward<TArgs>(args)...)
-        , ReadComplexityLimiter_(New<TReadRequestComplexityLimiter>())
     { }
 
     void SetRequestHeader(std::unique_ptr<NRpc::NProto::TRequestHeader> header) override
@@ -1662,13 +1648,18 @@ public:
         CachedYPathExt_ = nullptr;
     }
 
+    void SetReadRequestComplexityLimiter(const TReadRequestComplexityLimiterPtr& limiter) final
+    {
+        ReadComplexityLimiter_ = limiter;
+    }
+
     TReadRequestComplexityLimiterPtr GetReadRequestComplexityLimiter() final
     {
         return ReadComplexityLimiter_;
     }
 
 protected:
-    TReadRequestComplexityLimiterPtr ReadComplexityLimiter_;
+    TReadRequestComplexityLimiterPtr ReadComplexityLimiter_ = nullptr;
 
     std::optional<NProfiling::TWallTimer> Timer_;
     const NProto::TYPathHeaderExt* CachedYPathExt_ = nullptr;

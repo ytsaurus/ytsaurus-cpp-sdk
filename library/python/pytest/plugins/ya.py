@@ -2,7 +2,6 @@
 
 import base64
 import errno
-import re
 import sys
 import os
 import logging
@@ -15,7 +14,6 @@ import signal
 import inspect
 import warnings
 
-import attr
 import faulthandler
 import py
 import pytest
@@ -67,6 +65,7 @@ _pytest.main.EXIT_NOTESTSCOLLECTED = 0
 SHUTDOWN_REQUESTED = False
 
 pytest_config = None
+
 
 def configure_pdb_on_demand():
     import signal
@@ -184,6 +183,7 @@ def pytest_addoption(parser):
 
 def from_ya_test():
     return "YA_TEST_RUNNER" in os.environ
+
 
 @pytest.hookimpl(tryfirst=True)
 def pytest_configure(config):
@@ -344,8 +344,11 @@ def _collect_test_rusage(item):
         def add_metric(attr_name, metric_name=None, modifier=None):
             if not metric_name:
                 metric_name = attr_name
+
             if not modifier:
-                modifier = lambda x: x
+                def modifier(x):
+                    return x
+
             if hasattr(item.rusage, attr_name):
                 ya_inst.set_metric_value(metric_name, modifier(getattr(finish_rusage, attr_name) - getattr(item.rusage, attr_name)))
 
@@ -822,7 +825,7 @@ class TraceReportGenerator(object):
             'subtest': subtest_name,
         }
         # Enable when CI is ready, see YA-465
-        if False and test_item.location:
+        if False and test_item.location:  # noqa PLR1727
             message['path'] = test_item.location
         if test_item.nodeid in pytest_config.test_logs:
             message['logs'] = pytest_config.test_logs[test_item.nodeid]
@@ -858,7 +861,7 @@ class TraceReportGenerator(object):
                 'tags': _get_item_tags(test_item),
             }
             # Enable when CI is ready, see YA-465
-            if False and test_item.location:
+            if False and test_item.location:  # noqa PLR1727
                 message['path'] = test_item.location
             if test_item.nodeid in pytest_config.test_logs:
                 message['logs'] = pytest_config.test_logs[test_item.nodeid]
@@ -882,10 +885,14 @@ class TraceReportGenerator(object):
             self._test_duration[test_item.nodeid] = test_item._duration
 
     @staticmethod
-    def _get_comment(test_item):
+    def _get_comment(test_item, limit=8*1024):
         msg = yatest_lib.tools.to_utf8(test_item.error)
         if not msg:
             return ""
+
+        if len(msg) > limit:
+            msg = msg[:limit - 3] + "..."
+
         return msg + "[[rst]]"
 
     def _dump_trace(self, name, value):

@@ -42,7 +42,7 @@ const TString& TCommandRawJob::GetCommand() const
 
 void TCommandRawJob::Do(const TRawJobContext& /* jobContext */)
 {
-    Y_FAIL("TCommandRawJob::Do must not be called");
+    Y_ABORT("TCommandRawJob::Do must not be called");
 }
 
 REGISTER_NAMED_RAW_JOB("NYT::TCommandRawJob", TCommandRawJob)
@@ -60,7 +60,7 @@ const TString& TCommandVanillaJob::GetCommand() const
 
 void TCommandVanillaJob::Do()
 {
-    Y_FAIL("TCommandVanillaJob::Do must not be called");
+    Y_ABORT("TCommandVanillaJob::Do must not be called");
 }
 
 REGISTER_NAMED_VANILLA_JOB("NYT::TCommandVanillaJob", TCommandVanillaJob);
@@ -316,7 +316,7 @@ TVector<TTableSchema> TJobOperationPreparer::GetOutputSchemas()
     TVector<TTableSchema> result;
     result.reserve(OutputSchemas_.size());
     for (auto& schema : OutputSchemas_) {
-        Y_VERIFY(schema.Defined());
+        Y_ABORT_UNLESS(schema.Defined());
         result.push_back(std::move(*schema));
         schema.Clear();
     }
@@ -337,11 +337,7 @@ void TJobOperationPreparer::FinallyValidate() const
     TApiUsageError error;
     error << "Output table schemas are missing: ";
     for (auto i : illegallyMissingSchemaIndices) {
-        error << "no. " << i;
-        if (auto path = Context_.GetInputPath(i)) {
-            error << "(" << *path << ")";
-        }
-        error << "; ";
+        error << "no. " << i << " (" << Context_.GetOutputPath(i).GetOrElse("<unknown path>") << "); ";
     }
     ythrow std::move(error);
 }
@@ -455,7 +451,7 @@ IOperationPtr IOperationClient::Map(
     ::TIntrusivePtr<IMapperBase> mapper,
     const TOperationOptions& options)
 {
-    Y_VERIFY(mapper.Get());
+    Y_ABORT_UNLESS(mapper.Get());
 
     return DoMap(
         spec,
@@ -490,7 +486,7 @@ IOperationPtr IOperationClient::Reduce(
     ::TIntrusivePtr<IReducerBase> reducer,
     const TOperationOptions& options)
 {
-    Y_VERIFY(reducer.Get());
+    Y_ABORT_UNLESS(reducer.Get());
 
     return DoReduce(
         spec,
@@ -529,7 +525,7 @@ IOperationPtr IOperationClient::JoinReduce(
     ::TIntrusivePtr<IReducerBase> reducer,
     const TOperationOptions& options)
 {
-    Y_VERIFY(reducer.Get());
+    Y_ABORT_UNLESS(reducer.Get());
 
     return DoJoinReduce(
         spec,
@@ -543,7 +539,7 @@ IOperationPtr IOperationClient::MapReduce(
     ::TIntrusivePtr<IReducerBase> reducer,
     const TOperationOptions& options)
 {
-    Y_VERIFY(reducer.Get());
+    Y_ABORT_UNLESS(reducer.Get());
 
     return DoMapReduce(
         spec,
@@ -560,7 +556,7 @@ IOperationPtr IOperationClient::MapReduce(
     ::TIntrusivePtr<IReducerBase> reducer,
     const TOperationOptions& options)
 {
-    Y_VERIFY(reducer.Get());
+    Y_ABORT_UNLESS(reducer.Get());
 
     return DoMapReduce(
         spec,

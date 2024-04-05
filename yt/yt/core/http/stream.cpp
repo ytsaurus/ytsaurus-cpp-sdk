@@ -98,7 +98,7 @@ TSharedRef THttpParser::Feed(const TSharedRef& input)
 
 std::pair<int, int> THttpParser::GetVersion() const
 {
-    return std::make_pair<int, int>(Parser_.http_major, Parser_.http_minor);
+    return std::pair<int, int>(Parser_.http_major, Parser_.http_minor);
 }
 
 EStatusCode THttpParser::GetStatusCode() const
@@ -479,7 +479,7 @@ void THttpInput::SetPort(int port)
 TSharedRef THttpInput::DoRead()
 {
     if (Parser_.GetState() == EParserState::MessageFinished) {
-        return TSharedRef::MakeEmpty();
+        return TSharedRef{};
     }
 
     Connection_->SetReadDeadline(TInstant::Now() + Config_->BodyReadIdleTimeout);
@@ -504,7 +504,7 @@ TSharedRef THttpInput::DoRead()
             FinishMessage();
 
             Connection_->SetReadDeadline(std::nullopt);
-            return TSharedRef::MakeEmpty();
+            return TSharedRef{};
         }
 
         // EOF must be handled by HTTP parser.
@@ -521,6 +521,28 @@ void THttpInput::MaybeLogSlowProgress()
             GetReadByteCount());
         LastProgressLogTime_ = now;
     }
+}
+
+bool THttpInput::IsRedirectCode(EStatusCode code) const
+{
+    return code == EStatusCode::MovedPermanently ||
+        code == EStatusCode::Found ||
+        code == EStatusCode::SeeOther ||
+        code == EStatusCode::UseProxy ||
+        code == EStatusCode::TemporaryRedirect ||
+        code == EStatusCode::PermanentRedirect;
+}
+
+std::optional<TString> THttpInput::TryGetRedirectUrl()
+{
+    EnsureHeadersReceived();
+    if (IsRedirectCode(GetStatusCode())) {
+        auto url = Headers_->Find("Location");
+        if (url) {
+            return *url;
+        }
+    }
+    return std::nullopt;
 }
 
 ////////////////////////////////////////////////////////////////////////////////

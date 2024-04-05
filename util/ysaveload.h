@@ -698,7 +698,7 @@ struct TSerializer<std::variant<Args...>> {
 private:
     template <size_t... Is>
     static void LoadImpl(IInputStream* is, TVar& v, ui8 index, std::index_sequence<Is...>) {
-        using TLoader = void (*)(IInputStream*, TVar & v);
+        using TLoader = void (*)(IInputStream*, TVar& v);
         constexpr TLoader loaders[] = {::NPrivate::LoadVariantAlternative<TVar, Args, Is>...};
         loaders[index](is, v);
     }
@@ -726,24 +726,32 @@ static inline void LoadMany(S* s, Ts&... t) {
     ApplyToMany([&](auto& v) { Load(s, v); }, t...);
 }
 
-#define Y_SAVELOAD_DEFINE(...)                 \
-    inline void Save(IOutputStream* s) const { \
-        ::SaveMany(s, __VA_ARGS__);            \
-    }                                          \
-                                               \
-    inline void Load(IInputStream* s) {        \
-        ::LoadMany(s, __VA_ARGS__);            \
-    }                                          \
+#define Y_SAVELOAD_DEFINE(...)                                    \
+    inline void Save(IOutputStream* s) const {                    \
+        [s](auto&&... args) {                                     \
+            ::SaveMany(s, std::forward<decltype(args)>(args)...); \
+        }(__VA_ARGS__);                                           \
+    }                                                             \
+                                                                  \
+    inline void Load(IInputStream* s) {                           \
+        [s](auto&&... args) {                                     \
+            ::LoadMany(s, std::forward<decltype(args)>(args)...); \
+        }(__VA_ARGS__);                                           \
+    }                                                             \
     Y_SEMICOLON_GUARD
 
-#define Y_SAVELOAD_DEFINE_OVERRIDE(...)          \
-    void Save(IOutputStream* s) const override { \
-        ::SaveMany(s, __VA_ARGS__);              \
-    }                                            \
-                                                 \
-    void Load(IInputStream* s) override {        \
-        ::LoadMany(s, __VA_ARGS__);              \
-    }                                            \
+#define Y_SAVELOAD_DEFINE_OVERRIDE(...)                           \
+    void Save(IOutputStream* s) const override {                  \
+        [s](auto&&... args) {                                     \
+            ::SaveMany(s, std::forward<decltype(args)>(args)...); \
+        }(__VA_ARGS__);                                           \
+    }                                                             \
+                                                                  \
+    void Load(IInputStream* s) override {                         \
+        [s](auto&&... args) {                                     \
+            ::LoadMany(s, std::forward<decltype(args)>(args)...); \
+        }(__VA_ARGS__);                                           \
+    }                                                             \
     Y_SEMICOLON_GUARD
 
 template <class T>

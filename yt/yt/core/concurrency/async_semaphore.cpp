@@ -25,7 +25,7 @@ void TAsyncSemaphore::SetTotal(i64 totalSlots)
     Release(0);
 }
 
-void TAsyncSemaphore::Release(i64 slots /* = 1 */)
+void TAsyncSemaphore::Release(i64 slots)
 {
     YT_VERIFY(slots >= 0);
 
@@ -33,7 +33,7 @@ void TAsyncSemaphore::Release(i64 slots /* = 1 */)
         auto guard = WriterGuard(SpinLock_);
 
         FreeSlots_ += slots;
-        YT_ASSERT(FreeSlots_ <= TotalSlots_);
+        YT_VERIFY(FreeSlots_ <= TotalSlots_);
 
         if (Releasing_) {
             return;
@@ -67,8 +67,8 @@ void TAsyncSemaphore::Release(i64 slots /* = 1 */)
         }
 
         for (const auto& waiter : waitersToRelease) {
-            // NB: This may lead to a reentrant invocation of Release if the invoker discards the callback.
-            waiter.Invoker->Invoke(BIND(waiter.Handler, Passed(TAsyncSemaphoreGuard(this, waiter.Slots))));
+            // NB: This may lead to a reentrant invocation of Release if the invoker discards the subscriber.
+            waiter.Promise.TrySet(TAsyncSemaphoreGuard(this, waiter.Slots));
         }
 
         if (readyEventToSet) {
@@ -77,15 +77,17 @@ void TAsyncSemaphore::Release(i64 slots /* = 1 */)
     }
 }
 
-void TAsyncSemaphore::Acquire(i64 slots /* = 1 */)
+bool TAsyncSemaphore::Acquire(i64 slots)
 {
     YT_VERIFY(slots >= 0);
 
     auto guard = WriterGuard(SpinLock_);
     FreeSlots_ -= slots;
+
+    return FreeSlots_ >= 0;
 }
 
-bool TAsyncSemaphore::TryAcquire(i64 slots /*= 1*/)
+bool TAsyncSemaphore::TryAcquire(i64 slots)
 {
     YT_VERIFY(slots >= 0);
 
@@ -97,20 +99,18 @@ bool TAsyncSemaphore::TryAcquire(i64 slots /*= 1*/)
     return true;
 }
 
-void TAsyncSemaphore::AsyncAcquire(
-    const TCallback<void(TAsyncSemaphoreGuard)>& handler,
-    IInvokerPtr invoker,
-    i64 slots)
+TFuture<TAsyncSemaphoreGuard> TAsyncSemaphore::AsyncAcquire(i64 slots)
 {
     YT_VERIFY(slots >= 0);
 
     auto guard = WriterGuard(SpinLock_);
     if (FreeSlots_ >= slots) {
         FreeSlots_ -= slots;
-        guard.Release();
-        invoker->Invoke(BIND(handler, Passed(TAsyncSemaphoreGuard(this, slots))));
+        return MakeFuture(TAsyncSemaphoreGuard(this, slots));
     } else {
-        Waiters_.push(TWaiter{handler, std::move(invoker), slots});
+        auto promise = NewPromise<TAsyncSemaphoreGuard>();
+        Waiters_.push(TWaiter{promise, slots});
+        return promise.ToFuture();
     }
 }
 
@@ -171,19 +171,22 @@ TProfiledAsyncSemaphore::TProfiledAsyncSemaphore(
     , Gauge_(std::move(gauge))
 { }
 
-void TProfiledAsyncSemaphore::Release(i64 slots /* = 1 */)
+void TProfiledAsyncSemaphore::Release(i64 slots)
 {
     TAsyncSemaphore::Release(slots);
     Profile();
 }
 
-void TProfiledAsyncSemaphore::Acquire(i64 slots /* = 1 */)
+bool TProfiledAsyncSemaphore::Acquire(i64 slots)
 {
-    TAsyncSemaphore::Acquire(slots);
+    auto result = TAsyncSemaphore::Acquire(slots);
+
     Profile();
+
+    return result;
 }
 
-bool TProfiledAsyncSemaphore::TryAcquire(i64 slots /* = 1 */)
+bool TProfiledAsyncSemaphore::TryAcquire(i64 slots)
 {
     if (TAsyncSemaphore::TryAcquire(slots)) {
         Profile();

@@ -26,6 +26,7 @@
 #include <vector>
 
 #include "absl/base/macros.h"
+#include "absl/strings/ascii.h"
 #include "util/logging.h"
 #include "util/utf.h"
 #include "re2/pod_array.h"
@@ -337,6 +338,20 @@ Rune CycleFoldRune(Rune r) {
 }
 
 // Add lo-hi to the class, along with their fold-equivalent characters.
+static void AddFoldedRangeLatin1(CharClassBuilder* cc, Rune lo, Rune hi) {
+  while (lo <= hi) {
+    cc->AddRange(lo, lo);
+    if ('A' <= lo && lo <= 'Z') {
+      cc->AddRange(lo - 'A' + 'a', lo - 'A' + 'a');
+    }
+    if ('a' <= lo && lo <= 'z') {
+      cc->AddRange(lo - 'a' + 'A', lo - 'a' + 'A');
+    }
+    lo++;
+  }
+}
+
+// Add lo-hi to the class, along with their fold-equivalent characters.
 // If lo-hi is already in the class, assume that the fold-equivalent
 // chars are there too, so there's no work to do.
 static void AddFoldedRange(CharClassBuilder* cc, Rune lo, Rune hi, int depth) {
@@ -393,17 +408,26 @@ static void AddFoldedRange(CharClassBuilder* cc, Rune lo, Rune hi, int depth) {
 // Pushes the literal rune r onto the stack.
 bool Regexp::ParseState::PushLiteral(Rune r) {
   // Do case folding if needed.
-  if ((flags_ & FoldCase) && CycleFoldRune(r) != r) {
-    Regexp* re = new Regexp(kRegexpCharClass, flags_ & ~FoldCase);
-    re->ccb_ = new CharClassBuilder;
-    Rune r1 = r;
-    do {
-      if (!(flags_ & NeverNL) || r != '\n') {
-        re->ccb_->AddRange(r, r);
-      }
-      r = CycleFoldRune(r);
-    } while (r != r1);
-    return PushRegexp(re);
+  if (flags_ & FoldCase) {
+    if (flags_ & Latin1 && (('A' <= r && r <= 'Z') ||
+                            ('a' <= r && r <= 'z'))) {
+      Regexp* re = new Regexp(kRegexpCharClass, flags_ & ~FoldCase);
+      re->ccb_ = new CharClassBuilder;
+      AddFoldedRangeLatin1(re->ccb_, r, r);
+      return PushRegexp(re);
+    }
+    if (!(flags_ & Latin1) && CycleFoldRune(r) != r) {
+      Regexp* re = new Regexp(kRegexpCharClass, flags_ & ~FoldCase);
+      re->ccb_ = new CharClassBuilder;
+      Rune r1 = r;
+      do {
+        if (!(flags_ & NeverNL) || r != '\n') {
+          re->ccb_->AddRange(r, r);
+        }
+        r = CycleFoldRune(r);
+      } while (r != r1);
+      return PushRegexp(re);
+    }
   }
 
   // Exclude newline if applicable.
@@ -775,7 +799,8 @@ Rune* Regexp::LeadingString(Regexp* re, int* nrune,
   while (re->op() == kRegexpConcat && re->nsub() > 0)
     re = re->sub()[0];
 
-  *flags = static_cast<Regexp::ParseFlags>(re->parse_flags_ & Regexp::FoldCase);
+  *flags = static_cast<Regexp::ParseFlags>(re->parse_flags_ &
+                                           (Regexp::FoldCase | Regexp::Latin1));
 
   if (re->op() == kRegexpLiteral) {
     *nrune = 1;
@@ -1174,16 +1199,26 @@ void FactorAlternationImpl::Round3(Regexp** sub, int nsub,
         if (re->op() == kRegexpCharClass) {
           CharClass* cc = re->cc();
           for (CharClass::iterator it = cc->begin(); it != cc->end(); ++it)
-            ccb.AddRange(it->lo, it->hi);
+            ccb.AddRangeFlags(it->lo, it->hi, re->parse_flags());
         } else if (re->op() == kRegexpLiteral) {
-          ccb.AddRangeFlags(re->rune(), re->rune(), re->parse_flags());
+          if (re->parse_flags() & Regexp::FoldCase) {
+            // AddFoldedRange() can terminate prematurely if the character class
+            // already contains the rune. For example, if it contains 'a' and we
+            // want to add folded 'a', it sees 'a' and stops without adding 'A'.
+            // To avoid that, we use an empty character class and then merge it.
+            CharClassBuilder tmp;
+            tmp.AddRangeFlags(re->rune(), re->rune(), re->parse_flags());
+            ccb.AddCharClass(&tmp);
+          } else {
+            ccb.AddRangeFlags(re->rune(), re->rune(), re->parse_flags());
+          }
         } else {
           LOG(DFATAL) << "RE2: unexpected op: " << re->op() << " "
                       << re->ToString();
         }
         re->Decref();
       }
-      Regexp* re = Regexp::NewCharClass(ccb.GetCharClass(), flags);
+      Regexp* re = Regexp::NewCharClass(ccb.GetCharClass(), flags & ~Regexp::FoldCase);
       splices->emplace_back(re, sub + start, i - start);
     }
 
@@ -1322,14 +1357,14 @@ bool Regexp::ParseState::MaybeConcatString(int r, ParseFlags flags) {
 // Parses a decimal integer, storing it in *np.
 // Sets *s to span the remainder of the string.
 static bool ParseInteger(absl::string_view* s, int* np) {
-  if (s->empty() || !isdigit((*s)[0] & 0xFF))
+  if (s->empty() || !absl::ascii_isdigit((*s)[0] & 0xFF))
     return false;
   // Disallow leading zeros.
-  if (s->size() >= 2 && (*s)[0] == '0' && isdigit((*s)[1] & 0xFF))
+  if (s->size() >= 2 && (*s)[0] == '0' && absl::ascii_isdigit((*s)[1] & 0xFF))
     return false;
   int n = 0;
   int c;
-  while (!s->empty() && isdigit(c = (*s)[0] & 0xFF)) {
+  while (!s->empty() && absl::ascii_isdigit(c = (*s)[0] & 0xFF)) {
     // Avoid overflow.
     if (n >= 100000000)
       return false;
@@ -1468,7 +1503,7 @@ static bool ParseEscape(absl::string_view* s, Rune* rp,
   int code;
   switch (c) {
     default:
-      if (c < Runeself && !isalpha(c) && !isdigit(c)) {
+      if (c < Runeself && !absl::ascii_isalnum(c)) {
         // Escaped non-word characters are always themselves.
         // PCRE is not quite so rigorous: it accepts things like
         // \q, but we don't.  We once rejected \_, but too many
@@ -1611,10 +1646,15 @@ void CharClassBuilder::AddRangeFlags(
   }
 
   // If folding case, add fold-equivalent characters too.
-  if (parse_flags & Regexp::FoldCase)
-    AddFoldedRange(this, lo, hi, 0);
-  else
+  if (parse_flags & Regexp::FoldCase) {
+    if (parse_flags & Regexp::Latin1) {
+      AddFoldedRangeLatin1(this, lo, hi);
+    } else {
+      AddFoldedRange(this, lo, hi, 0);
+    }
+  } else {
     AddRange(lo, hi);
+  }
 }
 
 // Look for a group with the given name.
@@ -2059,7 +2099,16 @@ bool Regexp::ParseState::ParsePerlFlags(absl::string_view* s) {
     return false;
   }
 
-  t.remove_prefix(2);  // "(?"
+  // Check for look-around assertions. This is NOT because we support them! ;)
+  // As per https://github.com/google/re2/issues/468, we really want to report
+  // kRegexpBadPerlOp (not kRegexpBadNamedCapture) for look-behind assertions.
+  // Additionally, it would be nice to report not "(?<", but "(?<=" or "(?<!".
+  if ((t.size() > 3 && (t[2] == '=' || t[2] == '!')) ||
+      (t.size() > 4 && t[2] == '<' && (t[3] == '=' || t[3] == '!'))) {
+    status_->set_code(kRegexpBadPerlOp);
+    status_->set_error_arg(absl::string_view(t.data(), t[2] == '<' ? 4 : 3));
+    return false;
+  }
 
   // Check for named captures, first introduced in Python's regexp library.
   // As usual, there are three slightly different syntaxes:
@@ -2074,22 +2123,23 @@ bool Regexp::ParseState::ParsePerlFlags(absl::string_view* s) {
   // support all three as well.  EcmaScript 4 uses only the Python form.
   //
   // In both the open source world (via Code Search) and the
-  // Google source tree, (?P<expr>name) is the dominant form,
-  // so that's the one we implement.  One is enough.
-  if (t.size() > 2 && t[0] == 'P' && t[1] == '<') {
+  // Google source tree, (?P<name>expr) and (?<name>expr) are the
+  // dominant forms of named captures and both are supported.
+  if ((t.size() > 4 && t[2] == 'P' && t[3] == '<') ||
+      (t.size() > 3 && t[2] == '<')) {
     // Pull out name.
-    size_t end = t.find('>', 2);
+    size_t begin = t[2] == 'P' ? 4 : 3;
+    size_t end = t.find('>', begin);
     if (end == absl::string_view::npos) {
-      if (!IsValidUTF8(*s, status_))
+      if (!IsValidUTF8(t, status_))
         return false;
       status_->set_code(kRegexpBadNamedCapture);
-      status_->set_error_arg(*s);
+      status_->set_error_arg(t);
       return false;
     }
 
-    // t is "P<name>...", t[end] == '>'
-    absl::string_view capture(t.data()-2, end+3);  // "(?P<name>"
-    absl::string_view name(t.data()+2, end-2);     // "name"
+    absl::string_view capture(t.data(), end+1);
+    absl::string_view name(t.data()+begin, end-begin);
     if (!IsValidUTF8(name, status_))
       return false;
     if (!IsValidCaptureName(name)) {
@@ -2103,10 +2153,11 @@ bool Regexp::ParseState::ParsePerlFlags(absl::string_view* s) {
       return false;
     }
 
-    s->remove_prefix(
-        static_cast<size_t>(capture.data() + capture.size() - s->data()));
+    s->remove_prefix(capture.size());
     return true;
   }
+
+  t.remove_prefix(2);  // "(?"
 
   bool negated = false;
   bool sawflags = false;

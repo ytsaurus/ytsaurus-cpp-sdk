@@ -16,6 +16,17 @@ using namespace NYson;
 
 ////////////////////////////////////////////////////////////////////////////////
 
+TYsonStructFinalClassHolder::TYsonStructFinalClassHolder(std::type_index typeIndex)
+    : FinalType_(typeIndex)
+{ }
+
+////////////////////////////////////////////////////////////////////////////////
+
+TYsonStructBase::TYsonStructBase()
+{
+    TYsonStructRegistry::Get()->OnBaseCtorCalled();
+}
+
 IMapNodePtr TYsonStructBase::GetLocalUnrecognized() const
 {
     return LocalUnrecognized_;
@@ -92,7 +103,7 @@ void TYsonStructBase::Save(IOutputStream* output) const
 
 void TYsonStructBase::Postprocess(const TYPath& path)
 {
-    Meta_->Postprocess(this, path);
+    Meta_->PostprocessStruct(this, path);
 }
 
 void TYsonStructBase::SetDefaults()
@@ -106,9 +117,9 @@ void TYsonStructBase::SaveParameter(const TString& key, IYsonConsumer* consumer)
     Meta_->GetParameter(key)->Save(this, consumer);
 }
 
-void TYsonStructBase::LoadParameter(const TString& key, const NYTree::INodePtr& node, EMergeStrategy mergeStrategy)
+void TYsonStructBase::LoadParameter(const TString& key, const NYTree::INodePtr& node)
 {
-    Meta_->LoadParameter(this, key, node, mergeStrategy);
+    Meta_->LoadParameter(this, key, node);
 }
 
 void TYsonStructBase::ResetParameter(const TString& key)
@@ -129,10 +140,16 @@ std::vector<TString> TYsonStructBase::GetAllParameterAliases(const TString& key)
     return result;
 }
 
+void TYsonStructBase::WriteSchema(IYsonConsumer* consumer) const
+{
+    return Meta_->WriteSchema(this, consumer);
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 void TYsonStruct::InitializeRefCounted()
 {
+    TYsonStructRegistry::Get()->OnFinalCtorCalled();
     if (!TYsonStructRegistry::InitializationInProgress()) {
         SetDefaults();
     }
@@ -148,6 +165,20 @@ TYsonStructRegistry* TYsonStructRegistry::Get()
 bool TYsonStructRegistry::InitializationInProgress()
 {
     return CurrentlyInitializingMeta_ != nullptr;
+}
+
+void TYsonStructRegistry::OnBaseCtorCalled()
+{
+    if (CurrentlyInitializingMeta_ != nullptr) {
+        ++RegistryDepth_;
+    }
+}
+
+void TYsonStructRegistry::OnFinalCtorCalled()
+{
+    if (CurrentlyInitializingMeta_ != nullptr) {
+        --RegistryDepth_;
+    }
 }
 
 TYsonStructRegistry::TForbidCachedDynamicCastGuard::TForbidCachedDynamicCastGuard(TYsonStructBase* target)

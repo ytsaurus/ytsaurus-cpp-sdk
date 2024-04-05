@@ -30,6 +30,8 @@ struct IYPathServiceContext
     : public virtual NRpc::IServiceContext
 {
     virtual void SetRequestHeader(std::unique_ptr<NRpc::NProto::TRequestHeader> header) = 0;
+
+    virtual void SetReadRequestComplexityLimiter(const TReadRequestComplexityLimiterPtr& limiter) = 0;
     virtual TReadRequestComplexityLimiterPtr GetReadRequestComplexityLimiter() = 0;
 };
 
@@ -45,6 +47,8 @@ public:
     explicit TYPathServiceContextWrapper(IYPathServiceContextPtr underlyingContext);
 
     void SetRequestHeader(std::unique_ptr<NRpc::NProto::TRequestHeader> header) override;
+
+    void SetReadRequestComplexityLimiter(const TReadRequestComplexityLimiterPtr& limiter) override;
     TReadRequestComplexityLimiterPtr GetReadRequestComplexityLimiter() override;
 
     const IYPathServiceContextPtr& GetUnderlyingContext() const;
@@ -310,11 +314,11 @@ private:
         const NYson::TYsonString& wholeYson);
     TFuture<NYson::TYsonString> DoListAttribute(const TYPath& path);
 
-    void DoSetAttribute(const TYPath& path, const NYson::TYsonString& newYson);
+    void DoSetAttribute(const TYPath& path, const NYson::TYsonString& newYson, bool force = false);
     void DoRemoveAttribute(const TYPath& path, bool force);
 
     bool GuardedGetBuiltinAttribute(TInternedAttributeKey key, NYson::IYsonConsumer* consumer);
-    bool GuardedSetBuiltinAttribute(TInternedAttributeKey key, const NYson::TYsonString& value);
+    bool GuardedSetBuiltinAttribute(TInternedAttributeKey key, const NYson::TYsonString& value, bool force);
     bool GuardedRemoveBuiltinAttribute(TInternedAttributeKey key);
 
     void ValidateAttributeKey(TStringBuf key) const;
@@ -363,6 +367,25 @@ private:
 };
 
 ////////////////////////////////////////////////////////////////////////////////
+
+class TTypedConsumer
+    : public NYson::TForwardingYsonConsumer
+{
+protected:
+    void ThrowInvalidType(ENodeType actualType);
+    virtual ENodeType GetExpectedType() = 0;
+
+    void OnMyStringScalar(TStringBuf value) override;
+    void OnMyInt64Scalar(i64 value) override;
+    void OnMyUint64Scalar(ui64 value) override;
+    void OnMyDoubleScalar(double value) override;
+    void OnMyBooleanScalar(bool value) override;
+    void OnMyEntity() override;
+
+    void OnMyBeginList() override;
+
+    void OnMyBeginMap() override;
+};
 
 void SetNodeFromProducer(
     const INodePtr& node,

@@ -8,7 +8,7 @@ namespace NYT::NYson {
 TAsyncYsonWriter::TAsyncYsonWriter(EYsonType type)
     : Type_(type)
     , SyncWriter_(&Stream_, type)
-    , FlushedSize_(std::make_shared<std::atomic<ui64>>(0))
+    , FlushedSize_(std::make_shared<std::atomic<i64>>(0))
 { }
 
 void TAsyncYsonWriter::OnStringScalar(TStringBuf value)
@@ -94,12 +94,12 @@ void TAsyncYsonWriter::OnRaw(TFuture<TYsonString> asyncStr)
             flushedSize->fetch_add(ysonStr.AsStringBuf().size(), std::memory_order::relaxed);
             return TSegment{
                 ysonStr,
-                ysonStr.GetType() == EYsonType::Node && (!topLevel || type != EYsonType::Node)
+                ysonStr.GetType() == EYsonType::Node && (!topLevel || type != EYsonType::Node),
             };
         })));
 }
 
-ui64 TAsyncYsonWriter::GetTotalWrittenSize() const
+i64 TAsyncYsonWriter::GetTotalWrittenSize() const
 {
     return FlushedSize_->load(std::memory_order::relaxed) + SyncWriter_.GetTotalWrittenSize();
 }

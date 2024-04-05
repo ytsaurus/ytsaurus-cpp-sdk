@@ -146,8 +146,15 @@ public:
 
         // See https://c-ares.haxx.se/ares_init_options.html for full details.
         int mask = 0;
-        Options_.flags |= ARES_FLAG_STAYOPEN;
+
+        if (Config_->ForceTcp) {
+            Options_.flags |= ARES_FLAG_USEVC;
+        }
+        if (Config_->KeepSocket) {
+            Options_.flags |= ARES_FLAG_STAYOPEN;
+        }
         mask |= ARES_OPT_FLAGS;
+
         Options_.timeout = static_cast<int>(Config_->ResolveTimeout.MilliSeconds());
         mask |= ARES_OPT_TIMEOUTMS;
 
@@ -492,6 +499,8 @@ private:
                 request->HostName);
             request->Promise.TrySet(TError("Ares DNS resolve failed for %Qv",
                 request->HostName)
+                << TErrorAttribute("enable_ipv4", request->Options.EnableIPv4)
+                << TErrorAttribute("enable_ipv6", request->Options.EnableIPv6)
                 << TError(ares_strerror(status)));
             FailureCounter_.Increment();
             return;

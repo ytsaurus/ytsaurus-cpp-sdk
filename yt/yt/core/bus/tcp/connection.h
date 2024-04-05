@@ -2,6 +2,7 @@
 
 #include "packet.h"
 #include "dispatcher_impl.h"
+#include "ssl_helpers.h"
 
 #include <yt/yt/core/bus/private.h>
 #include <yt/yt/core/bus/bus.h>
@@ -19,6 +20,7 @@
 #include <yt/yt/core/misc/mpsc_stack.h>
 #include <yt/yt/core/misc/ring_queue.h>
 #include <yt/yt/core/misc/atomic_ptr.h>
+#include <yt/yt/core/misc/memory_usage_tracker.h>
 
 #include <yt/yt/core/net/public.h>
 
@@ -85,7 +87,8 @@ public:
         const std::optional<TString>& unixDomainSocketPath,
         IMessageHandlerPtr handler,
         NConcurrency::IPollerPtr poller,
-        IPacketTranscoderFactory* packetTranscoderFactory);
+        IPacketTranscoderFactory* packetTranscoderFactory,
+        IMemoryUsageTrackerPtr memoryUsageTracker);
 
     ~TTcpConnection();
 
@@ -182,11 +185,6 @@ private:
 
     using TPacketPtr = TIntrusivePtr<TPacket>;
 
-    struct TDeleter
-    {
-        void operator()(SSL* ctx) const;
-    };
-
     const TBusConfigPtr Config_;
     const EConnectionType ConnectionType_;
     const TConnectionId Id_;
@@ -199,8 +197,8 @@ private:
     const IMessageHandlerPtr Handler_;
     const NConcurrency::IPollerPtr Poller_;
 
-    const NLogging::TLogger Logger;
     const TString LoggingTag_;
+    const NLogging::TLogger Logger;
 
     const TPromise<void> ReadyPromise_ = NewPromise<void>();
 
@@ -228,6 +226,8 @@ private:
 
     std::atomic<EMultiplexingBand> MultiplexingBand_ = EMultiplexingBand::Default;
 
+    EMultiplexingBand ActualMultiplexingBand_ = EMultiplexingBand::Default;
+
     TAtomicObject<TError> Error_;
 
     NNet::IAsyncDialerSessionPtr DialerSession_;
@@ -241,7 +241,7 @@ private:
     std::unique_ptr<IPacketDecoder> Decoder_;
     const NProfiling::TCpuDuration ReadStallTimeout_;
     std::atomic<NProfiling::TCpuInstant> LastIncompleteReadTime_ = std::numeric_limits<NProfiling::TCpuInstant>::max();
-    TBlob ReadBuffer_;
+    TMemoryTrackedBlob ReadBuffer_;
 
     TRingQueue<TPacketPtr> QueuedPackets_;
     TRingQueue<TPacketPtr> EncodedPackets_;
@@ -250,7 +250,7 @@ private:
     std::unique_ptr<IPacketEncoder> Encoder_;
     const NProfiling::TCpuDuration WriteStallTimeout_;
     std::atomic<NProfiling::TCpuInstant> LastIncompleteWriteTime_ = std::numeric_limits<NProfiling::TCpuInstant>::max();
-    std::vector<std::unique_ptr<TBlob>> WriteBuffers_;
+    std::vector<TMemoryTrackedBlob> WriteBuffers_;
     TRingQueue<TRef> EncodedFragments_;
     TRingQueue<size_t> EncodedPacketSizes_;
 
@@ -260,7 +260,6 @@ private:
 
     i64 LastRetransmitCount_ = 0;
 
-    bool SupportsHandshakes_ = false;
     bool HandshakeEnqueued_ = false;
     bool HandshakeReceived_ = false;
     bool HandshakeSent_ = false;
@@ -280,9 +279,13 @@ private:
     const EEncryptionMode EncryptionMode_;
     const EVerificationMode VerificationMode_;
 
-    size_t MaxFragmentsPerWrite = 256;
+    const IMemoryUsageTrackerPtr MemoryUsageTracker_;
 
-    void Open();
+    NYTree::IAttributeDictionaryPtr PeerAttributes_;
+
+    size_t MaxFragmentsPerWrite_ = 256;
+
+    void Open(TGuard<NThreading::TSpinLock>& guard);
     void Close();
     void CloseSslSession(ESslState newSslState);
 

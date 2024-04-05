@@ -144,11 +144,18 @@ NHttpClient::IHttpResponsePtr TFileReader::Request(const TClientContext& context
     } else {
         header.SetToken(context.Token);
     }
+
+    if (context.ImpersonationUser) {
+        header.SetImpersonationUser(*context.ImpersonationUser);
+    }
+
+    UpdateHeaderForProxyIfNeed(hostName, context, header);
+
     header.AddTransactionId(transactionId);
     header.SetOutputFormat(TMaybe<TFormat>()); // Binary format
 
     if (EndOffset_) {
-        Y_VERIFY(*EndOffset_ >= currentOffset);
+        Y_ABORT_UNLESS(*EndOffset_ >= currentOffset);
         FileReaderOptions_.Length(*EndOffset_ - currentOffset);
     }
     FileReaderOptions_.Offset(currentOffset);
@@ -198,6 +205,13 @@ NHttpClient::IHttpResponsePtr TBlobTableReader::Request(const TClientContext& co
     } else {
         header.SetToken(context.Token);
     }
+
+    if (context.ImpersonationUser) {
+        header.SetImpersonationUser(*context.ImpersonationUser);
+    }
+
+    UpdateHeaderForProxyIfNeed(hostName, context, header);
+
     header.AddTransactionId(transactionId);
     header.SetOutputFormat(TMaybe<TFormat>()); // Binary format
 

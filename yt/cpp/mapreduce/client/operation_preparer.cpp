@@ -125,7 +125,7 @@ public:
 private:
     void UpdateOperationStatus(TStringBuf err)
     {
-        Y_VERIFY(Operation_);
+        Y_ABORT_UNLESS(Operation_);
         Operation_->OnStatusUpdated(
             ::TStringBuilder() << "Retriable error during operation start: " << err);
     }
@@ -315,7 +315,7 @@ public:
         return FileName_;
     }
 
-    ui64 GetDataSize() const override
+    i64 GetDataSize() const override
     {
         return GetFileLength(FileName_);
     }
@@ -353,9 +353,9 @@ public:
         return Description_;
     }
 
-    ui64 GetDataSize() const override
+    i64 GetDataSize() const override
     {
-        return Data_.size();
+        return std::ssize(Data_);
     }
 
 private:
@@ -398,6 +398,7 @@ TJobPreparer::TJobPreparer(
     : OperationPreparer_(operationPreparer)
     , Spec_(spec)
     , Options_(options)
+    , Layers_(spec.Layers_)
 {
 
     CreateStorage();
@@ -432,6 +433,11 @@ TVector<TRichYPath> TJobPreparer::GetFiles() const
     TVector<TRichYPath> allFiles = CypressFiles_;
     allFiles.insert(allFiles.end(), CachedFiles_.begin(), CachedFiles_.end());
     return allFiles;
+}
+
+TVector<TYPath> TJobPreparer::GetLayers() const
+{
+    return Layers_;
 }
 
 const TString& TJobPreparer::GetClassName() const
@@ -572,9 +578,10 @@ TMaybe<TString> TJobPreparer::GetItemFromCypressCache(const TString& md5Signatur
 
 TDuration TJobPreparer::GetWaitForUploadTimeout(const IItemToUpload& itemToUpload) const
 {
-    const TDuration extraTime = OperationPreparer_.GetContext().Config->WaitLockPollInterval +
+    TDuration extraTime = OperationPreparer_.GetContext().Config->WaitLockPollInterval +
         TDuration::MilliSeconds(100);
-    const double dataSizeGb = static_cast<double>(itemToUpload.GetDataSize()) / 1_GB;
+    auto dataSizeGb = (itemToUpload.GetDataSize() + 1_GB - 1) / 1_GB;
+    dataSizeGb = Max<ui64>(dataSizeGb, 1);
     return extraTime + dataSizeGb * OperationPreparer_.GetContext().Config->CacheLockTimeoutPerGb;
 }
 
@@ -677,7 +684,7 @@ TMaybe<TString> TJobPreparer::TryUploadWithDeduplication(const IItemToUpload& it
 TString TJobPreparer::UploadToCacheUsingApi(const IItemToUpload& itemToUpload) const
 {
     auto md5Signature = itemToUpload.CalculateMD5();
-    Y_VERIFY(md5Signature.size() == 32);
+    Y_ABORT_UNLESS(md5Signature.size() == 32);
 
     if (auto cachedItemPath = GetItemFromCypressCache(md5Signature, itemToUpload.GetDescription())) {
         return *cachedItemPath;
@@ -687,7 +694,10 @@ TString TJobPreparer::UploadToCacheUsingApi(const IItemToUpload& itemToUpload) c
         itemToUpload.GetDescription(),
         OperationPreparer_.GetPreparationId());
 
-    if (OperationPreparer_.GetContext().Config->CacheUploadDeduplicationMode != EUploadDeduplicationMode::Disabled) {
+    const auto& config = OperationPreparer_.GetContext().Config;
+
+    if (config->CacheUploadDeduplicationMode != EUploadDeduplicationMode::Disabled &&
+        itemToUpload.GetDataSize() > config->CacheUploadDeduplicationThreshold) {
         if (auto path = TryUploadWithDeduplication(itemToUpload)) {
             return *path;
         }
@@ -714,7 +724,7 @@ TString TJobPreparer::UploadToCache(const IItemToUpload& itemToUpload) const
             result = UploadToRandomPath(itemToUpload);
             break;
         default:
-            Y_FAIL("Unknown file cache mode: %d", static_cast<int>(Options_.FileCacheMode_));
+            Y_ABORT("Unknown file cache mode: %d", static_cast<int>(Options_.FileCacheMode_));
     }
 
     YT_LOG_INFO("Complete uploading file (FileName: %v; PreparationId: %v)",
@@ -799,7 +809,7 @@ void TJobPreparer::UploadBinary(const TJobBinaryConfig& jobBinary)
         }
         UseFileInCypress(ytPath.FileName("cppbinary").Executable(true));
     } else {
-        Y_FAIL("%s", (::TStringBuilder() << "Unexpected jobBinary tag: " << jobBinary.index()).data());
+        Y_ABORT("%s", (::TStringBuilder() << "Unexpected jobBinary tag: " << jobBinary.index()).data());
     }
 }
 

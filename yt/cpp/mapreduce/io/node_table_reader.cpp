@@ -294,7 +294,7 @@ ui32 TNodeTableReader::GetTableIndex() const
 ui32 TNodeTableReader::GetRangeIndex() const
 {
     CheckValidity();
-    return RangeIndex_.GetOrElse(0);
+    return RangeIndex_.GetOrElse(0) + RangeIndexShift_;
 }
 
 ui64 TNodeTableReader::GetRowIndex() const
@@ -352,9 +352,12 @@ void TNodeTableReader::PrepareParsing()
 
 void TNodeTableReader::OnStreamError(std::exception_ptr exception, TString error)
 {
-    YT_LOG_ERROR("Read error: %v", error);
+    YT_LOG_ERROR("Read error (RangeIndex: %v, RowIndex: %v, Error: %v)", RangeIndex_, RowIndex_, error);
     Exception_ = exception;
     if (Input_.Retry(RangeIndex_, RowIndex_)) {
+        if (RangeIndex_) {
+            RangeIndexShift_ += *RangeIndex_;
+        }
         RowIndex_.Clear();
         RangeIndex_.Clear();
         PrepareParsing();

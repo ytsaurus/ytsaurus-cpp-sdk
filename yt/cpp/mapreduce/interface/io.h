@@ -113,7 +113,13 @@ class IFileReader
 class IFileWriter
     : public TThrRefBase
     , public IOutputStream
-{ };
+{
+public:
+    virtual size_t GetBufferMemoryUsage() const
+    {
+        return 0;
+    }
+};
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -168,6 +174,11 @@ public:
     /// By default it does nothing, but implementations are welcome to override this method.
     virtual void Abort()
     { }
+
+    virtual size_t GetBufferMemoryUsage() const
+    {
+        return 0;
+    }
 };
 
 /// @brief Interface to deal with multiple raw output streams.
@@ -191,6 +202,11 @@ public:
     /// By default it does nothing, but implementations are welcome to override this method.
     virtual void Abort()
     { }
+
+    virtual size_t GetBufferMemoryUsage() const
+    {
+        return 0;
+    }
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -284,12 +300,6 @@ public:
         return Reader_ == it.Reader_;
     }
 
-    /// Inequality operator.
-    bool operator!=(const TTableReaderIterator& it) const
-    {
-        return Reader_ != it.Reader_;
-    }
-
     /// Dereference operator.
     TTableReader<T>& operator*()
     {
@@ -378,6 +388,8 @@ public:
 
     /// Stop writing data as soon as possible (without flushing data, e.g. before aborting parent transaction).
     void Finish();
+
+    size_t GetBufferMemoryUsage() const;
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -520,7 +532,7 @@ TTableReaderPtr<typename NDetail::TProtoOneOfUnique<Ts...>::TType> CreateProtoMu
     const TTableReaderOptions& options = {});
 
 ///
-/// @brief Create a homogenous protobuf multi table reader from a stream.
+/// @brief Create a homogeneous protobuf multi table reader from a stream.
 ///
 /// @tparam T Protobuf message type to read (must be inherited from `Message`).
 ///

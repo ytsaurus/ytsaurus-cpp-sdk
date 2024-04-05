@@ -108,6 +108,10 @@ void TBusConfig::Register(TRegistrar registrar)
         .Default(5);
     registrar.Parameter("bind_retry_backoff", &TThis::BindRetryBackoff)
         .Default(TDuration::Seconds(3));
+    registrar.Parameter("connection_start_delay", &TThis::ConnectionStartDelay)
+        .Default();
+    registrar.Parameter("packet_decoder_delay", &TThis::PacketDecoderDelay)
+        .Default();
     registrar.Parameter("read_stall_timeout", &TThis::ReadStallTimeout)
         .Default(TDuration::Minutes(1));
     registrar.Parameter("write_stall_timeout", &TThis::WriteStallTimeout)
@@ -120,18 +124,18 @@ void TBusConfig::Register(TRegistrar registrar)
         .Default(EEncryptionMode::Optional);
     registrar.Parameter("verification_mode", &TThis::VerificationMode)
         .Default(EVerificationMode::None);
-    registrar.Parameter("ca_file", &TThis::CAFile)
+    registrar.Parameter("ca", &TThis::CA)
         .Default();
-    registrar.Parameter("cert_chain_file", &TThis::CertificateChainFile)
+    registrar.Parameter("cert_chain", &TThis::CertificateChain)
         .Default();
-    registrar.Parameter("private_key_file", &TThis::PrivateKeyFile)
+    registrar.Parameter("private_key", &TThis::PrivateKey)
         .Default();
     registrar.Parameter("cipher_list", &TThis::CipherList)
         .Default();
-    registrar.Parameter("use_key_pair_from_ssl_context", &TThis::UseKeyPairFromSslContext)
-        .Default(false);
     registrar.Parameter("load_certs_from_bus_certs_directory", &TThis::LoadCertsFromBusCertsDirectory)
         .Default(false);
+    registrar.Parameter("peer_alternative_host_name", &TThis::PeerAlternativeHostName)
+        .Optional();
 }
 
 ////////////////////////////////////////////////////////////////////////////////

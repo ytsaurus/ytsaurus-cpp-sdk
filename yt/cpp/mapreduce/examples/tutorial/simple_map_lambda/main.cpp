@@ -28,11 +28,11 @@ int main() {
 
     NYT::TransformCopyIf<TLoginRecord, TEmailRecord>(
         client,
-        "//home/dev/tutorial/staff_unsorted",
+        "//home/tutorial/staff_unsorted",
         outputTable,
         [](auto& src, auto& dst) {
-            dst.SetName(src.GetName());
-            dst.SetEmail(src.GetLogin() + GlobalSettings.MailSuffix);
+            dst.set_name(src.name());
+            dst.set_email(src.login() + GlobalSettings.MailSuffix);
             return true;
         });
 

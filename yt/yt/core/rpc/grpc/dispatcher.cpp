@@ -60,7 +60,7 @@ public:
         auto guard = Guard(ConfigureLock_);
 
         if (IsConfigured()) {
-            THROW_ERROR_EXCEPTION("GPRC dispatcher is already configured");
+            THROW_ERROR_EXCEPTION("GRPC dispatcher is already configured");
         }
 
         DoConfigure(config);
@@ -88,8 +88,7 @@ private:
         TDispatcherThread(TGrpcLibraryLockPtr libraryLock, int index)
             : TThread(
                 Format("Grpc/%v", index),
-                NThreading::EThreadPriority::Normal,
-                GrpcDispatcherThreadShutdownPriority)
+                {.ShutdownPriority = GrpcDispatcherThreadShutdownPriority})
             , LibraryLock_(std::move(libraryLock))
             , GuardedCompletionQueue_(TGrpcCompletionQueuePtr(grpc_completion_queue_create_for_next(nullptr)))
         {

@@ -17,7 +17,7 @@ namespace NYT {
 
 TRetryfulWriter::~TRetryfulWriter()
 {
-    NDetail::FinishOrDie(this, "TRetryfulWriter");
+    NDetail::FinishOrDie(this, AutoFinish_, "TRetryfulWriter");
 }
 
 void TRetryfulWriter::CheckWriterState()
@@ -143,6 +143,11 @@ void TRetryfulWriter::Abort()
         WriteTransaction_->Abort();
     }
     WriterState_ = Completed;
+}
+
+size_t TRetryfulWriter::GetBufferMemoryUsage() const
+{
+    return BufferSize_ * 4;
 }
 
 size_t TRetryfulWriter::GetBufferSize(const TMaybe<TWriterOptions>& writerOptions)

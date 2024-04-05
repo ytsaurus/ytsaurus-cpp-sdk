@@ -194,7 +194,7 @@ namespace NTi {
         if (Y_LIKELY(IsRc(factoryOrRc))) {
             size_t rc = FactoryOrRc_.fetch_sub(2, std::memory_order_acq_rel);
             if (rc == 2) {
-                Y_FAIL("DecRef isn't supposed to drop");
+                Y_ABORT("DecRef isn't supposed to drop");
             }
         } else if (Y_LIKELY(IsFactory(factoryOrRc))) {
             auto factory = CastToFactory(factoryOrRc);
@@ -228,14 +228,14 @@ namespace NTi {
             factory.SaveCache(result);
         }
 
-        Y_VERIFY(result->GetTypeName() == type->GetTypeName());
-        Y_VERIFY_DEBUG(result->GetHash() == type->GetHash());
+        Y_ABORT_UNLESS(result->GetTypeName() == type->GetTypeName());
+        Y_DEBUG_ABORT_UNLESS(result->GetHash() == type->GetHash());
         return static_cast<const T*>(result);
     }
 
     bool operator==(const TType& lhs, const TType& rhs) {
-        Y_VERIFY(&lhs);
-        Y_VERIFY(&rhs);
+        Y_ABORT_UNLESS(&lhs);
+        Y_ABORT_UNLESS(&rhs);
         return NEq::TStrictlyEqual().IgnoreHash(&lhs, &rhs);
     }
 
@@ -864,6 +864,98 @@ namespace NTi {
         Y_UNUSED(factory);
     }
 
+    TDate32Type::TDate32Type()
+        : TPrimitiveType({}, EPrimitiveTypeName::Date32)
+    {
+    }
+
+    TDate32TypePtr TDate32Type::Instance() {
+        return InstanceRaw()->AsPtr();
+    }
+
+    const TDate32Type* TDate32Type::InstanceRaw() {
+        static auto singleton = TDate32Type();
+        return &singleton;
+    }
+
+    const TDate32Type* TDate32Type::Clone(ITypeFactoryInternal& factory) const noexcept {
+        Y_UNUSED(factory);
+        return InstanceRaw();
+    }
+
+    void TDate32Type::Drop(ITypeFactoryInternal& factory) noexcept {
+        Y_UNUSED(factory);
+    }
+
+    TDatetime64Type::TDatetime64Type()
+        : TPrimitiveType({}, EPrimitiveTypeName::Datetime64)
+    {
+    }
+
+    TDatetime64TypePtr TDatetime64Type::Instance() {
+        return InstanceRaw()->AsPtr();
+    }
+
+    const TDatetime64Type* TDatetime64Type::InstanceRaw() {
+        static auto singleton = TDatetime64Type();
+        return &singleton;
+    }
+
+    const TDatetime64Type* TDatetime64Type::Clone(ITypeFactoryInternal& factory) const noexcept {
+        Y_UNUSED(factory);
+        return InstanceRaw();
+    }
+
+    void TDatetime64Type::Drop(ITypeFactoryInternal& factory) noexcept {
+        Y_UNUSED(factory);
+    }
+
+    TTimestamp64Type::TTimestamp64Type()
+        : TPrimitiveType({}, EPrimitiveTypeName::Timestamp64)
+    {
+    }
+
+    TTimestamp64TypePtr TTimestamp64Type::Instance() {
+        return InstanceRaw()->AsPtr();
+    }
+
+    const TTimestamp64Type* TTimestamp64Type::InstanceRaw() {
+        static auto singleton = TTimestamp64Type();
+        return &singleton;
+    }
+
+    const TTimestamp64Type* TTimestamp64Type::Clone(ITypeFactoryInternal& factory) const noexcept {
+        Y_UNUSED(factory);
+        return InstanceRaw();
+    }
+
+    void TTimestamp64Type::Drop(ITypeFactoryInternal& factory) noexcept {
+        Y_UNUSED(factory);
+    }
+
+    TInterval64Type::TInterval64Type()
+        : TPrimitiveType({}, EPrimitiveTypeName::Interval64)
+    {
+    }
+
+    TInterval64TypePtr TInterval64Type::Instance() {
+        return InstanceRaw()->AsPtr();
+    }
+
+    const TInterval64Type* TInterval64Type::InstanceRaw() {
+        static auto singleton = TInterval64Type();
+        return &singleton;
+    }
+
+    const TInterval64Type* TInterval64Type::Clone(ITypeFactoryInternal& factory) const noexcept {
+        Y_UNUSED(factory);
+        return InstanceRaw();
+    }
+
+    void TInterval64Type::Drop(ITypeFactoryInternal& factory) noexcept {
+        Y_UNUSED(factory);
+    }
+
     TOptionalType::TOptionalType(TMaybe<ui64> hash, const TType* item) noexcept
         : TType(hash, ETypeName::Optional)
         , Item_(item)
@@ -1019,7 +1111,7 @@ namespace NTi {
     }
 
     void TStructType::MakeSortedMembers(TStructType::TMembers members, TArrayRef<size_t> sortedItems) {
-        Y_VERIFY(members.size() == sortedItems.size());
+        Y_ABORT_UNLESS(members.size() == sortedItems.size());
 
         for (size_t i = 0; i < members.size(); ++i) {
             sortedItems[i] = i;
@@ -1371,6 +1463,22 @@ namespace NTi {
         return NPrivate::GetDefaultHeapFactory()->Uuid();
     }
 
+    TDate32TypePtr Date32() {
+        return NPrivate::GetDefaultHeapFactory()->Date32();
+    }
+
+    TDatetime64TypePtr Datetime64() {
+        return NPrivate::GetDefaultHeapFactory()->Datetime64();
+    }
+
+    TTimestamp64TypePtr Timestamp64() {
+        return NPrivate::GetDefaultHeapFactory()->Timestamp64();
+    }
+
+    TInterval64TypePtr Interval64() {
+        return NPrivate::GetDefaultHeapFactory()->Interval64();
+    }
+
     TOptionalTypePtr Optional(TTypePtr item) {
         return NPrivate::GetDefaultHeapFactory()->Optional(std::move(item));
     }
@@ -1549,6 +1657,26 @@ Y_DECLARE_OUT_SPEC(, NTi::TUuidType, o, v) {
     o << "Uuid";
 }
 
+Y_DECLARE_OUT_SPEC(, NTi::TDate32Type, o, v) {
+    Y_UNUSED(v);
+    o << "Date32";
+}
+
+Y_DECLARE_OUT_SPEC(, NTi::TDatetime64Type, o, v) {
+    Y_UNUSED(v);
+    o << "Datetime64";
+}
+
+Y_DECLARE_OUT_SPEC(, NTi::TTimestamp64Type, o, v) {
+    Y_UNUSED(v);
+    o << "Timestamp64";
+}
+
+Y_DECLARE_OUT_SPEC(, NTi::TInterval64Type, o, v) {
+    Y_UNUSED(v);
+    o << "Interval64";
+}
+
 Y_DECLARE_OUT_SPEC(, NTi::TOptionalType, o, v) {
     o << "Optional<" << *v.GetItemTypeRaw() << ">";
 }
@@ -1651,6 +1779,10 @@ static_assert(std::is_trivially_destructible_v<NTi::TDecimalType>);
 static_assert(std::is_trivially_destructible_v<NTi::TJsonType>);
 static_assert(std::is_trivially_destructible_v<NTi::TYsonType>);
 static_assert(std::is_trivially_destructible_v<NTi::TUuidType>);
+static_assert(std::is_trivially_destructible_v<NTi::TDate32Type>);
+static_assert(std::is_trivially_destructible_v<NTi::TDatetime64Type>);
+static_assert(std::is_trivially_destructible_v<NTi::TTimestamp64Type>);
+static_assert(std::is_trivially_destructible_v<NTi::TInterval64Type>);
 static_assert(std::is_trivially_destructible_v<NTi::TOptionalType>);
 static_assert(std::is_trivially_destructible_v<NTi::TListType>);
 static_assert(std::is_trivially_destructible_v<NTi::TDictType>);

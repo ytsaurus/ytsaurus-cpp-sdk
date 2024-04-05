@@ -16,7 +16,8 @@ TFileWriter::TFileWriter(
     const TClientContext& context,
     const TTransactionId& transactionId,
     const TFileWriterOptions& options)
-    : RetryfulWriter_(
+    : AutoFinish_(options.AutoFinish_)
+    , RetryfulWriter_(
         std::move(clientRetryPolicy),
         std::move(transactionPinger),
         context,
@@ -29,7 +30,7 @@ TFileWriter::TFileWriter(
 
 TFileWriter::~TFileWriter()
 {
-    NDetail::FinishOrDie(this, "TFileWriter");
+    NDetail::FinishOrDie(this, AutoFinish_, "TFileWriter");
 }
 
 void TFileWriter::DoWrite(const void* buf, size_t len)
@@ -41,7 +42,7 @@ void TFileWriter::DoWrite(const void* buf, size_t len)
     // and server produced one chunk of desired size and one small chunk.
     while (len > 0) {
         const auto retryBlockRemainingSize = RetryfulWriter_.GetRetryBlockRemainingSize();
-        Y_VERIFY(retryBlockRemainingSize > 0);
+        Y_ABORT_UNLESS(retryBlockRemainingSize > 0);
         const auto firstWriteLen = Min(len, retryBlockRemainingSize);
         RetryfulWriter_.Write(buf, firstWriteLen);
         RetryfulWriter_.NotifyRowEnd();
@@ -53,6 +54,11 @@ void TFileWriter::DoWrite(const void* buf, size_t len)
 void TFileWriter::DoFinish()
 {
     RetryfulWriter_.Finish();
+}
+
+size_t TFileWriter::GetBufferMemoryUsage() const
+{
+    return RetryfulWriter_.GetBufferMemoryUsage();
 }
 
 ////////////////////////////////////////////////////////////////////////////////

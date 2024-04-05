@@ -35,7 +35,7 @@ struct IValidatorNode
 
     virtual void OnChildDone(TValidatorNodeStack* /*validatorNodeStack*/)
     {
-        Y_FAIL();
+        Y_ABORT();
     }
 
     virtual void OnSimpleType(TValidatorNodeStack* /*validatorNodeStack*/, EWireType wireType)
@@ -81,7 +81,7 @@ public:
 
     void PopValidator()
     {
-        Y_VERIFY(!ValidatorStack_.empty());
+        Y_ABORT_UNLESS(!ValidatorStack_.empty());
         ValidatorStack_.pop();
         if (!ValidatorStack_.empty()) {
             ValidatorStack_.top()->OnChildDone(this);
@@ -97,7 +97,7 @@ public:
 
     IValidatorNode* Top() const
     {
-        Y_VERIFY(!ValidatorStack_.empty());
+        Y_ABORT_UNLESS(!ValidatorStack_.empty());
         return ValidatorStack_.top();
     }
 
@@ -388,7 +388,7 @@ std::shared_ptr<IValidatorNode> CreateUsageValidatorNode(const std::shared_ptr<T
         case EWireType::RepeatedVariant16:
             return std::make_shared<TRepeatedVariant16TypeUsageValidator>(CreateUsageValidatorNodeList(skiffSchema->GetChildren()));
     }
-    Y_FAIL();
+    Y_ABORT();
 }
 
 ////////////////////////////////////////////////////////////////////////////////

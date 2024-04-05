@@ -54,7 +54,7 @@ TClientReader::TClientReader(
     , ReadTransaction_(nullptr)
 {
     if (options.CreateTransaction_) {
-        Y_VERIFY(transactionPinger, "Internal error: transactionPinger is null");
+        Y_ABORT_UNLESS(transactionPinger, "Internal error: transactionPinger is null");
         ReadTransaction_ = MakeHolder<TPingableTransaction>(
             ClientRetryPolicy_,
             Context_,
@@ -145,6 +145,9 @@ void TClientReader::CreateRequest(const TMaybe<ui32>& rangeIndex, const TMaybe<u
     if (!CurrentRequestRetryPolicy_) {
         CurrentRequestRetryPolicy_ = ClientRetryPolicy_->CreatePolicyForGenericRequest();
     }
+
+    bool areRangesUpdated = false;
+
     while (true) {
         CurrentRequestRetryPolicy_->NotifyNewAttempt();
 
@@ -154,6 +157,11 @@ void TClientReader::CreateRequest(const TMaybe<ui32>& rangeIndex, const TMaybe<u
         } else {
             header.SetToken(Context_.Token);
         }
+
+        if (Context_.ImpersonationUser) {
+            header.SetImpersonationUser(*Context_.ImpersonationUser);
+        }
+
         auto transactionId = (ReadTransaction_ ? ReadTransaction_->GetId() : ParentTransactionId_);
         header.AddTransactionId(transactionId);
 
@@ -165,7 +173,7 @@ void TClientReader::CreateRequest(const TMaybe<ui32>& rangeIndex, const TMaybe<u
 
         header.SetResponseCompression(ToString(Context_.Config->AcceptEncoding));
 
-        if (rowIndex.Defined()) {
+        if (rowIndex.Defined() && !areRangesUpdated) {
             auto& ranges = Path_.MutableRanges();
             if (ranges.Empty()) {
                 ranges.ConstructInPlace(TVector{TReadRange()});
@@ -178,6 +186,7 @@ void TClientReader::CreateRequest(const TMaybe<ui32>& rangeIndex, const TMaybe<u
                 ranges->erase(ranges->begin(), ranges->begin() + rangeIndex.GetOrElse(0));
             }
             ranges->begin()->LowerLimit(TReadLimit().RowIndex(*rowIndex));
+            areRangesUpdated = true;
         }
 
         header.MergeParameters(FormIORequestParameters(Path_, Options_));
@@ -186,11 +195,12 @@ void TClientReader::CreateRequest(const TMaybe<ui32>& rangeIndex, const TMaybe<u
 
         try {
             const auto proxyName = GetProxyForHeavyRequest(Context_);
-            Response_ = Context_.HttpClient->Request(GetFullUrl(proxyName, Context_, header), requestId, header);
+            UpdateHeaderForProxyIfNeed(proxyName, Context_, header);
+            Response_ = Context_.HttpClient->Request(GetFullUrlForProxy(proxyName, Context_, header), requestId, header);
 
             Input_ = Response_->GetResponseStream();
 
-            YT_LOG_DEBUG("RSP %v - table stream", requestId);
+            YT_LOG_DEBUG("RSP %v - table stream (RequestId: %v, RangeIndex: %v, RowIndex: %v)", requestId, rangeIndex, rowIndex);
 
             return;
         } catch (const TErrorResponse& e) {

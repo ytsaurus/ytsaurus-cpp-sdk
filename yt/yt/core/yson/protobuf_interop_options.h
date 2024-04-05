@@ -11,6 +11,11 @@ namespace NYT::NYson {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+struct TResolveProtobufElementByYPathOptions
+{
+    bool AllowUnknownYsonFields = false;
+};
+
 struct TProtobufWriterOptions
 {
     //! Keep: all unknown fields found during YSON parsing
@@ -28,6 +33,20 @@ struct TProtobufWriterOptions
     static TUnknownYsonFieldModeResolver CreateConstantUnknownYsonFieldModeResolver(EUnknownYsonFieldsMode mode);
 
     TUnknownYsonFieldModeResolver UnknownYsonFieldModeResolver = CreateConstantUnknownYsonFieldModeResolver(EUnknownYsonFieldsMode::Fail);
+    //! If |true| then required fields not found in protobuf metadata are
+    //! silently skipped; otherwise an exception is thrown.
+    bool SkipRequiredFields = false;
+
+    //! Convert yson keys from snake case to camel case.
+    bool ConvertSnakeToCamelCase = false;
+};
+
+struct TProtobufParserOptions
+{
+    //! If |true| then fields with numbers not found in protobuf metadata are
+    //! silently skipped; otherwise an exception is thrown.
+    bool SkipUnknownFields = false;
+
     //! If |true| then required fields not found in protobuf metadata are
     //! silently skipped; otherwise an exception is thrown.
     bool SkipRequiredFields = false;

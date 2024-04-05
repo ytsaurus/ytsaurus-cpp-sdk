@@ -4,7 +4,6 @@
 #include "errors.h"
 
 #include <google/protobuf/descriptor.h>
-#include <google/protobuf/messagext.h>
 
 namespace NYT {
 
@@ -59,6 +58,11 @@ TFormat TFormat::Json()
     return TFormat(TNode("json"));
 }
 
+TFormat TFormat::Dsv()
+{
+    return TFormat(TNode("dsv"));
+}
+
 bool TFormat::IsTextYson() const
 {
     if (!Config.IsString() || Config.AsString() != "yson") {
@@ -87,7 +91,7 @@ bool TFormat::IsYamredDsv() const
 static TString FormatName(const TFormat& format)
 {
     if (!format.Config.IsString()) {
-        Y_VERIFY(format.Config.IsUndefined());
+        Y_ABORT_UNLESS(format.Config.IsUndefined());
         return "<undefined>";
     }
     return format.Config.AsString();

@@ -20,6 +20,8 @@
 
 #include <library/cpp/yt/memory/atomic_intrusive_ptr.h>
 
+#include <library/cpp/yt/misc/tls.h>
+
 #include <atomic>
 #include <mutex>
 
@@ -76,22 +78,22 @@ void SetGlobalTracer(const ITracerPtr& tracer)
 
 ////////////////////////////////////////////////////////////////////////////////
 
-struct TTracingConfigSingleton
+struct TTracingConfigStorage
 {
-    TAtomicIntrusivePtr<TTracingConfig> Config{New<TTracingConfig>()};
+    TAtomicIntrusivePtr<TTracingTransportConfig> Config{New<TTracingTransportConfig>()};
 };
 
-static TTracingConfigSingleton* GlobalTracingConfig()
+static TTracingConfigStorage* GlobalTracingConfig()
 {
-    return LeakySingleton<TTracingConfigSingleton>();
+    return LeakySingleton<TTracingConfigStorage>();
 }
 
-void SetTracingConfig(TTracingConfigPtr config)
+void SetTracingTransportConfig(TTracingTransportConfigPtr config)
 {
     GlobalTracingConfig()->Config.Store(std::move(config));
 }
 
-TTracingConfigPtr GetTracingConfig()
+TTracingTransportConfigPtr GetTracingTransportConfig()
 {
     return GlobalTracingConfig()->Config.Acquire();
 }
@@ -100,8 +102,8 @@ TTracingConfigPtr GetTracingConfig()
 
 namespace NDetail {
 
-thread_local TTraceContext* CurrentTraceContext;
-thread_local TCpuInstant TraceContextTimingCheckpoint;
+YT_THREAD_LOCAL(TTraceContext*) CurrentTraceContext;
+YT_THREAD_LOCAL(TCpuInstant) TraceContextTimingCheckpoint;
 
 TSpanId GenerateSpanId()
 {
@@ -302,6 +304,16 @@ TAllocationTagsPtr TTraceContext::GetAllocationTagsPtr() const noexcept
     auto guard = Guard(AllocationTagsAsRefCountedLock_);
 
     return AllocationTags_;
+}
+
+void TTraceContext::SetAllocationTagsPtr(TAllocationTagsPtr allocationTags) noexcept
+{
+    auto writerGuard = WriterGuard(AllocationTagsLock_);
+
+    // Local guard for setting RefCounted AllocationTags_.
+    auto guard = Guard(AllocationTagsAsRefCountedLock_);
+
+    AllocationTags_ = std::move(allocationTags);
 }
 
 void TTraceContext::DoSetAllocationTags(TAllocationTags::TTags&& tags)
@@ -615,7 +627,7 @@ void ToProto(NProto::TTracingExt* ext, const TTraceContextPtr& context)
     if (auto endpoint = context->GetTargetEndpoint()){
         ext->set_target_endpoint(endpoint.value());
     }
-    if (GetTracingConfig()->SendBaggage) {
+    if (GetTracingTransportConfig()->SendBaggage) {
         if (auto baggage = context->GetBaggage()) {
             ext->set_baggage(baggage.ToString());
         }
@@ -679,7 +691,7 @@ TTraceContextPtr TTraceContext::NewChildFromRpc(
         traceContext->SetBaggage(TYsonString(ext.baggage()));
     }
     if (ext.has_target_endpoint()) {
-        traceContext->SetTargetEndpoint(ext.target_endpoint());
+        traceContext->SetTargetEndpoint(FromProto<TString>(ext.target_endpoint()));
     }
     return traceContext;
 }
@@ -707,6 +719,12 @@ void FlushCurrentTraceContextElapsedTime()
         NProfiling::CpuDurationToDuration(delta));
     context->IncrementElapsedCpuTime(delta);
     NDetail::TraceContextTimingCheckpoint = now;
+}
+
+bool IsCurrentTraceContextRecorded()
+{
+    auto* context = TryGetCurrentTraceContext();
+    return context && context->IsRecorded();
 }
 
 //! Do not rename, change the signature, or drop Y_NO_INLINE.

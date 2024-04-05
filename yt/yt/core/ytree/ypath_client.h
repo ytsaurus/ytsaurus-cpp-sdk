@@ -17,7 +17,7 @@ namespace NYT::NYTree {
 ////////////////////////////////////////////////////////////////////////////////
 
 class TYPathRequest
-   : public NRpc::IClientRequest
+    : public NRpc::IClientRequest
 {
 public:
     //! Enables tagging requests with arbitrary payload.
@@ -96,7 +96,7 @@ class TTypedYPathRequest
     , public TRequestMessage
 {
 public:
-    typedef TTypedYPathResponse<TRequestMessage, TResponseMessage> TTypedResponse;
+    using TTypedResponse = TTypedYPathResponse<TRequestMessage, TResponseMessage>;
 
     explicit TTypedYPathRequest(const NRpc::NProto::TRequestHeader& header)
         : TYPathRequest(header)
@@ -117,7 +117,13 @@ public:
 protected:
     TSharedRef SerializeBody() const override
     {
-        return SerializeProtoToRefWithEnvelope(*this);
+        // COPMAT(danilalexeev): legacy RPC codecs
+        if (Header_.has_request_codec()) {
+            YT_VERIFY(Header_.request_codec() == NYT::ToProto<int>(NCompression::ECodec::None));
+            return SerializeProtoToRefWithCompression(*this);
+        } else {
+            return SerializeProtoToRefWithEnvelope(*this);
+        }
     }
 };
 
@@ -168,11 +174,11 @@ protected:
     static_assert(true)
 
 #define DEFINE_YPATH_PROXY_METHOD_IMPL(ns, method, isMutating) \
-    typedef ::NYT::NYTree::TTypedYPathRequest<ns::TReq##method, ns::TRsp##method> TReq##method; \
-    typedef ::NYT::NYTree::TTypedYPathResponse<ns::TReq##method, ns::TRsp##method> TRsp##method; \
-    typedef ::NYT::TIntrusivePtr<TReq##method> TReq##method##Ptr; \
-    typedef ::NYT::TIntrusivePtr<TRsp##method> TRsp##method##Ptr; \
-    typedef ::NYT::TErrorOr<TRsp##method##Ptr> TErrorOrRsp##method##Ptr; \
+    using TReq##method = ::NYT::NYTree::TTypedYPathRequest<ns::TReq##method, ns::TRsp##method>; \
+    using TRsp##method = ::NYT::NYTree::TTypedYPathResponse<ns::TReq##method, ns::TRsp##method>; \
+    using TReq##method##Ptr = ::NYT::TIntrusivePtr<TReq##method>; \
+    using TRsp##method##Ptr = ::NYT::TIntrusivePtr<TRsp##method>; \
+    using TErrorOrRsp##method##Ptr = ::NYT::TErrorOr<TRsp##method##Ptr>; \
     \
     static TReq##method##Ptr method(const NYT::NYPath::TYPath& path = NYT::NYPath::TYPath()) \
     { \
@@ -193,17 +199,10 @@ protected:
 // it would be TYPathBuf, but for now it breaks the advantages for CoW of the
 // TString. Rethink it if and when YT will try to use std::string or non-CoW
 // TString everywhere.
-#ifdef YT_USE_VANILLA_PROTOBUF
+using TYPathMaybeRef = std::conditional_t<IsArcadiaProtobuf, const TYPath&, TYPath>;
 
-TYPath GetRequestTargetYPath(const NRpc::NProto::TRequestHeader& header);
-TYPath GetOriginalRequestTargetYPath(const NRpc::NProto::TRequestHeader& header);
-
-#else
-
-const TYPath& GetRequestTargetYPath(const NRpc::NProto::TRequestHeader& header);
-const TYPath& GetOriginalRequestTargetYPath(const NRpc::NProto::TRequestHeader& header);
-
-#endif
+TYPathMaybeRef GetRequestTargetYPath(const NRpc::NProto::TRequestHeader& header);
+TYPathMaybeRef GetOriginalRequestTargetYPath(const NRpc::NProto::TRequestHeader& header);
 
 void SetRequestTargetYPath(NRpc::NProto::TRequestHeader* header, TYPath path);
 
@@ -221,7 +220,9 @@ void ResolveYPath(
 TFuture<TSharedRefArray>
 ExecuteVerb(
     const IYPathServicePtr& service,
-    const TSharedRefArray& requestMessage);
+    const TSharedRefArray& requestMessage,
+    NLogging::TLogger logger = {},
+    NLogging::ELogLevel logLevel = NLogging::ELogLevel::Debug);
 
 //! Asynchronously executes a request against a given service.
 void ExecuteVerb(
@@ -233,7 +234,9 @@ template <class TTypedRequest>
 TFuture<TIntrusivePtr<typename TTypedRequest::TTypedResponse>>
 ExecuteVerb(
     const IYPathServicePtr& service,
-    const TIntrusivePtr<TTypedRequest>& request);
+    const TIntrusivePtr<TTypedRequest>& request,
+    NLogging::TLogger logger = {},
+    NLogging::ELogLevel logLevel = NLogging::ELogLevel::Debug);
 
 //! Synchronously executes a typed YPath request against a given service.
 //! Throws if an error has occurred.
@@ -241,7 +244,9 @@ template <class TTypedRequest>
 TIntrusivePtr<typename TTypedRequest::TTypedResponse>
 SyncExecuteVerb(
     const IYPathServicePtr& service,
-    const TIntrusivePtr<TTypedRequest>& request);
+    const TIntrusivePtr<TTypedRequest>& request,
+    NLogging::TLogger logger = {},
+    NLogging::ELogLevel logLevel = NLogging::ELogLevel::Debug);
 
 //! Executes |GetKey| verb assuming #service handles requests synchronously. Throws if an error has occurred.
 TString SyncYPathGetKey(

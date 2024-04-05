@@ -15,7 +15,7 @@
 #include <yt/yt/core/misc/ring_queue.h>
 #include <yt/yt/core/misc/shutdown.h>
 
-#include <library/cpp/yt/memory/memory_tag.h>
+#include <library/cpp/yt/misc/tls.h>
 
 #include <util/thread/lfqueue.h>
 
@@ -429,7 +429,7 @@ private:
     TRingQueue<TClosure> Queue_;
     int Semaphore_ = 0;
 
-    static thread_local TBoundedConcurrencyInvoker* CurrentSchedulingInvoker_;
+    static YT_THREAD_LOCAL(TBoundedConcurrencyInvoker*) CurrentSchedulingInvoker_;
 
 private:
     class TInvocationGuard
@@ -496,7 +496,7 @@ private:
     }
 };
 
-thread_local TBoundedConcurrencyInvoker* TBoundedConcurrencyInvoker::CurrentSchedulingInvoker_;
+YT_THREAD_LOCAL(TBoundedConcurrencyInvoker*) TBoundedConcurrencyInvoker::CurrentSchedulingInvoker_;
 
 IInvokerPtr CreateBoundedConcurrencyInvoker(
     IInvokerPtr underlyingInvoker,
@@ -631,10 +631,10 @@ private:
             }
 
             UnderlyingInvoker_->Invoke(BIND_NO_PROPAGATE(
-               &TSuspendableInvoker::RunCallback,
-               MakeStrong(this),
-               Passed(std::move(callback)),
-               Passed(std::move(guard))));
+                &TSuspendableInvoker::RunCallback,
+                MakeStrong(this),
+                Passed(std::move(callback)),
+                Passed(std::move(guard))));
         }
 
         SchedulingMore_ = false;
@@ -647,41 +647,6 @@ private:
 ISuspendableInvokerPtr CreateSuspendableInvoker(IInvokerPtr underlyingInvoker)
 {
     return New<TSuspendableInvoker>(std::move(underlyingInvoker));
-}
-
-////////////////////////////////////////////////////////////////////////////////
-
-class TMemoryTaggingInvoker
-    : public TInvokerWrapper
-{
-public:
-    TMemoryTaggingInvoker(IInvokerPtr invoker, TMemoryTag memoryTag)
-        : TInvokerWrapper(std::move(invoker))
-        , MemoryTag_(memoryTag)
-    { }
-
-    void Invoke(TClosure callback) override
-    {
-        UnderlyingInvoker_->Invoke(BIND_NO_PROPAGATE(
-            &TMemoryTaggingInvoker::RunCallback,
-            MakeStrong(this),
-            Passed(std::move(callback))));
-    }
-
-private:
-    TMemoryTag MemoryTag_;
-
-    void RunCallback(TClosure callback)
-    {
-        TCurrentInvokerGuard currentInvokerGuard(this);
-        TMemoryTagGuard memoryTagGuard(MemoryTag_);
-        callback();
-    }
-};
-
-IInvokerPtr CreateMemoryTaggingInvoker(IInvokerPtr underlyingInvoker, TMemoryTag tag)
-{
-    return New<TMemoryTaggingInvoker>(std::move(underlyingInvoker), tag);
 }
 
 ////////////////////////////////////////////////////////////////////////////////

@@ -129,6 +129,11 @@ void Deserialize(EValueType& valueType, const TNode& node)
         {"interval", VT_INTERVAL},
         {"float", VT_FLOAT},
         {"json", VT_JSON},
+
+        {"date32", VT_DATE32},
+        {"datetime64", VT_DATETIME64},
+        {"timestamp64", VT_TIMESTAMP64},
+        {"interval64", VT_INTERVAL64},
     };
 
     auto it = str2ValueType.find(nodeStr);
@@ -165,10 +170,16 @@ void Serialize(const TColumnSchema& columnSchema, NYson::IYsonConsumer* consumer
         .Item("name").Value(columnSchema.Name())
         .DoIf(!columnSchema.RawTypeV3().Defined(),
             [&] (TFluentMap fluent) {
+                static const auto optionalYson = NTi::Optional(NTi::Yson());
+
                 fluent.Item("type").Value(NDetail::ToString(columnSchema.Type()));
                 fluent.Item("required").Value(columnSchema.Required());
-                if (columnSchema.Type() == VT_ANY
-                    && *columnSchema.TypeV3() != *NTi::Optional(NTi::Yson()))
+                if (
+                    (columnSchema.Type() == VT_ANY && *columnSchema.TypeV3() != *optionalYson) ||
+                    // See https://github.com/ytsaurus/ytsaurus/issues/173
+                    columnSchema.TypeV3()->IsDecimal() ||
+                    (columnSchema.TypeV3()->IsOptional() && columnSchema.TypeV3()->AsOptional()->GetItemType()->IsDecimal()))
+
                 {
                     // A lot of user canonize serialized schema.
                     // To be backward compatible we only set type_v3 for new types.
@@ -196,7 +207,7 @@ void Serialize(const TColumnSchema& columnSchema, NYson::IYsonConsumer* consumer
                 if (typeV3.IsString()) {
                     result = typeV3.AsString();
                 } else if (typeV3.IsMap() && typeV3.Size() == 1) {
-                    Y_VERIFY(typeV3["type_name"].IsString(), "invalid type is passed");
+                    Y_ABORT_UNLESS(typeV3["type_name"].IsString(), "invalid type is passed");
                     result = typeV3["type_name"].AsString();
                 }
                 if (result) {
@@ -210,12 +221,12 @@ void Serialize(const TColumnSchema& columnSchema, NYson::IYsonConsumer* consumer
             auto simplify = [&](const TNode& typeV3) -> TMaybe<std::pair<TString, bool>> {
                 auto simple = getSimple(typeV3);
                 if (simple) {
-                    return std::make_pair(*simple, isRequired(*simple));
+                    return std::pair(*simple, isRequired(*simple));
                 }
                 if (typeV3.IsMap() && typeV3["type_name"] == "optional") {
                     auto simpleItem = getSimple(typeV3["item"]);
                     if (simpleItem && isRequired(*simpleItem)) {
-                        return std::make_pair(*simpleItem, false);
+                        return std::pair(*simpleItem, false);
                     }
                 }
                 return {};
@@ -246,6 +257,12 @@ void Serialize(const TColumnSchema& columnSchema, NYson::IYsonConsumer* consumer
         .DoIf(columnSchema.Group().Defined(), [&] (TFluentMap fluent) {
             fluent.Item("group").Value(*columnSchema.Group());
         })
+        .DoIf(columnSchema.StableName().Defined(), [&] (TFluentMap fluent) {
+            fluent.Item("stable_name").Value(*columnSchema.StableName());
+        })
+        .DoIf(columnSchema.Deleted().Defined(), [&] (TFluentMap fluent) {
+            fluent.Item("deleted").Value(*columnSchema.Deleted());
+        })
     .EndMap();
 }
 
@@ -259,6 +276,8 @@ void Deserialize(TColumnSchema& columnSchema, const TNode& node)
     DESERIALIZE_ITEM("expression", columnSchema.Expression_);
     DESERIALIZE_ITEM("aggregate", columnSchema.Aggregate_);
     DESERIALIZE_ITEM("group", columnSchema.Group_);
+    DESERIALIZE_ITEM("stable_name", columnSchema.StableName_);
+    DESERIALIZE_ITEM("deleted", columnSchema.Deleted_);
 
     if (nodeMap.contains("type_v3")) {
         NTi::TTypePtr type;

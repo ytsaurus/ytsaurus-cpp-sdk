@@ -5,7 +5,10 @@
 
 #include <yt/yt_proto/yt/core/misc/proto/error.pb.h>
 
+#include <yt/yt/core/actions/callback.h>
+
 #include <yt/yt/core/misc/protobuf_helpers.h>
+#include <yt/yt/core/misc/string_helpers.h>
 #include <yt/yt/core/misc/proc.h>
 
 #include <yt/yt/core/net/local_address.h>
@@ -14,6 +17,7 @@
 
 #include <yt/yt/core/yson/tokenizer.h>
 
+#include <yt/yt/core/ytree/attributes.h>
 #include <yt/yt/core/ytree/convert.h>
 #include <yt/yt/core/ytree/fluent.h>
 
@@ -22,6 +26,7 @@
 #include <library/cpp/yt/exception/exception.h>
 
 #include <library/cpp/yt/misc/thread_name.h>
+#include <library/cpp/yt/misc/tls.h>
 
 #include <util/string/subst.h>
 
@@ -35,6 +40,12 @@ using namespace NYson;
 
 using NYT::FromProto;
 using NYT::ToProto;
+
+////////////////////////////////////////////////////////////////////////////////
+
+constexpr TStringBuf OriginalErrorDepthAttribute = "original_error_depth";
+
+constexpr TStringBuf ErrorMessageTruncatedSuffix = "...<message truncated>";
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -60,15 +71,18 @@ TString ToString(TErrorCode code)
 
 ////////////////////////////////////////////////////////////////////////////////
 
-thread_local bool ErrorSanitizerEnabled = false;
-thread_local TInstant ErrorSanitizerDatetimeOverride = {};
+YT_THREAD_LOCAL(bool) ErrorSanitizerEnabled = false;
+YT_THREAD_LOCAL(TInstant) ErrorSanitizerDatetimeOverride = {};
+YT_THREAD_LOCAL(TSharedRef) ErrorSanitizerLocalHostNameOverride = {};
 
-TErrorSanitizerGuard::TErrorSanitizerGuard(TInstant datetimeOverride)
+TErrorSanitizerGuard::TErrorSanitizerGuard(TInstant datetimeOverride, TSharedRef localHostNameOverride)
     : SavedEnabled_(ErrorSanitizerEnabled)
-    , SavedDatetimeOverride_(ErrorSanitizerDatetimeOverride)
+    , SavedDatetimeOverride_(GetTlsRef(ErrorSanitizerDatetimeOverride))
+    , SavedLocalHostNameOverride_(GetTlsRef(ErrorSanitizerLocalHostNameOverride))
 {
     ErrorSanitizerEnabled = true;
-    ErrorSanitizerDatetimeOverride = datetimeOverride;
+    GetTlsRef(ErrorSanitizerDatetimeOverride) = datetimeOverride;
+    GetTlsRef(ErrorSanitizerLocalHostNameOverride) = std::move(localHostNameOverride);
 }
 
 TErrorSanitizerGuard::~TErrorSanitizerGuard()
@@ -76,7 +90,8 @@ TErrorSanitizerGuard::~TErrorSanitizerGuard()
     YT_ASSERT(ErrorSanitizerEnabled);
 
     ErrorSanitizerEnabled = SavedEnabled_;
-    ErrorSanitizerDatetimeOverride = SavedDatetimeOverride_;
+    GetTlsRef(ErrorSanitizerDatetimeOverride) = SavedDatetimeOverride_;
+    GetTlsRef(ErrorSanitizerLocalHostNameOverride) = std::move(SavedLocalHostNameOverride_);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -140,7 +155,12 @@ public:
         Message_ = std::move(message);
     }
 
-    bool HasOriginAttributes() const
+    TString* MutableMessage()
+    {
+        return &Message_;
+    }
+
+    bool HasHost() const
     {
         return Host_.operator bool();
     }
@@ -148,6 +168,11 @@ public:
     TStringBuf GetHost() const
     {
         return Host_;
+    }
+
+    bool HasOriginAttributes() const
+    {
+        return ThreadName_.Length > 0;
     }
 
     bool HasDatetime() const
@@ -277,7 +302,9 @@ private:
     void CaptureOriginAttributes()
     {
         if (ErrorSanitizerEnabled) {
-            Datetime_ = ErrorSanitizerDatetimeOverride;
+            Datetime_ = GetTlsRef(ErrorSanitizerDatetimeOverride);
+            HostHolder_ = GetTlsRef(ErrorSanitizerLocalHostNameOverride);
+            Host_ = HostHolder_.empty() ? TStringBuf() : TStringBuf(HostHolder_.Begin(), HostHolder_.End());
             return;
         }
 
@@ -345,12 +372,24 @@ TError::TErrorOr(TError&& other) noexcept
 
 TError::TErrorOr(const std::exception& ex)
 {
-    if (const auto* compositeException = dynamic_cast<const TCompositeException*>(&ex)) {
+    if (auto simpleException = dynamic_cast<const TSimpleException*>(&ex)) {
+        *this = TError(NYT::EErrorCode::Generic, simpleException->GetMessage());
+        // NB: clang-14 is incapable of capturing structured binding variables
+        //  so we force materialize them via this function call.
+        auto addAttribute = [this] (const auto& key, const auto& value) {
+            std::visit([&] (const auto& actual) {
+                *this <<= TErrorAttribute(key, actual);
+            }, value);
+        };
+        for (const auto& [key, value] : simpleException->GetAttributes()) {
+            addAttribute(key, value);
+        }
         try {
-            std::rethrow_exception(compositeException->GetInnerException());
+            if (simpleException->GetInnerException()) {
+                std::rethrow_exception(simpleException->GetInnerException());
+            }
         } catch (const std::exception& innerEx) {
-            *this = TError(NYT::EErrorCode::Generic, compositeException->GetMessage())
-                << TError(innerEx);
+            *this <<= TError(innerEx);
         }
     } else if (const auto* errorEx = dynamic_cast<const TErrorException*>(&ex)) {
         *this = errorEx->Error();
@@ -462,12 +501,12 @@ TError& TError::SetMessage(TString message)
     return *this;
 }
 
-bool TError::HasOriginAttributes() const
+bool TError::HasHost() const
 {
     if (!Impl_) {
         return false;
     }
-    return Impl_->HasOriginAttributes();
+    return Impl_->HasHost();
 }
 
 TStringBuf TError::GetHost() const
@@ -476,6 +515,14 @@ TStringBuf TError::GetHost() const
         return {};
     }
     return Impl_->GetHost();
+}
+
+bool TError::HasOriginAttributes() const
+{
+    if (!Impl_) {
+        return false;
+    }
+    return Impl_->HasOriginAttributes();
 }
 
 bool TError::HasDatetime() const
@@ -580,60 +627,40 @@ std::vector<TError>* TError::MutableInnerErrors()
     return Impl_->MutableInnerErrors();
 }
 
-TError TError::Sanitize() const
+const TString InnerErrorsTruncatedKey("inner_errors_truncated");
+
+TError TError::Truncate(int maxInnerErrorCount, i64 stringLimit, const THashSet<TStringBuf>& attributeWhitelist) const &
 {
-    if (!Impl_) {
-        return {};
-    }
-
-    auto result = std::make_unique<TImpl>();
-    result->SetCode(GetCode());
-    result->SetMessage(GetMessage());
-    if (Impl_->HasAttributes()) {
-        result->SetAttributes(Impl_->Attributes().Clone());
-    }
-    for (const auto& innerError : Impl_->InnerErrors()) {
-        result->MutableInnerErrors()->push_back(innerError.Sanitize());
-    }
-
-    return TError(std::move(result));
-}
-
-TError TError::Truncate(int maxInnerErrorCount, i64 stringLimit) const
-{
-    static const TString InnerErrorsTruncatedKey("inner_errors_truncated");
-
     if (!Impl_) {
         return TError();
     }
 
-    auto truncateInnerError = [=] (const TError& innerError) {
-        return innerError.Truncate(maxInnerErrorCount, stringLimit);
+    auto truncateInnerError = [=, &attributeWhitelist] (const TError& innerError) {
+        return innerError.Truncate(maxInnerErrorCount, stringLimit, attributeWhitelist);
     };
 
-    auto truncateString = [stringLimit] (TString string) {
-        if (std::ssize(string) > stringLimit) {
-            return Format("%v...<message truncated>", string.substr(0, stringLimit));
-        }
-        return string;
-    };
+    auto truncateAttributes = [stringLimit, &attributeWhitelist] (const IAttributeDictionary& attributes) {
+        auto truncatedAttributes = CreateEphemeralAttributes();
+        for (const auto& key : attributes.ListKeys()) {
+            const auto& value = attributes.FindYson(key);
 
-    auto truncateAttributes = [stringLimit] (const IAttributeDictionary& attributes) {
-        auto clonedAttributes = attributes.Clone();
-        for (const auto& key : clonedAttributes->ListKeys()) {
-            if (std::ssize(clonedAttributes->FindYson(key).AsStringBuf()) > stringLimit) {
-                clonedAttributes->SetYson(
+            if (std::ssize(value.AsStringBuf()) > stringLimit && !attributeWhitelist.contains(key)) {
+                truncatedAttributes->SetYson(
                     key,
                     BuildYsonStringFluently()
                         .Value("...<attribute truncated>..."));
+            } else {
+                truncatedAttributes->SetYson(
+                    key,
+                    value);
             }
         }
-        return clonedAttributes;
+        return truncatedAttributes;
     };
 
     auto result = std::make_unique<TImpl>();
     result->SetCode(GetCode());
-    result->SetMessage(truncateString(GetMessage()));
+    result->SetMessage(TruncateString(GetMessage(), stringLimit, ErrorMessageTruncatedSuffix));
     if (Impl_->HasAttributes()) {
         result->SetAttributes(truncateAttributes(Impl_->Attributes()));
     }
@@ -654,6 +681,49 @@ TError TError::Truncate(int maxInnerErrorCount, i64 stringLimit) const
     return TError(std::move(result));
 }
 
+TError TError::Truncate(int maxInnerErrorCount, i64 stringLimit, const THashSet<TStringBuf>& attributeWhitelist) &&
+{
+    if (!Impl_) {
+        return TError();
+    }
+
+    auto truncateInnerError = [=, &attributeWhitelist] (TError& innerError) {
+        innerError = std::move(innerError).Truncate(maxInnerErrorCount, stringLimit, attributeWhitelist);
+    };
+
+    auto truncateAttributes = [stringLimit, &attributeWhitelist] (IAttributeDictionary* attributes) {
+        for (const auto& key : attributes->ListKeys()) {
+            if (std::ssize(attributes->FindYson(key).AsStringBuf()) > stringLimit && !attributeWhitelist.contains(key)) {
+                attributes->SetYson(
+                    key,
+                    BuildYsonStringFluently()
+                        .Value("...<attribute truncated>..."));
+            }
+        }
+    };
+
+    TruncateStringInplace(Impl_->MutableMessage(), stringLimit, ErrorMessageTruncatedSuffix);
+    if (Impl_->HasAttributes()) {
+        truncateAttributes(Impl_->MutableAttributes());
+    }
+    if (std::ssize(InnerErrors()) <= maxInnerErrorCount) {
+        for (auto& innerError : *MutableInnerErrors()) {
+            truncateInnerError(innerError);
+        }
+    } else {
+        auto& innerErrors = *MutableInnerErrors();
+        MutableAttributes()->Set(InnerErrorsTruncatedKey, true);
+        for (int i = 0; i + 1 < maxInnerErrorCount; ++i) {
+            truncateInnerError(innerErrors[i]);
+        }
+        truncateInnerError(innerErrors.back());
+        innerErrors[maxInnerErrorCount - 1] = std::move(innerErrors.back());
+        innerErrors.resize(maxInnerErrorCount);
+    }
+
+    return std::move(*this);
+}
+
 bool TError::IsOK() const
 {
     if (!Impl_) {
@@ -669,9 +739,14 @@ void TError::ThrowOnError() const
     }
 }
 
-TError TError::Wrap() const
+TError TError::Wrap() const &
 {
     return *this;
+}
+
+TError TError::Wrap() &&
+{
+    return std::move(*this);
 }
 
 Y_WEAK TString GetErrorSkeleton(const TError& /*error*/)
@@ -881,6 +956,12 @@ void AppendError(TStringBuilderBase* builder, const TError& error, int indent)
                 (!error.GetThreadName().empty() ? error.GetThreadName() : ToString(error.GetTid())),
                 error.GetFid()),
             indent);
+    } else if (ErrorSanitizerEnabled && error.HasHost()) {
+        AppendAttribute(
+            builder,
+            "host",
+            ToString(error.GetHost()),
+            indent);
     }
 
     if (error.HasDatetime()) {
@@ -943,11 +1024,6 @@ bool operator == (const TError& lhs, const TError& rhs)
         lhs.InnerErrors() == rhs.InnerErrors();
 }
 
-bool operator != (const TError& lhs, const TError& rhs)
-{
-    return !(lhs == rhs);
-}
-
 void FormatValue(TStringBuilderBase* builder, const TError& error, TStringBuf /*spec*/)
 {
     AppendError(builder, error, 0);
@@ -997,6 +1073,9 @@ void ToProto(NYT::NProto::TError* protoError, const TError& error)
 
         static const TString FidKey("fid");
         addAttribute(FidKey, error.GetFid());
+    } else if (ErrorSanitizerEnabled && error.HasHost()) {
+        static const TString HostKey("host");
+        addAttribute(HostKey, error.GetHost());
     }
 
     if (error.HasDatetime()) {
@@ -1027,7 +1106,7 @@ void FromProto(TError* error, const NYT::NProto::TError& protoError)
     }
 
     error->SetCode(TErrorCode(protoError.code()));
-    error->SetMessage(protoError.message());
+    error->SetMessage(FromProto<TString>(protoError.message()));
     if (protoError.has_attributes()) {
         error->Impl_->SetAttributes(FromProto(protoError.attributes()));
     } else {
@@ -1058,7 +1137,7 @@ void SerializeInnerErrors(TFluentMap fluent, const TError& error, int depth)
     auto visit = [&] (auto fluent, const TError& error, int depth) {
         fluent
             .Item().Do([&] (auto fluent) {
-                Serialize(error, fluent.GetConsumer(), /* valueProduce */ nullptr, depth);
+                Serialize(error, fluent.GetConsumer(), /*valueProduce*/ nullptr, depth);
             });
     };
 
@@ -1098,6 +1177,9 @@ void Serialize(
                         .Item("tid").Value(error.GetTid())
                         .Item("thread").Value(error.GetThreadName())
                         .Item("fid").Value(error.GetFid());
+                } else if (ErrorSanitizerEnabled && error.HasHost()) {
+                    fluent
+                        .Item("host").Value(error.GetHost());
                 }
                 if (error.HasDatetime()) {
                     fluent
@@ -1108,9 +1190,9 @@ void Serialize(
                         .Item("trace_id").Value(error.GetTraceId())
                         .Item("span_id").Value(error.GetSpanId());
                 }
-                if (depth > ErrorSerializationDepthLimit) {
+                if (depth > ErrorSerializationDepthLimit && !error.Attributes().Contains(OriginalErrorDepthAttribute)) {
                     fluent
-                        .Item("original_error_depth").Value(depth);
+                        .Item(OriginalErrorDepthAttribute).Value(depth);
                 }
                 for (const auto& [key, value] : error.Attributes().ListPairs()) {
                     fluent
@@ -1171,54 +1253,54 @@ void Deserialize(TError& error, NYson::TYsonPullParserCursor* cursor)
 
 ////////////////////////////////////////////////////////////////////////////////
 
-TError operator << (TError error, const TErrorAttribute& attribute)
+TError& TError::operator <<= (const TErrorAttribute& attribute) &
 {
-    error.MutableAttributes()->SetYson(attribute.Key, attribute.Value);
-    return error;
+    MutableAttributes()->SetYson(attribute.Key, attribute.Value);
+    return *this;
 }
 
-TError operator << (TError error, const std::vector<TErrorAttribute>& attributes)
+TError& TError::operator <<= (const std::vector<TErrorAttribute>& attributes) &
 {
     for (const auto& attribute : attributes) {
-        error.MutableAttributes()->SetYson(attribute.Key, attribute.Value);
+        MutableAttributes()->SetYson(attribute.Key, attribute.Value);
     }
-    return error;
+    return *this;
 }
 
-TError operator << (TError error, const TError& innerError)
+TError& TError::operator <<= (const TError& innerError) &
 {
-    error.MutableInnerErrors()->push_back(innerError);
-    return error;
+    MutableInnerErrors()->push_back(innerError);
+    return *this;
 }
 
-TError operator << (TError error, TError&& innerError)
+TError& TError::operator <<= (TError&& innerError) &
 {
-    error.MutableInnerErrors()->push_back(std::move(innerError));
-    return error;
+    MutableInnerErrors()->push_back(std::move(innerError));
+    return *this;
 }
 
-TError operator << (TError error, const std::vector<TError>& innerErrors)
+TError& TError::operator <<= (const std::vector<TError>& innerErrors) &
 {
-    error.MutableInnerErrors()->insert(
-        error.MutableInnerErrors()->end(),
+    MutableInnerErrors()->insert(
+        MutableInnerErrors()->end(),
         innerErrors.begin(),
         innerErrors.end());
-    return error;
+    return *this;
 }
 
-TError operator << (TError error, std::vector<TError>&& innerErrors)
+TError& TError::operator <<= (std::vector<TError>&& innerErrors) &
 {
-    error.MutableInnerErrors()->insert(
-        error.MutableInnerErrors()->end(),
+    MutableInnerErrors()->insert(
+        MutableInnerErrors()->end(),
         std::make_move_iterator(innerErrors.begin()),
         std::make_move_iterator(innerErrors.end()));
-    return error;
+    return *this;
 }
 
-TError operator << (TError error, const NYTree::IAttributeDictionary& attributes)
+TError& TError::operator <<= (const NYTree::IAttributeDictionary& attributes) &
 {
-    error.MutableAttributes()->MergeFrom(attributes);
-    return error;
+    MutableAttributes()->MergeFrom(attributes);
+    return *this;
 }
 
 ////////////////////////////////////////////////////////////////////////////////

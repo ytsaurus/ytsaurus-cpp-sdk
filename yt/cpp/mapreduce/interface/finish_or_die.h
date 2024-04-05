@@ -10,10 +10,14 @@ namespace NYT::NDetail {
 ////////////////////////////////////////////////////////////////////////////////
 
 template <typename T>
-void FinishOrDie(T* pThis, const char* className) noexcept
+void FinishOrDie(T* pThis, bool autoFinish, const char* className) noexcept
 {
+    if (!autoFinish) {
+        return;
+    }
+
     auto fail = [&] (const char* what) {
-        Y_FAIL(
+        Y_ABORT(
             "\n\n"
             "Destructor of %s caught exception during Finish: %s.\n"
             "Some data is probably has not been written.\n"

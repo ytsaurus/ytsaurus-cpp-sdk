@@ -1,9 +1,9 @@
 [requires]
-c-ares/1.19.1
-openssl/1.1.1s
-zlib/1.2.13
+linux-headers-generic/6.5.9
+protobuf/3.19.1
 
 [tool_requires]
+protobuf/3.19.1
 ragel/6.10
 yasm/1.3.0
 
@@ -13,7 +13,9 @@ yasm/1.3.0
 bin, *yasm* -> ./bin
 bin, ragel* -> ./bin
 bin, ytasm* -> ./bin
+bin, protoc* -> ./bin
 
 [generators]
 cmake_find_package
 cmake_paths
+

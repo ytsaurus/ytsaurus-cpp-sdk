@@ -12,8 +12,8 @@ class TSplitHumanRobotsReduce
     // Обратите внимание наш редьюс работает с несколькими типами записей
     // как на вход так и на выход, поэтому мы используем ::google::protobuf::Message
     : public IReducer<
-          TTableReader<::google::protobuf::Message>,
-          TTableWriter<::google::protobuf::Message>>
+        TTableReader<::google::protobuf::Message>,
+        TTableWriter<::google::protobuf::Message>>
 {
 public:
     void Do(TReader* reader, TWriter* writer) override {
@@ -27,23 +27,23 @@ public:
                 userRecord = cursor.GetRow<TUserRecord>();
             } else if (tableIndex == 1) {
                 const auto& isRobotRecord = cursor.GetRow<TIsRobotRecord>();
-                isRobot = isRobotRecord.GetIsRobot();
+                isRobot = isRobotRecord.is_robot();
             } else {
-                Y_FAIL();
+                Y_ABORT();
             }
         }
 
         // В AddRow мы можем передавать как TRobotRecord так и THumanRecord.
         if (isRobot) {
             TRobotRecord robotRecord;
-            robotRecord.SetUid(userRecord.GetUid());
-            robotRecord.SetLogin(userRecord.GetLogin());
+            robotRecord.set_uid(userRecord.uid());
+            robotRecord.set_login(userRecord.login());
             writer->AddRow(robotRecord, 0);
         } else {
             THumanRecord humanRecord;
-            humanRecord.SetName(userRecord.GetName());
-            humanRecord.SetLogin(userRecord.GetLogin());
-            humanRecord.SetEmail(userRecord.GetLogin() + "@yandex-team.ru");
+            humanRecord.set_name(userRecord.name());
+            humanRecord.set_login(userRecord.login());
+            humanRecord.set_email(userRecord.login() + "@yandex-team.ru");
             writer->AddRow(humanRecord, 1);
         }
     }
@@ -62,13 +62,13 @@ int main() {
 
     client->Sort(
         TSortOperationSpec()
-            .AddInput("//home/dev/tutorial/staff_unsorted")
+            .AddInput("//home/tutorial/staff_unsorted")
             .Output(sortedUserTable)
             .SortBy({"uid"}));
 
     client->Sort(
         TSortOperationSpec()
-            .AddInput("//home/dev/tutorial/is_robot_unsorted")
+            .AddInput("//home/tutorial/is_robot_unsorted")
             .Output(sortedIsRobotTable)
             .SortBy({"uid"}));
 

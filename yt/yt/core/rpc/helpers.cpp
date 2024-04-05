@@ -67,6 +67,16 @@ bool IsChannelFailureError(const TError& error)
         code == TErrorCode(2100);
 }
 
+bool IsChannelFailureErrorHandled(const TError& error)
+{
+    return error.Attributes().Get<bool>("channel_failure_error_handled", false);
+}
+
+void LabelHandledChannelFailureError(TError* error)
+{
+    error->MutableAttributes()->Set("channel_failure_error_handled", true);
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 class TDefaultTimeoutChannel
@@ -292,11 +302,13 @@ public:
         IChannelPtr underlyingChannel,
         std::optional<TDuration> acknowledgementTimeout,
         TCallback<void(const IChannelPtr&, const TError&)> onFailure,
-        TCallback<bool(const TError&)> isError)
+        TCallback<bool(const TError&)> isError,
+        TCallback<TError(TError)> maybeTransformError)
         : TChannelWrapper(std::move(underlyingChannel))
         , AcknowledgementTimeout_(acknowledgementTimeout)
         , OnFailure_(std::move(onFailure))
         , IsError_(std::move(isError))
+        , MaybeTransformError_(std::move(maybeTransformError))
         , OnTerminated_(BIND(&TFailureDetectingChannel::OnTerminated, MakeWeak(this)))
     {
         UnderlyingChannel_->SubscribeTerminated(OnTerminated_);
@@ -318,7 +330,7 @@ public:
         }
         return UnderlyingChannel_->Send(
             request,
-            New<TResponseHandler>(this, std::move(responseHandler), OnFailure_, IsError_),
+            New<TResponseHandler>(this, std::move(responseHandler), OnFailure_, IsError_, MaybeTransformError_),
             updatedOptions);
     }
 
@@ -326,6 +338,7 @@ private:
     const std::optional<TDuration> AcknowledgementTimeout_;
     const TCallback<void(const IChannelPtr&, const TError&)> OnFailure_;
     const TCallback<bool(const TError&)> IsError_;
+    const TCallback<TError(TError)> MaybeTransformError_;
     const TCallback<void(const TError&)> OnTerminated_;
 
 
@@ -342,11 +355,13 @@ private:
             IChannelPtr channel,
             IClientResponseHandlerPtr underlyingHandler,
             TCallback<void(const IChannelPtr&, const TError&)> onFailure,
-            TCallback<bool(const TError&)> isError)
+            TCallback<bool(const TError&)> isError,
+            TCallback<TError(TError)> maybeTransformError)
             : Channel_(std::move(channel))
             , UnderlyingHandler_(std::move(underlyingHandler))
             , OnFailure_(std::move(onFailure))
             , IsError_(std::move(isError))
+            , MaybeTransformError_(std::move(maybeTransformError))
         { }
 
         void HandleAcknowledgement() override
@@ -359,12 +374,17 @@ private:
             UnderlyingHandler_->HandleResponse(std::move(message), std::move(address));
         }
 
-        void HandleError(const TError& error) override
+        void HandleError(TError error) override
         {
             if (IsError_(error)) {
                 OnFailure_.Run(Channel_, error);
             }
-            UnderlyingHandler_->HandleError(error);
+
+            if (MaybeTransformError_) {
+                error = MaybeTransformError_(std::move(error));
+            }
+
+            UnderlyingHandler_->HandleError(std::move(error));
         }
 
         void HandleStreamingPayload(const TStreamingPayload& payload) override
@@ -382,6 +402,7 @@ private:
         const IClientResponseHandlerPtr UnderlyingHandler_;
         const TCallback<void(const IChannelPtr&, const TError&)> OnFailure_;
         const TCallback<bool(const TError&)> IsError_;
+        const TCallback<TError(TError)> MaybeTransformError_;
     };
 };
 
@@ -389,13 +410,15 @@ IChannelPtr CreateFailureDetectingChannel(
     IChannelPtr underlyingChannel,
     std::optional<TDuration> acknowledgementTimeout,
     TCallback<void(const IChannelPtr&, const TError& error)> onFailure,
-    TCallback<bool(const TError&)> isError)
+    TCallback<bool(const TError&)> isError,
+    TCallback<TError(TError)> maybeTransformError)
 {
     return New<TFailureDetectingChannel>(
         std::move(underlyingChannel),
         acknowledgementTimeout,
         std::move(onFailure),
-        std::move(isError));
+        std::move(isError),
+        std::move(maybeTransformError));
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -415,14 +438,18 @@ TTraceContextPtr GetOrCreateHandlerTraceContext(
 
 TTraceContextPtr CreateCallTraceContext(std::string service, std::string method)
 {
-    auto context = TryGetCurrentTraceContext();
-    if (!context) {
+    auto oldTraceContext = TryGetCurrentTraceContext();
+    if (!oldTraceContext) {
         return nullptr;
     }
-    if (!context->IsRecorded()) {
-        return context;
+    if (!oldTraceContext->IsRecorded()) {
+        return oldTraceContext;
     }
-    return context->CreateChild(ConcatToString(TStringBuf("RpcClient:"), service, TStringBuf("."), method));
+
+    auto traceContext = oldTraceContext->CreateChild(Format("RpcClient:%v.%v", service, method));
+    traceContext->SetAllocationTagsPtr(oldTraceContext->GetAllocationTagsPtr());
+
+    return traceContext;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -583,24 +610,27 @@ std::vector<TSharedRef> DecompressAttachments(
 
 ////////////////////////////////////////////////////////////////////////////////
 
-std::optional<TError> TryEnrichClientRequestErrorWithFeatureName(
-    const TError& error,
+void EnrichClientRequestError(
+    TError* error,
     TFeatureIdFormatter featureIdFormatter)
 {
-    if (error.GetCode() == NRpc::EErrorCode::UnsupportedServerFeature &&
-        error.Attributes().Contains(FeatureIdAttributeKey) &&
-        !error.Attributes().Contains(FeatureNameAttributeKey) &&
+    YT_VERIFY(error);
+    // Try to enrich error with feature name.
+    if (error->GetCode() == NRpc::EErrorCode::UnsupportedServerFeature &&
+        error->Attributes().Contains(FeatureIdAttributeKey) &&
+        !error->Attributes().Contains(FeatureNameAttributeKey) &&
         featureIdFormatter)
     {
-        auto featureId = error.Attributes().Get<int>(FeatureIdAttributeKey);
-        auto featureName = (*featureIdFormatter)(featureId);
-        if (featureName) {
-            auto enrichedError = error;
-            enrichedError.MutableAttributes()->Set(FeatureNameAttributeKey, featureName);
-            return enrichedError;
+        auto featureId = error->Attributes().Get<int>(FeatureIdAttributeKey);
+        if (auto featureName = (*featureIdFormatter)(featureId)) {
+            error->MutableAttributes()->Set(FeatureNameAttributeKey, featureName);
         }
     }
-    return std::nullopt;
+
+    // Try to enrich error with handled channel failure label.
+    if (IsChannelFailureError(*error) && !IsChannelFailureErrorHandled(*error)) {
+        LabelHandledChannelFailureError(&*error);
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////

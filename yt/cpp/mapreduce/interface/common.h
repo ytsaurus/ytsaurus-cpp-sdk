@@ -348,7 +348,7 @@ struct TOneOrMany
 /// @brief Type of the value that can occur in YT table.
 ///
 /// @ref NYT::TTableSchema
-/// https://yt.yandex-team.ru/docs/description/storage/data_types
+/// https://ytsaurus.tech/docs/en/user-guide/storage/data-types
 enum EValueType : int
 {
     /// Int64, signed integer of 64 bits.
@@ -403,6 +403,15 @@ enum EValueType : int
     VT_FLOAT,
     /// Json, sequence of bytes that is valid json.
     VT_JSON,
+
+    // Date32, number of days shifted from Unix epoch, which is 0 (signed)
+    VT_DATE32,
+    // Datetime64, number of seconds shifted from Unix epoch, which is 0 (signed)
+    VT_DATETIME64,
+    // Timestamp64, number of milliseconds shifted from Unix epoch, which is 0 (signed)
+    VT_TIMESTAMP64,
+    // Interval64, difference between two timestamps64 (signed)
+    VT_INTERVAL64,
 };
 
 ///
@@ -518,11 +527,8 @@ public:
     /// @}
 
     bool operator == (const TStringBuf rhsName) const;
-    bool operator != (const TStringBuf rhsName) const;
     bool operator == (const TString& rhsName) const;
-    bool operator != (const TString& rhsName) const;
     bool operator == (const char* rhsName) const;
-    bool operator != (const char* rhsName) const;
 
     // Intentionally implicit conversions.
     operator TString() const;
@@ -596,7 +602,7 @@ NTi::TTypePtr ToTypeV3(EValueType type, bool required);
 ///    columnSchema.Name("my-column").Type(VT_INT64); // set name and type
 /// ```
 ///
-/// @ref https://yt.yandex-team.ru/docs/description/storage/static_schema
+/// @ref https://ytsaurus.tech/docs/en/user-guide/storage/static-schema
 class TColumnSchema
 {
 public:
@@ -651,7 +657,7 @@ public:
     ///
     /// @brief Lock group name
     ///
-    /// @ref https://yt.yandex-team.ru/docs/description/dynamic_tables/sorted_dynamic_tables#blokirovka-stroki
+    /// @ref https://ytsaurus.tech/docs/en/user-guide/dynamic-tables/sorted-dynamic-tables#locking-rows
     FLUENT_FIELD_OPTION_ENCAPSULATED(TString, Lock);
 
     /// Expression defining column value
@@ -663,8 +669,14 @@ public:
     ///
     /// @brief Storage group name
     ///
-    /// @ref https://yt.yandex-team.ru/docs/description/storage/static_schema
+    /// @ref https://ytsaurus.tech/docs/en/user-guide/storage/static-schema
     FLUENT_FIELD_OPTION_ENCAPSULATED(TString, Group);
+
+    // StableName for renamed and deleted columns.
+    FLUENT_FIELD_OPTION_ENCAPSULATED(TString, StableName);
+
+    /// Deleted column
+    FLUENT_FIELD_OPTION_ENCAPSULATED(bool, Deleted);
 
     ///
     /// @brief Column requiredness.
@@ -693,7 +705,7 @@ bool operator==(const TColumnSchema& lhs, const TColumnSchema& rhs);
 ///
 /// @brief Description of table schema
 ///
-/// @see https://yt.yandex-team.ru/docs/description/storage/static_schema
+/// @see https://ytsaurus.tech/docs/en/user-guide/storage/static-schema
 class TTableSchema
 {
 public:
@@ -709,6 +721,7 @@ public:
     ///
     /// Strict schemas are not allowed to have columns not described in schema.
     /// Nonstrict schemas are allowed to have such columns, all such missing columns are assumed to have
+    /// type any (or optional<yson> in type_v3 terminology).
     FLUENT_FIELD_DEFAULT_ENCAPSULATED(bool, Strict, true);
 
     ///
@@ -765,6 +778,9 @@ public:
 /// Check for equality of all columns and all schema attributes
 bool operator==(const TTableSchema& lhs, const TTableSchema& rhs);
 
+// Pretty printer for unittests
+void PrintTo(const TTableSchema& schema, std::ostream* out);
+
 /// Create table schema by protobuf message descriptor
 TTableSchema CreateTableSchema(
     const ::google::protobuf::Descriptor& messageDescriptor,
@@ -808,7 +824,7 @@ TTableSchema CreateTableSchema(NTi::TTypePtr type);
 ///
 /// It is a error to use relation in the limit of wrong kind.
 ///
-/// @see https://yt.yandex-team.ru/docs/description/common/ypath#rich_ypath
+/// @see https://ytsaurus.tech/docs/en/user-guide/storage/ypath#rich_ypath
 enum class ERelation
 {
     ///
@@ -843,7 +859,7 @@ enum class ERelation
 ///
 /// @brief Key with relation specifying interval of keys in lower or upper limit of @ref NYT::TReadRange
 ///
-/// @see https://yt.yandex-team.ru/docs/description/common/ypath#rich_ypath
+/// @see https://ytsaurus.tech/docs/en/user-guide/common/ypath#rich_ypath
 struct TKeyBound
 {
     /// @cond Doxygen_Suppress
@@ -861,7 +877,7 @@ struct TKeyBound
 ///
 /// It is actually a variant and must store exactly one field.
 ///
-/// @see https://yt.yandex-team.ru/docs/description/common/ypath#rich_ypath
+/// @see https://ytsaurus.tech/docs/en/user-guide/common/ypath#rich_ypath
 struct TReadLimit
 {
     /// @cond Doxygen_Suppress
@@ -902,7 +918,7 @@ struct TReadLimit
 ///
 /// @brief Range of a table or a file
 ///
-/// @see https://yt.yandex-team.ru/docs/description/common/ypath#rich_ypath
+/// @see https://ytsaurus.tech/docs/en/user-guide/common/ypath#rich_ypath
 struct TReadRange
 {
     using TSelf = TReadRange;
@@ -944,7 +960,7 @@ struct TReadRange
 ///
 /// Allows to specify additional attributes for path used in some operations.
 ///
-/// @see https://yt.yandex-team.ru/docs/description/common/ypath#rich_ypath
+/// @see https://ytsaurus.tech/docs/en/user-guide/storage/ypath#rich_ypath
 struct TRichYPath
 {
     /// @cond Doxygen_Suppress
@@ -1163,7 +1179,7 @@ TRichYPath MaybeWithSchema(const TRichYPath& path, const TSortColumns& sortBy = 
 ///  - If path has associated range list and the list is not empty, function returns this list.
 ///  - If path has associated range list and this list is empty, exception is thrown.
 ///
-/// Before YT-17683 RichYPath didn't support empty range list and empty range actualy meant universal range.
+/// Before YT-17683 RichYPath didn't support empty range list and empty range actually meant universal range.
 /// This function emulates this old behavior.
 ///
 /// @see https://st.yandex-team.ru/YT-17683

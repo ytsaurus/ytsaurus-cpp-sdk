@@ -90,10 +90,10 @@ public:
     bool EnableSourceLocation;
 
     //! Structured formatter options.
+    bool EnableSystemFields;
     THashMap<TString, NYTree::INodePtr> CommonFields;
     NJson::TJsonFormatConfigPtr JsonFormat;
 
-    ELogFamily GetFamily() const;
     bool AreSystemMessagesEnabled() const;
 
     //! Constructs a full config by combining parameters from this one and #typedConfig.
@@ -119,7 +119,7 @@ public:
     ELogLevel MinLevel;
     ELogLevel MaxLevel;
 
-    ELogFamily Family;
+    std::optional<ELogFamily> Family;
 
     std::vector<TString> Writers;
 

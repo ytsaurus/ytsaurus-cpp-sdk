@@ -66,6 +66,8 @@ void TSolomonExporterConfig::Register(TRegistrar registrar)
 
     registrar.Parameter("thread_pool_size", &TThis::ThreadPoolSize)
         .Default(1);
+    registrar.Parameter("encoding_thread_pool_size", &TThis::EncodingThreadPoolSize)
+        .Default(1);
 
     registrar.Parameter("convert_counters_to_rate_for_solomon", &TThis::ConvertCountersToRateForSolomon)
         .Alias("convert_counters_to_rate")
@@ -116,6 +118,10 @@ void TSolomonExporterConfig::Register(TRegistrar registrar)
     registrar.Parameter("update_sensor_service_tree_period", &TThis::UpdateSensorServiceTreePeriod)
         .Default(TDuration::Seconds(30));
 
+    registrar.Parameter("producer_collection_batch_size", &TThis::ProducerCollectionBatchSize)
+        .Default(DefaultProducerCollectionBatchSize)
+        .GreaterThan(0);
+
     registrar.Postprocessor([] (TThis* config) {
         if (config->LingerTimeout.GetValue() % config->GridStep.GetValue() != 0) {
             THROW_ERROR_EXCEPTION("\"linger_timeout\" must be multiple of \"grid_step\"");
@@ -164,6 +170,22 @@ TShardConfigPtr TSolomonExporterConfig::MatchShard(const TString& sensorName)
     return matchedShard;
 }
 
+ESummaryPolicy TSolomonExporterConfig::GetSummaryPolicy() const
+{
+    auto policy = ESummaryPolicy::Default;
+    if (ExportSummary) {
+        policy |= ESummaryPolicy::All;
+    }
+    if (ExportSummaryAsMax) {
+        policy |= ESummaryPolicy::Max;
+    }
+    if (ExportSummaryAsAvg) {
+        policy |= ESummaryPolicy::Avg;
+    }
+
+    return policy;
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 TSolomonExporter::TSolomonExporter(
@@ -173,6 +195,7 @@ TSolomonExporter::TSolomonExporter(
     , Registry_(registry ? registry : TSolomonRegistry::Get())
     , ControlQueue_(New<TActionQueue>("ProfControl"))
     , OffloadThreadPool_(CreateThreadPool(Config_->ThreadPoolSize, "ProfOffload"))
+    , EncodingOffloadThreadPool_(CreateThreadPool(Config_->EncodingThreadPoolSize, "ProfEncode"))
 {
     if (Config_->EnableSelfProfiling) {
         Registry_->Profile(TProfiler{Registry_, ""});
@@ -189,6 +212,7 @@ TSolomonExporter::TSolomonExporter(
     }
 
     Registry_->SetWindowSize(Config_->WindowSize);
+    Registry_->SetProducerCollectionBatchSize(Config_->ProducerCollectionBatchSize);
     Registry_->SetGridFactor([config = Config_] (const TString& name) -> int {
         auto shard = config->MatchShard(name);
         if (!shard) {
@@ -269,6 +293,7 @@ void TSolomonExporter::Stop()
     CollectorFuture_.Cancel(TError("Stopped"));
     ControlQueue_->Shutdown();
     OffloadThreadPool_->Shutdown();
+    EncodingOffloadThreadPool_->Shutdown();
 }
 
 void TSolomonExporter::TransferSensors()
@@ -381,11 +406,11 @@ constexpr auto IndexPage = R"EOF(
 <!DOCTYPE html>
 <html>
 <body>
-<a href="sensors">sensors top</a>
+<a href="%vsensors">sensors top</a>
 <br/>
-<a href="tags">tags top</a>
+<a href="%vtags">tags top</a>
 <br/>
-<a href="status">status</a>
+<a href="%vstatus">status</a>
 </body>
 </html>
 )EOF";
@@ -402,7 +427,10 @@ void TSolomonExporter::HandleIndex(const TString& prefix, const IRequestPtr& req
     rsp->SetStatus(EStatusCode::OK);
     rsp->GetHeaders()->Add("Content-Type", "text/html; charset=UTF-8");
 
-    WaitFor(rsp->WriteBody(TSharedRef::FromString(IndexPage)))
+    auto prefixWithSlash = !prefix.empty() ? prefix + "/" : prefix;
+    auto indexPageFormatted = Format(IndexPage, prefixWithSlash, prefixWithSlash, prefixWithSlash);
+
+    WaitFor(rsp->WriteBody(TSharedRef::FromString(indexPageFormatted)))
         .ThrowOnError();
 }
 
@@ -536,9 +564,10 @@ bool TSolomonExporter::ReadSensors(
     readOptions.Times.emplace_back(std::vector<int>{Registry_->IndexOf(Window_.back().first)}, TInstant::Zero());
     readOptions.ConvertCountersToRateGauge = false;
     readOptions.EnableHistogramCompat = true;
-    readOptions.ExportSummary |= Config_->ExportSummary;
-    readOptions.ExportSummaryAsMax |= Config_->ExportSummaryAsMax;
-    readOptions.ExportSummaryAsAvg |= Config_->ExportSummaryAsAvg;
+
+    readOptions.SummaryPolicy |= Config_->GetSummaryPolicy();
+    ValidateSummaryPolicy(readOptions.SummaryPolicy);
+
     readOptions.MarkAggregates |= Config_->MarkAggregates;
     if (!readOptions.Host && Config_->Host) {
         readOptions.Host = Config_->Host;
@@ -597,28 +626,31 @@ void TSolomonExporter::DoHandleShard(
         NMonitoring::ECompression compression = NMonitoring::ECompression::IDENTITY;
         if (auto acceptEncoding = req->GetHeaders()->Find("Accept-Encoding")) {
             compression = NMonitoring::CompressionFromAcceptEncodingHeader(*acceptEncoding);
+            if (compression == NMonitoring::ECompression::UNKNOWN) {
+                // Fallback to identity if we cannot recognize the requested encoding.
+                compression = NMonitoring::ECompression::IDENTITY;
+            }
         }
 
-        TStringStream buffer;
-
+        auto buffer = std::make_shared<TStringStream>();
         NMonitoring::IMetricEncoderPtr encoder;
         switch (format) {
             case NMonitoring::EFormat::UNKNOWN:
             case NMonitoring::EFormat::JSON:
-                encoder = NMonitoring::BufferedEncoderJson(&buffer);
+                encoder = NMonitoring::BufferedEncoderJson(buffer.get());
                 format = NMonitoring::EFormat::JSON;
                 compression = NMonitoring::ECompression::IDENTITY;
                 break;
 
             case NMonitoring::EFormat::SPACK:
                 encoder = NMonitoring::EncoderSpackV1(
-                    &buffer,
+                    buffer.get(),
                     NMonitoring::ETimePrecision::SECONDS,
                     compression);
                 break;
 
             case NMonitoring::EFormat::PROMETHEUS:
-                encoder = NMonitoring::EncoderPrometheus(&buffer);
+                encoder = NMonitoring::EncoderPrometheus(buffer.get());
                 break;
 
             default:
@@ -779,9 +811,7 @@ void TSolomonExporter::DoHandleShard(
 
         options.EnableSolomonAggregationWorkaround = isSolomon;
         options.Times = readWindow;
-        options.ExportSummary = Config_->ExportSummary;
-        options.ExportSummaryAsMax = Config_->ExportSummaryAsMax;
-        options.ExportSummaryAsAvg = Config_->ExportSummaryAsAvg;
+        options.SummaryPolicy = Config_->GetSummaryPolicy();
         options.MarkAggregates = Config_->MarkAggregates;
         options.StripSensorsNamePrefix = Config_->StripSensorsNamePrefix;
         options.LingerWindowSize = Config_->LingerTimeout / gridStep;
@@ -811,11 +841,18 @@ void TSolomonExporter::DoHandleShard(
 
         guard->Release();
 
-        encoder->Close();
+        // NB(eshcherbin): Offload inner representation to binary/text format encoding (including compression).
+        auto encodeFuture = BIND([buffer, encoder = std::move(encoder)] {
+            encoder->Close();
+        })
+            .AsyncVia(EncodingOffloadThreadPool_->GetInvoker())
+            .Run();
+        WaitFor(encodeFuture)
+            .ThrowOnError();
 
         rsp->SetStatus(EStatusCode::OK);
 
-        auto replyBlob = TSharedRef::FromString(buffer.Str());
+        auto replyBlob = TSharedRef::FromString(buffer->Str());
         responsePromise.Set(replyBlob);
 
         WaitFor(rsp->WriteBody(replyBlob))
@@ -956,6 +993,23 @@ void TSolomonExporter::CleanResponseCache()
 
     for (const auto& removedKey : toRemove) {
         ResponseCache_.erase(removedKey);
+    }
+}
+
+void TSolomonExporter::ValidateSummaryPolicy(ESummaryPolicy policy)
+{
+    static const TError SummaryPolicyError("Invalid summary policy in read options");
+
+    auto summaryPolicyConflicts = GetSummaryPolicyConflicts(policy);
+    if (summaryPolicyConflicts.AllPolicyWithSpecifiedAggregates) {
+        THROW_ERROR SummaryPolicyError
+            << TError("%Qlv policy can be used only without specified policies", ESummaryPolicy::All)
+            << TErrorAttribute("policy", policy);
+    }
+    if (summaryPolicyConflicts.OmitNameLabelSuffixWithSeveralAggregates) {
+        THROW_ERROR SummaryPolicyError
+            << TError("%Qlv option can be used only with single specified policy", ESummaryPolicy::OmitNameLabelSuffix)
+            << TErrorAttribute("policy", policy);
     }
 }
 

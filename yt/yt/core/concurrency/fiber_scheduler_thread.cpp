@@ -11,6 +11,8 @@
 #include <yt/yt/core/misc/shutdown.h>
 #include <yt/yt/core/misc/singleton.h>
 
+#include <library/cpp/yt/threading/spin_lock_count.h>
+
 #include <yt/yt/core/tracing/trace_context.h>
 
 #include <library/cpp/yt/memory/memory_tag.h>
@@ -87,7 +89,7 @@ struct TFiberContext
     TFiberPtr CurrentFiber;
 };
 
-static thread_local TFiberContext* FiberContext;
+YT_THREAD_LOCAL(TFiberContext*) FiberContext;
 
 // Forbid inlining these accessors to prevent the compiler from
 // miss-optimizing TLS access in presence of fiber context switches.
@@ -716,7 +718,7 @@ private:
     const TFiber* const Fiber_;
 
     TFiberSwitchHandler* SavedThis_;
-    static thread_local TFiberSwitchHandler* This_;
+    static YT_THREAD_LOCAL(TFiberSwitchHandler*) This_;
 
     struct TContextSwitchHandlers
     {
@@ -736,7 +738,7 @@ private:
 
         TBaseSwitchHandler::OnSwitch();
 
-        std::swap(SavedThis_, This_);
+        std::swap(SavedThis_, GetTlsRef(This_));
     }
 
     // On finish fiber running.
@@ -768,7 +770,7 @@ private:
     }
 };
 
-thread_local TFiberSwitchHandler* TFiberSwitchHandler::This_;
+YT_THREAD_LOCAL(TFiberSwitchHandler*) TFiberSwitchHandler::This_;
 
 TFiberSwitchHandler* TryGetFiberSwitchHandler()
 {
@@ -843,13 +845,13 @@ private:
 ////////////////////////////////////////////////////////////////////////////////
 
 TFiberSchedulerThread::TFiberSchedulerThread(
-    const TString& threadGroupName,
-    const TString& threadName,
-    NThreading::EThreadPriority threadPriority,
-    int shutdownPriority)
-    : TThread(threadName, threadPriority, shutdownPriority)
-    , ThreadGroupName_(threadGroupName)
+    TString threadGroupName,
+    TString threadName,
+    NThreading::TThreadOptions options)
+    : TThread(std::move(threadName), std::move(options))
+    , ThreadGroupName_(std::move(threadGroupName))
 { }
+
 
 void TFiberSchedulerThread::ThreadMain()
 {
@@ -875,7 +877,7 @@ void TFiberSchedulerThread::ThreadMain()
 
 ////////////////////////////////////////////////////////////////////////////////
 
-thread_local TFiberId CurrentFiberId;
+YT_THREAD_LOCAL(TFiberId) CurrentFiberId;
 
 TFiberId GetCurrentFiberId()
 {
@@ -885,6 +887,24 @@ TFiberId GetCurrentFiberId()
 void SetCurrentFiberId(TFiberId id)
 {
     CurrentFiberId = id;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+YT_THREAD_LOCAL(bool) ContextSwitchForbidden;
+
+bool IsContextSwitchForbidden()
+{
+    return ContextSwitchForbidden;
+}
+
+TForbidContextSwitchGuard::TForbidContextSwitchGuard()
+    : OldValue_(std::exchange(ContextSwitchForbidden, true))
+{ }
+
+TForbidContextSwitchGuard::~TForbidContextSwitchGuard()
+{
+    ContextSwitchForbidden = OldValue_;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -915,6 +935,7 @@ TFiberCanceler GetCurrentFiberCanceler()
 
 void WaitUntilSet(TFuture<void> future, IInvokerPtr invoker)
 {
+    YT_VERIFY(!IsContextSwitchForbidden());
     YT_VERIFY(future);
     YT_ASSERT(invoker);
 
@@ -929,6 +950,7 @@ void WaitUntilSet(TFuture<void> future, IInvokerPtr invoker)
         return;
     }
 
+    NThreading::VerifyNoSpinLockAffinity();
     YT_VERIFY(invoker != GetSyncInvoker());
 
     // Ensure canceler created.
@@ -1018,10 +1040,6 @@ TOneShotContextSwitchGuard::TOneShotContextSwitchGuard(TContextSwitchHandler out
         },
         nullptr)
     , Active_(true)
-{ }
-
-TForbidContextSwitchGuard::TForbidContextSwitchGuard()
-    : TOneShotContextSwitchGuard([] { YT_ABORT(); })
 { }
 
 ////////////////////////////////////////////////////////////////////////////////

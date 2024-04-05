@@ -25,6 +25,7 @@
 
 #include <yt/cpp/mapreduce/interface/config.h>
 #include <yt/cpp/mapreduce/interface/client.h>
+#include <yt/cpp/mapreduce/interface/error_codes.h>
 #include <yt/cpp/mapreduce/interface/fluent.h>
 #include <yt/cpp/mapreduce/interface/logging/yt_log.h>
 #include <yt/cpp/mapreduce/interface/skiff_row.h>
@@ -43,6 +44,8 @@
 #include <yt/cpp/mapreduce/raw_client/raw_requests.h>
 #include <yt/cpp/mapreduce/raw_client/rpc_parameters_serialization.h>
 
+#include <yt/yt/core/ytree/fluent.h>
+
 #include <library/cpp/json/json_reader.h>
 
 #include <util/generic/algorithm.h>
@@ -58,6 +61,32 @@ namespace NYT {
 ////////////////////////////////////////////////////////////////////////////////
 
 namespace NDetail {
+
+////////////////////////////////////////////////////////////////////////////////
+
+namespace {
+
+////////////////////////////////////////////////////////////////////////////////
+
+THashMap<TString, TString> ParseProxyUrlAliasingRules(TString envConfig)
+{
+    if (envConfig.empty()) {
+        return {};
+    }
+    return NYTree::ConvertTo<THashMap<TString, TString>>(NYson::TYsonString(envConfig));
+}
+
+void ApplyProxyUrlAliasingRules(TString& url)
+{
+    static auto rules = ParseProxyUrlAliasingRules(GetEnv("YT_PROXY_URL_ALIASING_CONFIG"));
+    if (auto ruleIt = rules.find(url); ruleIt != rules.end()) {
+        url = ruleIt->second;
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+} // namespace
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -132,7 +161,24 @@ TNodeId TClientBase::Copy(
     const TYPath& destinationPath,
     const TCopyOptions& options)
 {
-    return NRawClient::Copy(ClientRetryPolicy_->CreatePolicyForGenericRequest(), Context_, TransactionId_, sourcePath, destinationPath, options);
+    try {
+        return NRawClient::CopyInsideMasterCell(ClientRetryPolicy_->CreatePolicyForGenericRequest(), Context_, TransactionId_, sourcePath, destinationPath, options);
+    } catch (const TErrorResponse& e) {
+        if (e.GetError().ContainsErrorCode(NClusterErrorCodes::NObjectClient::CrossCellAdditionalPath)) {
+            // Do transaction for cross cell copying.
+
+            std::function<TNodeId(ITransactionPtr)> lambda = [this, &sourcePath, &destinationPath, &options](ITransactionPtr transaction) {
+                return NRawClient::CopyWithoutRetries(Context_, transaction->GetId(), sourcePath, destinationPath, options);
+            };
+            return RetryTransactionWithPolicy<TNodeId>(
+                this,
+                lambda,
+                ClientRetryPolicy_->CreatePolicyForGenericRequest()
+            );
+        } else {
+            throw;
+        }
+    }
 }
 
 TNodeId TClientBase::Move(
@@ -140,7 +186,24 @@ TNodeId TClientBase::Move(
     const TYPath& destinationPath,
     const TMoveOptions& options)
 {
-    return NRawClient::Move(ClientRetryPolicy_->CreatePolicyForGenericRequest(), Context_, TransactionId_, sourcePath, destinationPath, options);
+    try {
+        return NRawClient::MoveInsideMasterCell(ClientRetryPolicy_->CreatePolicyForGenericRequest(), Context_, TransactionId_, sourcePath, destinationPath, options);
+    } catch (const TErrorResponse& e) {
+        if (e.GetError().ContainsErrorCode(NClusterErrorCodes::NObjectClient::CrossCellAdditionalPath)) {
+            // Do transaction for cross cell moving.
+
+            std::function<TNodeId(ITransactionPtr)> lambda = [this, &sourcePath, &destinationPath, &options](ITransactionPtr transaction) {
+                return NRawClient::MoveWithoutRetries(Context_, transaction->GetId(), sourcePath, destinationPath, options);
+            };
+            return RetryTransactionWithPolicy<TNodeId>(
+                this,
+                lambda,
+                ClientRetryPolicy_->CreatePolicyForGenericRequest()
+            );
+        } else {
+            throw;
+        }
+    }
 }
 
 TNodeId TClientBase::Link(
@@ -1102,7 +1165,7 @@ TAuthorizationInfo TClient::WhoAmI()
 
     NJson::TJsonValue jsonValue;
     bool ok = NJson::ReadJsonTree(requestResult.Response, &jsonValue, /* throwOnError = */ true);
-    Y_VERIFY(ok);
+    Y_ABORT_UNLESS(ok);
     result.Login = jsonValue["login"].GetString();
     result.Realm = jsonValue["realm"].GetString();
     return result;
@@ -1114,6 +1177,14 @@ TOperationAttributes TClient::GetOperation(
 {
     CheckShutdown();
     return NRawClient::GetOperation(ClientRetryPolicy_->CreatePolicyForGenericRequest(), Context_, operationId, options);
+}
+
+TOperationAttributes TClient::GetOperation(
+    const TString& alias,
+    const TGetOperationOptions& options)
+{
+    CheckShutdown();
+    return NRawClient::GetOperation(ClientRetryPolicy_->CreatePolicyForGenericRequest(), Context_, alias, options);
 }
 
 TListOperationsResult TClient::ListOperations(
@@ -1224,7 +1295,7 @@ void TClient::ResumeOperation(
 
 TYtPoller& TClient::GetYtPoller()
 {
-    auto g = Guard(YtPollerLock_);
+    auto g = Guard(Lock_);
     if (!YtPoller_) {
         CheckShutdown();
         // We don't use current client and create new client because YtPoller_ might use
@@ -1237,7 +1308,7 @@ TYtPoller& TClient::GetYtPoller()
 
 void TClient::Shutdown()
 {
-    auto g = Guard(YtPollerLock_);
+    auto g = Guard(Lock_);
 
     if (!Shutdown_.exchange(true) && YtPoller_) {
         YtPoller_->Stop();
@@ -1246,6 +1317,7 @@ void TClient::Shutdown()
 
 ITransactionPingerPtr TClient::GetTransactionPinger()
 {
+    auto g = Guard(Lock_);
     if (!TransactionPinger_) {
         TransactionPinger_ = CreateTransactionPinger(Context_.Config);
     }
@@ -1286,24 +1358,50 @@ TClientPtr CreateClientImpl(
     TClientContext context;
     context.Config = options.Config_ ? options.Config_ : TConfig::Get();
     context.TvmOnly = options.TvmOnly_;
-    context.UseTLS = options.UseTLS_;
+    context.ProxyAddress = options.ProxyAddress_;
 
     context.ServerName = serverName;
-    if (serverName.find('.') == TString::npos &&
-        serverName.find(':') == TString::npos)
+    ApplyProxyUrlAliasingRules(context.ServerName);
+
+    if (context.ServerName.find('.') == TString::npos &&
+        context.ServerName.find(':') == TString::npos &&
+        context.ServerName.find("localhost") == TString::npos)
     {
         context.ServerName += ".yt.yandex.net";
     }
 
-    if (serverName.find(':') == TString::npos) {
+    static constexpr char httpUrlSchema[] = "http://";
+    static constexpr char httpsUrlSchema[] = "https://";
+    if (options.UseTLS_) {
+        context.UseTLS = *options.UseTLS_;
+    } else {
+        context.UseTLS = context.ServerName.StartsWith(httpsUrlSchema);
+    }
+
+    if (context.ServerName.StartsWith(httpUrlSchema)) {
+        if (context.UseTLS) {
+            ythrow TApiUsageError() << "URL schema doesn't match UseTLS option";
+        }
+
+        context.ServerName.erase(0, sizeof(httpUrlSchema) - 1);
+    }
+    if (context.ServerName.StartsWith(httpsUrlSchema)) {
+        if (!context.UseTLS) {
+            ythrow TApiUsageError() << "URL schema doesn't match UseTLS option";
+        }
+
+        context.ServerName.erase(0, sizeof(httpsUrlSchema) - 1);
+    }
+
+    if (context.ServerName.find(':') == TString::npos) {
         context.ServerName = CreateHostNameWithPort(context.ServerName, context);
     }
     if (options.TvmOnly_) {
         context.ServerName = Format("tvm.%v", context.ServerName);
     }
 
-    if (options.UseTLS_ || options.UseCoreHttpClient_) {
-        context.HttpClient = NHttpClient::CreateCoreHttpClient(options.UseTLS_, context.Config);
+    if (context.UseTLS || options.UseCoreHttpClient_) {
+        context.HttpClient = NHttpClient::CreateCoreHttpClient(context.UseTLS, context.Config);
     } else {
         context.HttpClient = NHttpClient::CreateDefaultHttpClient();
     }
@@ -1351,7 +1449,6 @@ IClientPtr CreateClientFromEnv(const TCreateClientOptions& options)
     if (!serverName) {
         ythrow yexception() << "YT_PROXY is not set";
     }
-
     return NDetail::CreateClientImpl(serverName, options);
 }
 

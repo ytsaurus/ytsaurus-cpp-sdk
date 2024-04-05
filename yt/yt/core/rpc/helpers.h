@@ -26,6 +26,9 @@ namespace NYT::NRpc {
 bool IsRetriableError(const TError& error);
 bool IsChannelFailureError(const TError& error);
 
+bool IsChannelFailureErrorHandled(const TError& error);
+void LabelHandledChannelFailureError(TError* error);
+
 //! Returns a wrapper that sets the timeout for every request (unless it is given
 //! explicitly in the request itself).
 IChannelPtr CreateDefaultTimeoutChannel(
@@ -59,7 +62,8 @@ IChannelPtr CreateFailureDetectingChannel(
     IChannelPtr underlyingChannel,
     std::optional<TDuration> acknowledgementTimeout,
     TCallback<void(const IChannelPtr&, const TError& error)> onFailure,
-    TCallback<bool(const TError&)> isError = BIND(IsChannelFailureError));
+    TCallback<bool(const TError&)> isError = BIND(IsChannelFailureError),
+    TCallback<TError(TError)> maybeTransformError = {});
 
 NTracing::TTraceContextPtr GetOrCreateHandlerTraceContext(
     const NProto::TRequestHeader& header,
@@ -114,8 +118,8 @@ std::vector<TSharedRef> DecompressAttachments(
 template <class E>
 int FeatureIdToInt(E featureId);
 
-std::optional<TError> TryEnrichClientRequestErrorWithFeatureName(
-    const TError& error,
+void EnrichClientRequestError(
+    TError* error,
     TFeatureIdFormatter featureIdFormatter);
 
 ////////////////////////////////////////////////////////////////////////////////

@@ -6,6 +6,7 @@
 
 #include <yt/yt/library/ytprof/api/atomic_signal_ptr.h>
 
+#include <library/cpp/yt/misc/port.h>
 #include <library/cpp/yt/cpu_clock/public.h>
 #include <library/cpp/yt/memory/intrusive_ptr.h>
 
@@ -30,7 +31,7 @@ struct TProfilerTag final
     { }
 };
 
-typedef TIntrusivePtr<TProfilerTag> TProfilerTagPtr;
+using TProfilerTagPtr = TIntrusivePtr<TProfilerTag>;
 
 constexpr int MaxActiveTags = 4;
 

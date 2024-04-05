@@ -208,7 +208,7 @@ TStructuredJobTableList CanonizeStructuredTableList(const TClientContext& contex
         toCanonize.emplace_back(table.RichYPath);
     }
     const auto canonized = NRawClient::CanonizeYPaths(/* retryPolicy */ nullptr, context, toCanonize);
-    Y_VERIFY(canonized.size() == tableList.size());
+    Y_ABORT_UNLESS(canonized.size() == tableList.size());
 
     TStructuredJobTableList result;
     result.reserve(tableList.size());
@@ -223,7 +223,7 @@ TVector<TRichYPath> GetPathList(
     const TMaybe<TVector<TTableSchema>>& jobSchemaInferenceResult,
     bool inferSchemaFromDescriptions)
 {
-    Y_VERIFY(!jobSchemaInferenceResult || tableList.size() == jobSchemaInferenceResult->size());
+    Y_ABORT_UNLESS(!jobSchemaInferenceResult || tableList.size() == jobSchemaInferenceResult->size());
 
     auto maybeInferSchema = [&] (const TStructuredJobTable& table, ui32 tableIndex) -> TMaybe<TTableSchema> {
         if (jobSchemaInferenceResult && !jobSchemaInferenceResult->at(tableIndex).Empty()) {
@@ -239,7 +239,7 @@ TVector<TRichYPath> GetPathList(
     result.reserve(tableList.size());
     for (size_t tableIndex = 0; tableIndex != tableList.size(); ++tableIndex) {
         const auto& table = tableList[tableIndex];
-        Y_VERIFY(table.RichYPath, "Cannot get path for intermediate table");
+        Y_ABORT_UNLESS(table.RichYPath, "Cannot get path for intermediate table");
         auto richYPath = *table.RichYPath;
         if (!richYPath.Schema_) {
             if (auto schema = maybeInferSchema(table, tableIndex)) {
@@ -263,7 +263,7 @@ TStructuredRowStreamDescription GetJobStreamDescription(
         case EIODirection::Output:
             return job.GetOutputRowStreamDescription();
         default:
-            Y_FAIL("unreachable");
+            Y_ABORT("unreachable");
     }
 }
 
@@ -275,7 +275,7 @@ TString GetSuffix(EIODirection direction)
         case EIODirection::Output:
             return "_output";
     }
-    Y_FAIL("unreachable");
+    Y_ABORT("unreachable");
 }
 
 TString GetAddIOMethodName(EIODirection direction)
@@ -286,7 +286,7 @@ TString GetAddIOMethodName(EIODirection direction)
         case EIODirection::Output:
             return "AddOutput<>";
     }
-    Y_FAIL("unreachable");
+    Y_ABORT("unreachable");
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -373,7 +373,7 @@ std::pair<TFormat, TMaybe<TSmallJobFile>> TFormatBuilder::CreateYamrFormat(
     if (allowFormatFromTableAttribute && OperationOptions_.UseTableFormats_) {
         TVector<TRichYPath> tableList;
         for (const auto& table: structuredTableList) {
-            Y_VERIFY(table.RichYPath, "Cannot use format from table for intermediate table");
+            Y_ABORT_UNLESS(table.RichYPath, "Cannot use format from table for intermediate table");
             tableList.push_back(*table.RichYPath);
         }
         formatFromTableAttributes = GetTableFormats(ClientRetryPolicy_, Context_, TransactionId_, tableList);
@@ -416,7 +416,7 @@ std::pair<TFormat, TMaybe<TSmallJobFile>> TFormatBuilder::CreateNodeFormat(
     if (nodeReaderFormat != ENodeReaderFormat::Yson) {
         TVector<TRichYPath> tableList;
         for (const auto& table: structuredTableList) {
-            Y_VERIFY(table.RichYPath, "Cannot use skiff with temporary tables");
+            Y_ABORT_UNLESS(table.RichYPath, "Cannot use skiff with temporary tables");
             tableList.emplace_back(*table.RichYPath);
         }
         skiffSchema = TryCreateSkiffSchema(
@@ -431,7 +431,7 @@ std::pair<TFormat, TMaybe<TSmallJobFile>> TFormatBuilder::CreateNodeFormat(
         auto format = CreateSkiffFormat(skiffSchema);
         NYT::NDetail::ApplyFormatHints<TNode>(&format, formatHints);
         return {
-            CreateSkiffFormat(skiffSchema),
+            format,
             TSmallJobFile{
                 TString("skiff") + GetSuffix(direction),
                 CreateSkiffConfig(skiffSchema)
@@ -466,7 +466,7 @@ std::pair<TFormat, TMaybe<TSmallJobFile>> TFormatBuilder::CreateNodeFormat(
     ythrow TApiUsageError()
         << "Cannot derive exact " << type <<  " type for intermediate " << direction << " table for job "
         << TJobFactory::Get()->GetJobName(&job)
-        << "; use one of TMapReduceOperationSpec::Hint* methods to specifiy intermediate table structure";
+        << "; use one of TMapReduceOperationSpec::Hint* methods to specify intermediate table structure";
 }
 
 [[noreturn]] static void ThrowUnexpectedDifferentDescriptors(
@@ -515,7 +515,7 @@ std::pair<TFormat, TMaybe<TSmallJobFile>> TFormatBuilder::CreateProtobufFormat(
         if (!descriptor) {
             // It must be intermediate table, because there is no proper way to add such table to spec
             // (AddInput requires to specify proper message).
-            Y_VERIFY(!table.RichYPath, "Descriptors for all tables except intermediate must be known");
+            Y_ABORT_UNLESS(!table.RichYPath, "Descriptors for all tables except intermediate must be known");
             if (jobDescriptor) {
                 descriptor = jobDescriptor;
             } else {
@@ -532,7 +532,7 @@ std::pair<TFormat, TMaybe<TSmallJobFile>> TFormatBuilder::CreateProtobufFormat(
         }
         descriptorList.push_back(descriptor);
     }
-    Y_VERIFY(!descriptorList.empty(), "Messages for proto format are unknown (empty ProtoDescriptors)");
+    Y_ABORT_UNLESS(!descriptorList.empty(), "Messages for proto format are unknown (empty ProtoDescriptors)");
     return {
         TFormat::Protobuf(descriptorList, Context_.Config->ProtobufFormatWithDescriptors),
         TSmallJobFile{

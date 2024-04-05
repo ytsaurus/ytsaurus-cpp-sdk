@@ -41,6 +41,23 @@ TString GetFullUrl(const TString& hostName, const TClientContext& context, THttp
     return Format("http://%v%v", hostName, header.GetUrl());
 }
 
+void UpdateHeaderForProxyIfNeed(const TString& hostName, const TClientContext& context, THttpHeader& header)
+{
+    if (context.ProxyAddress) {
+        header.SetHostPort(Format("http://%v", hostName));
+        header.SetProxyAddress(*context.ProxyAddress);
+    }
+}
+
+TString GetFullUrlForProxy(const TString& hostName, const TClientContext& context, THttpHeader& header)
+{
+    if (context.ProxyAddress) {
+        THttpHeader emptyHeader(header.GetMethod(), "", false);
+        return GetFullUrl(*context.ProxyAddress, context, emptyHeader);
+    }
+    return GetFullUrl(hostName, context, header);
+}
+
 static TString GetParametersDebugString(const THttpHeader& header)
 {
     const auto& parameters = header.GetParameters();
@@ -53,7 +70,7 @@ static TString GetParametersDebugString(const THttpHeader& header)
 
 TString TruncateForLogs(const TString& text, size_t maxSize)
 {
-    Y_VERIFY(maxSize > 10);
+    Y_ABORT_UNLESS(maxSize > 10);
     if (text.empty()) {
         static TString empty = "empty";
         return empty;

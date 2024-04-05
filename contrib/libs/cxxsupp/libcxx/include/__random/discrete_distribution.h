@@ -11,6 +11,7 @@
 
 #include <__algorithm/upper_bound.h>
 #include <__config>
+#include <__random/is_valid.h>
 #include <__random/uniform_real_distribution.h>
 #include <cstddef>
 #include <iosfwd>
@@ -29,6 +30,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 template<class _IntType = int>
 class _LIBCPP_TEMPLATE_VIS discrete_distribution
 {
+    static_assert(__libcpp_random_is_valid_inttype<_IntType>::value, "IntType must be a supported integer type");
 public:
     // types
     typedef _IntType result_type;
@@ -51,10 +53,10 @@ public:
             : __p_(__wl.begin(), __wl.end()) {__init();}
 #endif // _LIBCPP_CXX03_LANG
         template<class _UnaryOperation>
-            param_type(size_t __nw, double __xmin, double __xmax,
+        _LIBCPP_HIDE_FROM_ABI param_type(size_t __nw, double __xmin, double __xmax,
                        _UnaryOperation __fw);
 
-        vector<double> probabilities() const;
+        _LIBCPP_HIDE_FROM_ABI vector<double> probabilities() const;
 
         friend _LIBCPP_INLINE_VISIBILITY
             bool operator==(const param_type& __x, const param_type& __y)
@@ -64,7 +66,7 @@ public:
             {return !(__x == __y);}
 
     private:
-        void __init();
+        _LIBCPP_HIDE_FROM_ABI void __init();
 
         friend class discrete_distribution;
 
@@ -113,7 +115,8 @@ public:
         _LIBCPP_INLINE_VISIBILITY
         result_type operator()(_URNG& __g)
         {return (*this)(__g, __p_);}
-    template<class _URNG> result_type operator()(_URNG& __g, const param_type& __p);
+    template<class _URNG>
+    _LIBCPP_HIDE_FROM_ABI result_type operator()(_URNG& __g, const param_type& __p);
 
     // property functions
     _LIBCPP_INLINE_VISIBILITY
@@ -211,6 +214,7 @@ template<class _URNG>
 _IntType
 discrete_distribution<_IntType>::operator()(_URNG& __g, const param_type& __p)
 {
+    static_assert(__libcpp_random_is_valid_urng<_URNG>::value, "");
     uniform_real_distribution<double> __gen;
     return static_cast<_IntType>(
            _VSTD::upper_bound(__p.__p_.begin(), __p.__p_.end(), __gen(__g)) -
@@ -218,7 +222,7 @@ discrete_distribution<_IntType>::operator()(_URNG& __g, const param_type& __p)
 }
 
 template <class _CharT, class _Traits, class _IT>
-basic_ostream<_CharT, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_ostream<_CharT, _Traits>&
 operator<<(basic_ostream<_CharT, _Traits>& __os,
            const discrete_distribution<_IT>& __x)
 {
@@ -236,7 +240,7 @@ operator<<(basic_ostream<_CharT, _Traits>& __os,
 }
 
 template <class _CharT, class _Traits, class _IT>
-basic_istream<_CharT, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_istream<_CharT, _Traits>&
 operator>>(basic_istream<_CharT, _Traits>& __is,
            discrete_distribution<_IT>& __x)
 {

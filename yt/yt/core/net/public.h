@@ -2,7 +2,7 @@
 
 #include <yt/yt/core/misc/public.h>
 
-#include <yt/yt/core/misc/intrusive_ptr.h>
+#include <library/cpp/yt/memory/intrusive_ptr.h>
 
 namespace NYT::NNet {
 
@@ -17,6 +17,7 @@ DECLARE_REFCOUNTED_STRUCT(IPacketConnection)
 DECLARE_REFCOUNTED_STRUCT(IConnectionReader)
 DECLARE_REFCOUNTED_STRUCT(IConnectionWriter)
 DECLARE_REFCOUNTED_STRUCT(IListener)
+DECLARE_REFCOUNTED_STRUCT(TDialerContext)
 DECLARE_REFCOUNTED_STRUCT(IDialer)
 DECLARE_REFCOUNTED_STRUCT(IAsyncDialer)
 DECLARE_REFCOUNTED_STRUCT(IAsyncDialerSession)

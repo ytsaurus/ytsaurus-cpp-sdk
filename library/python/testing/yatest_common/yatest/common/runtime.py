@@ -158,7 +158,7 @@ def java_path():
     """
     from . import runtime_java
 
-    return runtime_java.get_java_path(binary_path(os.path.join('contrib', 'tools', 'jdk')))
+    return runtime_java.get_java_path(binary_path(os.path.join('build', 'platform', 'java', 'jdk', 'testing')))
 
 
 def java_home():
@@ -362,6 +362,11 @@ def c_compiler_path():
     return os.environ.get("YA_CC")
 
 
+def c_compiler_cmd():
+    p = c_compiler_path()
+    return [p, '-isystem' + os.path.dirname(os.path.dirname(p)) + '/share/include']
+
+
 def get_yt_hdd_path(path=None):
     if 'HDD_PATH' in os.environ:
         return _join_path(os.environ['HDD_PATH'], path)
@@ -372,6 +377,11 @@ def cxx_compiler_path():
     Get path to the gdb
     """
     return os.environ.get("YA_CXX")
+
+
+def cxx_compiler_cmd():
+    p = cxx_compiler_path()
+    return [p, '-isystem' + os.path.dirname(os.path.dirname(p)) + '/share/include']
 
 
 def global_resources():

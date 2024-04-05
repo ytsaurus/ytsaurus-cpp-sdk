@@ -14,8 +14,9 @@
 #include <yt/yt/core/yson/protobuf_interop.h>
 #include <yt/yt/core/yson/pull_parser_deserialize.h>
 
+#include <library/cpp/yt/misc/cast.h>
+
 #include <optional>
-#include <numeric>
 
 namespace NYT::NYTree {
 
@@ -278,7 +279,7 @@ void WriteYson(
     NYson::EYsonFormat format,
     int indent)
 {
-    NYson::TYsonWriter writer(output, format, type, /* enableRaw */ false, indent);
+    NYson::TYsonWriter writer(output, format, type, /*enableRaw*/ false, indent);
     Serialize(value, &writer);
 }
 
@@ -371,14 +372,14 @@ void Serialize(const TCompactVector<T, N>& items, NYson::IYsonConsumer* consumer
 
 // RepeatedPtrField
 template <class T>
-void Serialize(const NProtoBuf::RepeatedPtrField<T>& items, NYson::IYsonConsumer* consumer)
+void Serialize(const google::protobuf::RepeatedPtrField<T>& items, NYson::IYsonConsumer* consumer)
 {
     NDetail::SerializeVector(items, consumer);
 }
 
 // RepeatedField
 template <class T>
-void Serialize(const NProtoBuf::RepeatedField<T>& items, NYson::IYsonConsumer* consumer)
+void Serialize(const google::protobuf::RepeatedField<T>& items, NYson::IYsonConsumer* consumer)
 {
     NDetail::SerializeVector(items, consumer);
 }
@@ -424,11 +425,11 @@ void Serialize(const C<T...>& value, NYson::IYsonConsumer* consumer)
 }
 
 template <class E, class T, E Min, E Max>
-void Serialize(const TEnumIndexedVector<E, T, Min, Max>& vector, NYson::IYsonConsumer* consumer)
+void Serialize(const TEnumIndexedArray<E, T, Min, Max>& vector, NYson::IYsonConsumer* consumer)
 {
     consumer->OnBeginMap();
     for (auto key : TEnumTraits<E>::GetDomainValues()) {
-        if (!vector.IsDomainValue(key)) {
+        if (!vector.IsValidIndex(key)) {
             continue;
         }
         const auto& value = vector[key];
@@ -505,7 +506,19 @@ void Deserialize(T& value, INodePtr node)
                     node->GetType());
         }
     } else {
-        value = ParseEnum<T>(node->GetValue<TString>());
+        switch (node->GetType()) {
+            case ENodeType::String: {
+                value = ParseEnum<T>(node->GetValue<TString>());
+                break;
+            }
+            case ENodeType::Int64: {
+                value = CheckedEnumCast<T>(node->AsInt64()->GetValue());
+                break;
+            }
+            default:
+                THROW_ERROR_EXCEPTION("Cannot deserialize enum from %Qlv node",
+                    node->GetType());
+        }
     }
 }
 
@@ -591,13 +604,13 @@ void Deserialize(C<T...>& value, INodePtr node)
 }
 
 template <class E, class T, E Min, E Max>
-void Deserialize(TEnumIndexedVector<E, T, Min, Max>& vector, INodePtr node)
+void Deserialize(TEnumIndexedArray<E, T, Min, Max>& vector, INodePtr node)
 {
     vector = {};
     auto mapNode = node->AsMap();
     for (const auto& [stringKey, child] : mapNode->GetChildren()) {
         auto key = ParseEnum<E>(stringKey);
-        if (!vector.IsDomainValue(key)) {
+        if (!vector.IsValidIndex(key)) {
             THROW_ERROR_EXCEPTION("Enum value %Qlv is out of supported range",
                 key);
         }

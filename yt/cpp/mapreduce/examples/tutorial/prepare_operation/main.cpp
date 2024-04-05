@@ -23,7 +23,7 @@ public:
     {
         for (const auto& cursor : *reader) {
             auto row = cursor.GetRow();
-            if (row.GetKey() == Pattern_) {
+            if (row.key() == Pattern_) {
                 writer->AddRow(row);
             }
         }
@@ -64,7 +64,7 @@ int main() {
 
     client->Map(
         new TGrepper("login", "lev"),
-        "//home/dev/tutorial/staff_unsorted_schematized",
+        "//home/tutorial/staff_unsorted_schematized",
         outputTable);
 
     Cout << "Output table: https://yt.yandex-team.ru/freud/#page=navigation&offsetMode=row&path=" << outputTable << Endl;

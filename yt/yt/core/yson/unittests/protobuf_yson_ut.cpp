@@ -2,7 +2,9 @@
 
 #include <yt/yt/core/yson/unittests/proto/protobuf_yson_ut.pb.h>
 #include <yt/yt/core/yson/unittests/proto/protobuf_yson_casing_ut.pb.h>
+#include <yt/yt/core/yson/unittests/proto/protobuf_yson_casing_ext_ut.pb.h>
 
+#include <yt/yt/core/yson/config.h>
 #include <yt/yt/core/yson/protobuf_interop.h>
 #include <yt/yt/core/yson/null_consumer.h>
 #include <yt/yt/core/yson/string_merger.h>
@@ -15,6 +17,8 @@
 
 #include <google/protobuf/io/coded_stream.h>
 #include <google/protobuf/io/zero_copy_stream_impl_lite.h>
+
+#include <google/protobuf/util/message_differencer.h>
 
 #include <google/protobuf/wire_format.h>
 
@@ -46,6 +50,8 @@ using namespace NYTree;
 using namespace NYPath;
 using namespace ::google::protobuf::io;
 using namespace ::google::protobuf::internal;
+
+using FieldDescriptor = google::protobuf::FieldDescriptor;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -1009,6 +1015,41 @@ TEST(TYsonToProtobufTest, Entities)
     TEST_EPILOGUE(TMessage)
 
     EXPECT_FALSE(message.has_nested_message1());
+}
+
+TEST(TYsonToProtobufTest, ValidUtf8StringCheck)
+{
+    for (auto option: {EUtf8Check::Disable, EUtf8Check::LogOnFail, EUtf8Check::ThrowOnFail}) {
+        auto config = New<TProtobufInteropConfig>();
+        config->Utf8Check = option;
+        SetProtobufInteropConfig(config);
+
+        TString invalidUtf8 = "\xc3\x28";
+
+        auto check = [&] {
+            TEST_PROLOGUE_WITH_OPTIONS(TMessage, {})
+                .BeginMap()
+                    .Item("string_field").Value(invalidUtf8)
+                .EndMap();
+        };
+        if (option == EUtf8Check::ThrowOnFail) {
+            EXPECT_THROW_WITH_SUBSTRING(check(), "Non UTF-8 value in string field");
+        } else {
+            EXPECT_NO_THROW(check());
+        }
+
+        NProto::TMessage message;
+        message.set_string_field(invalidUtf8);
+        TString newYsonString;
+        TStringOutput newYsonOutputStream(newYsonString);
+        TYsonWriter ysonWriter(&newYsonOutputStream, EYsonFormat::Pretty);
+        if (option == EUtf8Check::ThrowOnFail) {
+            EXPECT_THROW_WITH_SUBSTRING(
+                WriteProtobufMessage(&ysonWriter, message), "Non UTF-8 value in string field");
+        } else {
+            EXPECT_NO_THROW(WriteProtobufMessage(&ysonWriter, message));
+        }
+    }
 }
 
 TEST(TYsonToProtobufTest, CustomUnknownFieldsModeResolver)
@@ -2030,22 +2071,26 @@ TEST(TResolveProtobufElementByYPath, Message)
 
 ////////////////////////////////////////////////////////////////////////////////
 
-void TestScalarByYPath(const TYPath& path)
+void TestScalarByYPath(const TYPath& path, FieldDescriptor::Type type)
 {
     auto result = ResolveProtobufElementByYPath(ReflectProtobufMessageType<NYT::NYson::NProto::TMessage>(), path);
     EXPECT_TRUE(std::holds_alternative<std::unique_ptr<TProtobufScalarElement>>(result.Element));
     EXPECT_EQ(path, result.HeadPath);
     EXPECT_EQ("", result.TailPath);
+    EXPECT_EQ(
+        static_cast<TProtobufScalarElement::TType>(type),
+        std::get<std::unique_ptr<TProtobufScalarElement>>(result.Element)->Type
+    );
 }
 
 TEST(TResolveProtobufElementByYPath, Scalar)
 {
-    TestScalarByYPath("/uint32_field");
-    TestScalarByYPath("/repeated_int32_field/123");
-    TestScalarByYPath("/repeated_nested_message1/0/color");
-    TestScalarByYPath("/nested_message_map/abc/int32_field");
-    TestScalarByYPath("/string_to_int32_map/abc");
-    TestScalarByYPath("/int32_to_int32_map/100");
+    TestScalarByYPath("/uint32_field", FieldDescriptor::TYPE_UINT32);
+    TestScalarByYPath("/repeated_int32_field/123", FieldDescriptor::TYPE_INT32);
+    TestScalarByYPath("/repeated_nested_message1/0/color", FieldDescriptor::TYPE_ENUM);
+    TestScalarByYPath("/nested_message_map/abc/int32_field", FieldDescriptor::TYPE_INT32);
+    TestScalarByYPath("/string_to_int32_map/abc", FieldDescriptor::TYPE_INT32);
+    TestScalarByYPath("/int32_to_int32_map/100", FieldDescriptor::TYPE_INT32);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -2108,21 +2153,27 @@ TEST(TResolveProtobufElementByYPath, Repeated)
 
 ////////////////////////////////////////////////////////////////////////////////
 
-void TestMapByYPath(const TYPath& path)
+template <typename ValueElementType>
+void TestMapByYPath(const TYPath& path, int expectedUnderlyingKeyProtoType)
 {
     auto result = ResolveProtobufElementByYPath(ReflectProtobufMessageType<NYT::NYson::NProto::TMessage>(), path);
-    EXPECT_TRUE(std::holds_alternative<std::unique_ptr<TProtobufMapElement>>(result.Element));
+
     EXPECT_EQ(path, result.HeadPath);
     EXPECT_EQ("", result.TailPath);
+
+    auto* map = std::get_if<std::unique_ptr<TProtobufMapElement>>(&result.Element);
+    ASSERT_TRUE(map);
+    EXPECT_EQ(static_cast<int>((*map)->KeyElement.Type), expectedUnderlyingKeyProtoType);
+    EXPECT_TRUE(std::holds_alternative<std::unique_ptr<ValueElementType>>((*map)->Element));
 }
 
 TEST(TResolveProtobufElementByYPath, Map)
 {
-    TestMapByYPath("/string_to_int32_map");
-    TestMapByYPath("/int32_to_int32_map");
-    TestMapByYPath("/nested_message_map");
-    TestMapByYPath("/nested_message_map/abc/nested_message_map");
-    TestMapByYPath("/nested_message1/nested_message_map");
+    TestMapByYPath<TProtobufScalarElement>("/string_to_int32_map", FieldDescriptor::TYPE_STRING);
+    TestMapByYPath<TProtobufScalarElement>("/int32_to_int32_map", FieldDescriptor::TYPE_INT32);
+    TestMapByYPath<TProtobufMessageElement>("/nested_message_map", FieldDescriptor::TYPE_STRING);
+    TestMapByYPath<TProtobufMessageElement>("/nested_message_map/abc/nested_message_map", FieldDescriptor::TYPE_STRING);
+    TestMapByYPath<TProtobufMessageElement>("/nested_message1/nested_message_map", FieldDescriptor::TYPE_STRING);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -2175,6 +2226,7 @@ TEST(TProtobufEnums, FindLiteralByValueWithAlias)
     static const auto* type = ReflectProtobufEnumType(NYT::NYson::NProto::EFlag_descriptor());
     ASSERT_EQ("true", FindProtobufEnumLiteralByValue(type, NYT::NYson::NProto::Flag_True));
     ASSERT_EQ("true", FindProtobufEnumLiteralByValue(type, NYT::NYson::NProto::Flag_Yes));
+    ASSERT_EQ("true", FindProtobufEnumLiteralByValue(type, NYT::NYson::NProto::Flag_AnotherYes));
 }
 
 TEST(TProtobufEnums, ConvertToProtobufEnumValueUntyped)
@@ -2579,6 +2631,143 @@ TEST(TPackedRepeatedProtobufTest, TestSerializeDeserialize)
 
         EXPECT_TRUE(AreNodesEqual(ConvertToNode(TYsonString(newYsonString)), node));
     }
+}
+
+TEST(TEnumYsonStorageTypeTest, TestDeserializeSerialize)
+{
+    for (auto storageType: {EEnumYsonStorageType::String, EEnumYsonStorageType::Int}) {
+        auto config = New<TProtobufInteropConfig>();
+        config->DefaultEnumYsonStorageType = storageType;
+        SetProtobufInteropConfig(config);
+
+        NProto::TMessageWithEnums message;
+        {
+            auto zero = NProto::TMessageWithEnums_EEnum::TMessageWithEnums_EEnum_VALUE0;
+            auto one = NProto::TMessageWithEnums_EEnum::TMessageWithEnums_EEnum_VALUE1;
+
+            message.set_enum_int(zero);
+            message.add_enum_rep_not_packed_int(zero);
+            message.add_enum_rep_not_packed_int(one);
+            message.add_enum_rep_packed_int(zero);
+            message.add_enum_rep_packed_int(one);
+
+            message.set_enum_string(one);
+            message.add_enum_rep_not_packed_string(one);
+            message.add_enum_rep_not_packed_string(zero);
+            message.add_enum_rep_packed_string(one);
+            message.add_enum_rep_packed_string(zero);
+
+            message.set_enum_without_option(zero);
+            message.add_enum_rep_not_packed_without_option(zero);
+            message.add_enum_rep_not_packed_without_option(one);
+            message.add_enum_rep_packed_without_option(zero);
+            message.add_enum_rep_packed_without_option(one);
+        }
+
+        // Proto message to yson.
+        TString stringWithYson;
+        {
+            TString protobufString;
+            Y_UNUSED(message.SerializeToString(&protobufString));
+            TStringOutput ysonOutputStream(stringWithYson);
+            TYsonWriter ysonWriter(&ysonOutputStream, EYsonFormat::Pretty);
+            ArrayInputStream protobufInput(protobufString.data(), protobufString.length());
+
+            EXPECT_NO_THROW(ParseProtobuf(&ysonWriter, &protobufInput, ReflectProtobufMessageType<NProto::TMessageWithEnums>()));
+        }
+
+        // Check enum representation in yson.
+        auto resultedNode = ConvertToNode(TYsonString(stringWithYson));
+        {
+            auto expectedNode = BuildYsonNodeFluently()
+                .BeginMap()
+                    .Item("enum_int").Value(0)
+                    .Item("enum_rep_not_packed_int").BeginList()
+                        .Item().Value(0)
+                        .Item().Value(1)
+                    .EndList()
+                    .Item("enum_rep_packed_int").BeginList()
+                        .Item().Value(0)
+                        .Item().Value(1)
+                    .EndList()
+
+                    .Item("enum_string").Value("VALUE1")
+                    .Item("enum_rep_not_packed_string").BeginList()
+                        .Item().Value("VALUE1")
+                        .Item().Value("VALUE0")
+                    .EndList()
+                    .Item("enum_rep_packed_string").BeginList()
+                        .Item().Value("VALUE1")
+                        .Item().Value("VALUE0")
+                    .EndList()
+                .EndMap();
+
+                auto map = expectedNode->AsMap();
+                switch (storageType) {
+                    case EEnumYsonStorageType::String:
+                        map->AsMap()->AddChild("enum_without_option", BuildYsonNodeFluently().Value("VALUE0"));
+                        map->AsMap()->AddChild("enum_rep_not_packed_without_option", BuildYsonNodeFluently()
+                            .BeginList()
+                                .Item().Value("VALUE0")
+                                .Item().Value("VALUE1")
+                            .EndList());
+                        map->AsMap()->AddChild("enum_rep_packed_without_option", BuildYsonNodeFluently()
+                            .BeginList()
+                                .Item().Value("VALUE0")
+                                .Item().Value("VALUE1")
+                            .EndList());
+                        break;
+                    case EEnumYsonStorageType::Int:
+                        map->AsMap()->AddChild("enum_without_option", BuildYsonNodeFluently().Value(0));
+                        map->AsMap()->AddChild("enum_rep_not_packed_without_option", BuildYsonNodeFluently()
+                            .BeginList()
+                                .Item().Value(0)
+                                .Item().Value(1)
+                            .EndList());
+                        map->AsMap()->AddChild("enum_rep_packed_without_option", BuildYsonNodeFluently()
+                            .BeginList()
+                                .Item().Value(0)
+                                .Item().Value(1)
+                            .EndList());
+                        break;
+                }
+
+            EXPECT_TRUE(AreNodesEqual(resultedNode, expectedNode));
+        }
+
+        // Yson to proto message.
+        NProto::TMessageWithEnums resultedMessage;
+        DeserializeProtobufMessage(
+            resultedMessage,
+            ReflectProtobufMessageType<NProto::TMessageWithEnums>(),
+            resultedNode,
+            TProtobufWriterOptions{});
+
+        // Check that original message is equal to its deserialized + serialized version
+        EXPECT_TRUE(google::protobuf::util::MessageDifferencer::Equals(message, resultedMessage));
+    }
+}
+
+TEST(TYsonToProtobufTest, Casing)
+{
+    auto ysonNode = BuildYsonNodeFluently()
+        .BeginMap()
+            .Item("some_field").Value(1)
+            .Item("another_field123").Value(2)
+        .EndMap();
+    auto ysonString = ConvertToYsonString(ysonNode);
+
+    NYson::TProtobufWriterOptions protobufWriterOptions;
+    protobufWriterOptions.ConvertSnakeToCamelCase = true;
+
+    NProto::TExternalProtobuf message;
+    message.ParseFromStringOrThrow(NYson::YsonStringToProto(
+        ysonString,
+        NYson::ReflectProtobufMessageType<NProto::TExternalProtobuf>(),
+        protobufWriterOptions));
+
+    EXPECT_EQ(message.somefield(), 1);
+    EXPECT_EQ(message.anotherfield123(), 2);
 }
 
 } // namespace

@@ -310,15 +310,16 @@ void ToProtoArrayImpl(
     }
 }
 
-template <class TOriginalArray, class TSerializedArray>
+template <class TOriginalArray, class TSerializedArray, class... TArgs>
 void FromProtoArrayImpl(
     TOriginalArray* originalArray,
-    const TSerializedArray& serializedArray)
+    const TSerializedArray& serializedArray,
+    TArgs&&... args)
 {
     originalArray->clear();
     originalArray->resize(serializedArray.size());
     for (int i = 0; i < serializedArray.size(); ++i) {
-        FromProto(&(*originalArray)[i], serializedArray.Get(i));
+        FromProto(&(*originalArray)[i], serializedArray.Get(i), args...);
     }
 }
 
@@ -331,17 +332,17 @@ typename std::enable_if_t<!std::is_trivial_v<TValue>> SetPairValueImpl(TProtoPai
 template <class TProtoPair, class TValue>
 typename std::enable_if_t<std::is_trivial_v<TValue>> SetPairValueImpl(TProtoPair& pair, const TValue& value)
 {
-   pair->set_value(value);
+    pair->set_value(value);
 }
 
 template <class TSerializedArray, class T, class E, E Min, E Max>
 void ToProtoArrayImpl(
     TSerializedArray* serializedArray,
-    const TEnumIndexedVector<E, T, Min, Max>& originalArray)
+    const TEnumIndexedArray<E, T, Min, Max>& originalArray)
 {
     serializedArray->Clear();
     for (auto key : TEnumTraits<E>::GetDomainValues()) {
-        if (originalArray.IsDomainValue(key)) {
+        if (originalArray.IsValidIndex(key)) {
             const auto& value = originalArray[key];
             auto* pair = serializedArray->Add();
             pair->set_key(static_cast<i32>(key));
@@ -352,17 +353,17 @@ void ToProtoArrayImpl(
 
 template <class T, class E, E Min, E Max, class TSerializedArray>
 void FromProtoArrayImpl(
-    TEnumIndexedVector<E, T, Min, Max>* originalArray,
+    TEnumIndexedArray<E, T, Min, Max>* originalArray,
     const TSerializedArray& serializedArray)
 {
     for (auto key : TEnumTraits<E>::GetDomainValues()) {
-        if (originalArray->IsDomainValue(key)) {
+        if (originalArray->IsValidIndex(key)) {
             (*originalArray)[key] = T{};
         }
     }
     for (const auto& pair : serializedArray) {
         const auto& key = static_cast<E>(pair.key());
-        if (originalArray->IsDomainValue(key)) {
+        if (originalArray->IsValidIndex(key)) {
             FromProto(&(*originalArray)[key], pair.value());
         }
     }
@@ -379,6 +380,19 @@ void FromProtoArrayImpl(
     for (int i = 0; i < serializedArray.size(); ++i) {
         originalArray->emplace(
             FromProto<TOriginal>(serializedArray.Get(i)));
+    }
+}
+
+template <class TOriginalKey, class TOriginalValue, class TSerializedArray>
+void FromProtoArrayImpl(
+    THashMap<TOriginalKey, TOriginalValue>* originalArray,
+    const TSerializedArray& serializedArray)
+{
+    originalArray->clear();
+    originalArray->reserve(serializedArray.size());
+    for (int i = 0; i < serializedArray.size(); ++i) {
+        originalArray->emplace(
+            FromProto<std::pair<TOriginalKey, TOriginalValue>>(serializedArray.Get(i)));
     }
 }
 
@@ -420,100 +434,29 @@ void FromProtoArrayImpl(
 
 } // namespace NDetail
 
-template <class TSerialized, class TOriginal>
+template <class TSerialized, class TOriginalArray>
 void ToProto(
     ::google::protobuf::RepeatedPtrField<TSerialized>* serializedArray,
-    const std::vector<TOriginal>& originalArray)
+    const TOriginalArray& originalArray)
 {
     NYT::NDetail::ToProtoArrayImpl(serializedArray, originalArray);
 }
 
-template <class TSerialized, class TOriginal>
+template <class TSerialized, class TOriginalArray>
 void ToProto(
     ::google::protobuf::RepeatedField<TSerialized>* serializedArray,
-    const std::vector<TOriginal>& originalArray)
+    const TOriginalArray& originalArray)
 {
     NYT::NDetail::ToProtoArrayImpl(serializedArray, originalArray);
 }
 
-template <class TSerialized, class TOriginal, size_t N>
-void ToProto(
-    ::google::protobuf::RepeatedPtrField<TSerialized>* serializedArray,
-    const std::array<TOriginal, N>& originalArray)
-{
-    NYT::NDetail::ToProtoArrayImpl(serializedArray, originalArray);
-}
-
-template <class TSerialized, class TOriginal, size_t N>
-void ToProto(
-    ::google::protobuf::RepeatedField<TSerialized>* serializedArray,
-    const std::array<TOriginal, N>& originalArray)
-{
-    NYT::NDetail::ToProtoArrayImpl(serializedArray, originalArray);
-}
-
-template <class TSerialized, class TOriginal, size_t Size>
-void ToProto(
-    ::google::protobuf::RepeatedPtrField<TSerialized>* serializedArray,
-    const TCompactVector<TOriginal, Size>& originalArray)
-{
-    NYT::NDetail::ToProtoArrayImpl(serializedArray, originalArray);
-}
-
-template <class TSerialized, class TOriginal, size_t Size>
-void ToProto(
-    ::google::protobuf::RepeatedField<TSerialized>* serializedArray,
-    const TCompactVector<TOriginal, Size>& originalArray)
-{
-    NYT::NDetail::ToProtoArrayImpl(serializedArray, originalArray);
-}
-
-template <class TSerialized, class TOriginal>
-void ToProto(
-    ::google::protobuf::RepeatedPtrField<TSerialized>* serializedArray,
-    TRange<TOriginal> originalArray)
-{
-    NYT::NDetail::ToProtoArrayImpl(serializedArray, originalArray);
-}
-
-template <class TSerialized, class TOriginal>
-void ToProto(
-    ::google::protobuf::RepeatedField<TSerialized>* serializedArray,
-    TRange<TOriginal> originalArray)
-{
-    NYT::NDetail::ToProtoArrayImpl(serializedArray, originalArray);
-}
-
-template <class TSerialized, class T, class E, E Min, E Max>
-void ToProto(
-    ::google::protobuf::RepeatedField<TSerialized>* serializedArray,
-    const TEnumIndexedVector<E, T, Min, Max>& originalArray)
-{
-    NYT::NDetail::ToProtoArrayImpl(serializedArray, originalArray);
-}
-
-template <class TSerialized, class T, class E, E Min, E Max>
-void ToProto(
-    ::google::protobuf::RepeatedPtrField<TSerialized>* serializedArray,
-    const TEnumIndexedVector<E, T, Min, Max>& originalArray)
-{
-    NYT::NDetail::ToProtoArrayImpl(serializedArray, originalArray);
-}
-
-template <class TSerialized, class TOriginal>
-void ToProto(
-    ::google::protobuf::RepeatedPtrField<TSerialized>* serializedArray,
-    const THashSet<TOriginal>& originalArray)
-{
-    NYT::NDetail::ToProtoArrayImpl(serializedArray, originalArray);
-}
-
-template <class TOriginalArray, class TSerialized>
+template <class TOriginalArray, class TSerialized, class... TArgs>
 void FromProto(
     TOriginalArray* originalArray,
-    const ::google::protobuf::RepeatedPtrField<TSerialized>& serializedArray)
+    const ::google::protobuf::RepeatedPtrField<TSerialized>& serializedArray,
+    TArgs&&... args)
 {
-    NYT::NDetail::FromProtoArrayImpl(originalArray, serializedArray);
+    NYT::NDetail::FromProtoArrayImpl(originalArray, serializedArray, std::forward<TArgs>(args)...);
 }
 
 template <class TOriginalArray, class TSerialized>

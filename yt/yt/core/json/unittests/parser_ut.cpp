@@ -802,5 +802,73 @@ TEST(TJsonParserTest, MemoryLimit4)
 
 ////////////////////////////////////////////////////////////////////////////////
 
+TString MakeDeepMapJson(int depth)
+{
+    TString result;
+    for (int i = 0; i < depth; ++i) {
+        result += "{\"k\":";
+    }
+    result += "0";
+    for (int i = 0; i < depth; ++i) {
+        result += "}";
+    }
+    return result;
+}
+
+TString MakeDeepListJson(int depth)
+{
+    TString result;
+    for (int i = 0; i < depth; ++i) {
+        result += "[";
+    }
+    result += "0";
+    for (int i = 0; i < depth; ++i) {
+        result += "]";
+    }
+    return result;
+}
+
+TEST(TJsonParserTest, ParseDeepMapNoExcept)
+{
+    TStringStream yson;
+    NYT::NYson::TYsonWriter writer(&yson);
+    auto config = NYT::New<TJsonFormatConfig>();
+    config->NestingLevelLimit = 20;
+    TJsonParser parser(&writer, config, EYsonType::Node);
+    EXPECT_NO_THROW(parser.Read(MakeDeepMapJson(config->NestingLevelLimit)));
+}
+
+TEST(TJsonParserTest, ParseDeepMapExcept)
+{
+    TStringStream yson;
+    NYT::NYson::TYsonWriter writer(&yson);
+    auto config = NYT::New<TJsonFormatConfig>();
+    config->NestingLevelLimit = 20;
+    TJsonParser parser(&writer, config, EYsonType::Node);
+    EXPECT_THROW(parser.Read(MakeDeepMapJson(config->NestingLevelLimit + 1)), NYT::TErrorException);
+}
+
+TEST(TJsonParserTest, ParseDeepListNoExcept)
+{
+    TStringStream yson;
+    NYT::NYson::TYsonWriter writer(&yson);
+    auto config = NYT::New<TJsonFormatConfig>();
+    config->NestingLevelLimit = 20;
+    TJsonParser parser(&writer, config, EYsonType::Node);
+    EXPECT_NO_THROW(parser.Read(MakeDeepListJson(config->NestingLevelLimit)));
+}
+
+TEST(TJsonParserTest, ParseDeepListExcept)
+{
+    TStringStream yson;
+    NYT::NYson::TYsonWriter writer(&yson);
+    auto config = NYT::New<TJsonFormatConfig>();
+    config->NestingLevelLimit = 20;
+    TJsonParser parser(&writer, config, EYsonType::Node);
+    EXPECT_THROW(parser.Read(MakeDeepListJson(config->NestingLevelLimit + 1)), NYT::TErrorException);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
 } // namespace
 } // namespace NYT::NJson

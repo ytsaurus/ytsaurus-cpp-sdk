@@ -388,7 +388,7 @@ public:
         const TNode::TListType& keys,
         const TDeleteRowsOptions& options) override;
 
-     void TrimRows(
+    void TrimRows(
         const TYPath& path,
         i64 tabletIndex,
         i64 rowCount,
@@ -413,6 +413,10 @@ public:
 
     TOperationAttributes GetOperation(
         const TOperationId& operationId,
+        const TGetOperationOptions& options) override;
+
+    TOperationAttributes GetOperation(
+        const TString& alias,
         const TGetOperationOptions& options) override;
 
     TListOperationsResult ListOperations(
@@ -490,7 +494,7 @@ private:
     ITransactionPingerPtr TransactionPinger_;
 
     std::atomic<bool> Shutdown_ = false;
-    TMutex YtPollerLock_;
+    TMutex Lock_;
     THolder<TYtPoller> YtPoller_;
 };
 

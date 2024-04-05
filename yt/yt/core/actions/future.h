@@ -97,14 +97,10 @@ template <class T>
 template <class T>
 bool operator==(const TFuture<T>& lhs, const TFuture<T>& rhs);
 template <class T>
-bool operator!=(const TFuture<T>& lhs, const TFuture<T>& rhs);
-template <class T>
 void swap(TFuture<T>& lhs, TFuture<T>& rhs);
 
 template <class T>
 bool operator==(const TPromise<T>& lhs, const TPromise<T>& rhs);
-template <class T>
-bool operator!=(const TPromise<T>& lhs, const TPromise<T>& rhs);
 template <class T>
 void swap(TPromise<T>& lhs, TPromise<T>& rhs);
 
@@ -153,7 +149,6 @@ private:
     TIntrusivePtr<NYT::NDetail::TCancelableStateBase> Impl_;
 
     friend bool operator==(const TCancelable& lhs, const TCancelable& rhs);
-    friend bool operator!=(const TCancelable& lhs, const TCancelable& rhs);
     friend void swap(TCancelable& lhs, TCancelable& rhs);
     template <class U>
     friend struct ::THash;
@@ -166,6 +161,15 @@ private:
 //! An opaque future callback id.
 using TFutureCallbackCookie = int;
 constexpr TFutureCallbackCookie NullFutureCallbackCookie = -1;
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct TFutureTimeoutOptions
+{
+    //! If set to a non-trivial error, timeout or cancelation errors
+    //! are enveloped into this error.
+    TError Error;
+};
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -280,13 +284,22 @@ public:
     //! Returns a future that is either set to an actual value (if the original one is set in timely manner)
     //! or to |EErrorCode::Timeout| (in case the deadline is reached).
     //! The timeout event is handled in #invoker (DelayedExecutor is null).
-    TFuture<T> WithDeadline(TInstant deadline, IInvokerPtr invoker = nullptr) const;
+    TFuture<T> WithDeadline(
+        TInstant deadline,
+        TFutureTimeoutOptions options = {},
+        IInvokerPtr invoker = nullptr) const;
 
     //! Returns a future that is either set to an actual value (if the original one is set in timely manner)
     //! or to |EErrorCode::Timeout| (in case of timeout).
     //! The timeout event is handled in #invoker (DelayedExecutor is null).
-    TFuture<T> WithTimeout(TDuration timeout, IInvokerPtr invoker = nullptr) const;
-    TFuture<T> WithTimeout(std::optional<TDuration> timeout, IInvokerPtr invoker = nullptr) const;
+    TFuture<T> WithTimeout(
+        TDuration timeout,
+        TFutureTimeoutOptions options = {},
+        IInvokerPtr invoker = nullptr) const;
+    TFuture<T> WithTimeout(
+        std::optional<TDuration> timeout,
+        TFutureTimeoutOptions options = {},
+        IInvokerPtr invoker = nullptr) const;
 
     //! Chains the asynchronous computation with another one.
     template <class R>
@@ -322,8 +335,6 @@ protected:
     template <class U>
     friend bool operator==(const TFuture<U>& lhs, const TFuture<U>& rhs);
     template <class U>
-    friend bool operator!=(const TFuture<U>& lhs, const TFuture<U>& rhs);
-    template <class U>
     friend void swap(TFuture<U>& lhs, TFuture<U>& rhs);
     template <class U>
     friend struct ::THash;
@@ -332,7 +343,7 @@ protected:
 ////////////////////////////////////////////////////////////////////////////////
 
 template <class T>
-class TFuture
+class [[nodiscard]] TFuture
     : public TFutureBase<T>
 {
 public:
@@ -376,7 +387,7 @@ private:
 ////////////////////////////////////////////////////////////////////////////////
 
 template <>
-class TFuture<void>
+class [[nodiscard]] TFuture<void>
     : public TFutureBase<void>
 {
 public:
@@ -472,7 +483,7 @@ public:
      *  If the value is set before the call to #handlered, then
      *  #handler is discarded.
      */
-    bool OnCanceled(TCallback<void (const TError&)> handler) const;
+    bool OnCanceled(TCallback<void(const TError&)> handler) const;
 
     //! Converts promise into future.
     operator TFuture<T>() const;
@@ -485,8 +496,6 @@ protected:
 
     template <class U>
     friend bool operator==(const TPromise<U>& lhs, const TPromise<U>& rhs);
-    template <class U>
-    friend bool operator!=(const TPromise<U>& lhs, const TPromise<U>& rhs);
     template <class U>
     friend void swap(TPromise<U>& lhs, TPromise<U>& rhs);
     template <class U>

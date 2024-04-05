@@ -1,31 +1,57 @@
 #pragma once
 
+#include "config.h"
+#include "periodic_executor_base.h"
 #include "public.h"
-#include "delayed_executor.h"
 
 #include <yt/yt/core/actions/callback.h>
 #include <yt/yt/core/actions/future.h>
+
+#include <yt/yt/core/misc/backoff_strategy.h>
 
 namespace NYT::NConcurrency {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-struct TPeriodicExecutorOptions
+namespace NDetail {
+
+class TDefaultInvocationTimePolicy
+    : private TPeriodicExecutorOptions
 {
-    static constexpr double DefaultJitter = 0.2;
+public:
+    using TCallbackResult = void;
+    using TOptions = TPeriodicExecutorOptions;
 
-    //! Interval between usual consequent invocations; if null then no invocations will be happening.
-    std::optional<TDuration> Period;
-    TDuration Splay;
-    double Jitter = 0.0;
+    explicit TDefaultInvocationTimePolicy(const TOptions& options);
 
-    //! Sets #Period and Applies set#DefaultJitter.
-    static TPeriodicExecutorOptions WithJitter(TDuration period);
+    void ProcessResult();
+
+    TInstant KickstartDeadline();
+
+    bool IsEnabled();
+
+    bool ShouldKickstart(const TOptions& newOptions);
+
+    void SetOptions(TOptions newOptions);
+
+    bool ShouldKickstart(const std::optional<TDuration>& period);
+
+    void SetOptions(std::optional<TDuration> period);
+
+    TInstant NextDeadline();
+
+    bool IsOutOfBandProhibited();
+
+    void Reset();
 };
+
+////////////////////////////////////////////////////////////////////////////////
+
+} // namespace NDetail
 
 //! Helps to perform certain actions periodically.
 class TPeriodicExecutor
-    : public TRefCounted
+    : public NDetail::TPeriodicExecutorBase<NDetail::TDefaultInvocationTimePolicy>
 {
 public:
     //! Initializes an instance.
@@ -39,67 +65,20 @@ public:
      */
     TPeriodicExecutor(
         IInvokerPtr invoker,
-        TClosure callback,
-        TPeriodicExecutorOptions options);
+        TPeriodicCallback callback,
+        NConcurrency::TPeriodicExecutorOptions options);
 
     TPeriodicExecutor(
         IInvokerPtr invoker,
-        TClosure callback,
+        TPeriodicCallback callback,
         std::optional<TDuration> period = {});
-
-    //! Starts the instance.
-    //! The first invocation happens with a random delay within splay time.
-    void Start();
-
-    //! Stops the instance, cancels all subsequent invocations.
-    //! Returns a future that becomes set when all outstanding callback
-    //! invocations are finished and no more invocations are expected to happen.
-    TFuture<void> Stop();
-
-    //! Requests an immediate invocation.
-    void ScheduleOutOfBand();
 
     //! Changes execution period.
     void SetPeriod(std::optional<TDuration> period);
 
-    //! Returns the future that become set when
-    //! at least one action be fully executed from the moment of method call.
-    //! Cancellation of the returned future will not affect the action
-    //! or other futures returned by this method.
-    TFuture<void> GetExecutedEvent();
-
 private:
-    const IInvokerPtr Invoker_;
-    const TClosure Callback_;
-    std::optional<TDuration> Period_;
-    const TDuration Splay_;
-    const double Jitter_;
+    using TBase = NDetail::TPeriodicExecutorBase<NDetail::TDefaultInvocationTimePolicy>;
 
-    YT_DECLARE_SPIN_LOCK(NThreading::TSpinLock, SpinLock_);
-    bool Started_ = false;
-    bool Busy_ = false;
-    bool OutOfBandRequested_ = false;
-    bool ExecutingCallback_ = false;
-    TCallback<void(const TError&)> ExecutionCanceler_;
-    TDelayedExecutorCookie Cookie_;
-    TPromise<void> IdlePromise_;
-    TPromise<void> ExecutedPromise_;
-
-    void DoStop(TGuard<NThreading::TSpinLock>& guard);
-
-    static TError MakeStoppedError();
-
-    void InitIdlePromise();
-    void InitExecutedPromise();
-
-    void PostDelayedCallback(TDuration delay);
-    void PostCallback();
-
-    void OnTimer(bool aborted);
-    void OnCallbackSuccess();
-    void OnCallbackFailure();
-
-    TDuration NextDelay();
 };
 
 DEFINE_REFCOUNTED_TYPE(TPeriodicExecutor)

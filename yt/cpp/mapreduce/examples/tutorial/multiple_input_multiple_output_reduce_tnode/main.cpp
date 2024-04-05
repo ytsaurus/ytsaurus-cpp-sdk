@@ -21,7 +21,7 @@ public:
             } else if (tableIndex == 1) {
                 isRobot = curRow["is_robot"].AsBool();
             } else {
-                Y_FAIL();
+                Y_ABORT();
             }
         }
 
@@ -47,13 +47,13 @@ int main() {
 
     client->Sort(
         TSortOperationSpec()
-            .AddInput("//home/dev/tutorial/staff_unsorted")
+            .AddInput("//home/tutorial/staff_unsorted")
             .Output(sortedLoginTable)
             .SortBy({"uid"}));
 
     client->Sort(
         TSortOperationSpec()
-            .AddInput("//home/dev/tutorial/is_robot_unsorted")
+            .AddInput("//home/tutorial/is_robot_unsorted")
             .Output(sortedIsRobotTable)
             .SortBy({"uid"}));
 

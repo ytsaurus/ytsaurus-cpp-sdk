@@ -5,6 +5,8 @@
 #include <yt/yt/core/net/config.h>
 #include <yt/yt/core/net/address.h>
 
+#include <yt/yt/core/crypto/config.h>
+
 #include <yt/yt/core/ytree/yson_struct.h>
 
 namespace NYT::NBus {
@@ -38,7 +40,7 @@ public:
 
     THashMap<TString, std::vector<NNet::TIP6Network>> Networks;
 
-    TEnumIndexedVector<EMultiplexingBand, TMultiplexingBandConfigPtr> MultiplexingBands;
+    TEnumIndexedArray<EMultiplexingBand, TMultiplexingBandConfigPtr> MultiplexingBands;
 
     TTcpDispatcherConfigPtr ApplyDynamic(const TTcpDispatcherDynamicConfigPtr& dynamicConfig) const;
 
@@ -64,9 +66,9 @@ public:
 
     std::optional<THashMap<TString, std::vector<NNet::TIP6Network>>> Networks;
 
-    std::optional<TEnumIndexedVector<EMultiplexingBand, TMultiplexingBandConfigPtr>> MultiplexingBands;
+    std::optional<TEnumIndexedArray<EMultiplexingBand, TMultiplexingBandConfigPtr>> MultiplexingBands;
 
-     //! Used to store TLS/SSL certificate files.
+    //! Used to store TLS/SSL certificate files.
     std::optional<TString> BusCertsDirectoryPath;
 
     REGISTER_YSON_STRUCT(TTcpDispatcherDynamicConfig);
@@ -90,19 +92,21 @@ public:
     TDuration ReadStallTimeout;
     TDuration WriteStallTimeout;
 
+    std::optional<TDuration> ConnectionStartDelay;
+    std::optional<TDuration> PacketDecoderDelay;
+
     bool VerifyChecksums;
     bool GenerateChecksums;
 
     // Ssl options.
     EEncryptionMode EncryptionMode;
     EVerificationMode VerificationMode;
-    std::optional<TString> CAFile;
-    std::optional<TString> CertificateChainFile;
-    std::optional<TString> PrivateKeyFile;
+    NCrypto::TPemBlobConfigPtr CA;
+    NCrypto::TPemBlobConfigPtr CertificateChain;
+    NCrypto::TPemBlobConfigPtr PrivateKey;
     std::optional<TString> CipherList;
     bool LoadCertsFromBusCertsDirectory;
-    // For testing purposes.
-    bool UseKeyPairFromSslContext;
+    std::optional<TString> PeerAlternativeHostName;
 
     REGISTER_YSON_STRUCT(TBusConfig);
 

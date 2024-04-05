@@ -19,14 +19,14 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if !defined(_LIBCPP_HAS_NO_CONCEPTS)
+#if _LIBCPP_STD_VER >= 20
 
 // [concept.object]
 
-template<class _Tp>
+template <class _Tp>
 concept semiregular = copyable<_Tp> && default_initializable<_Tp>;
 
-#endif // !defined(_LIBCPP_HAS_NO_CONCEPTS)
+#endif // _LIBCPP_STD_VER >= 20
 
 _LIBCPP_END_NAMESPACE_STD
 

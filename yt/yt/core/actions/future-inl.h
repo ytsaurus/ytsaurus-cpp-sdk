@@ -506,7 +506,7 @@ private:
     {
         VERIFY_SPINLOCK_AFFINITY(SpinLock_);
         TFutureState<void>::SetResultError(error);
-        Result_ = error;
+        Result_.emplace(error);
     }
 
     bool DoUnsubscribe(TFutureCallbackCookie cookie, TGuard<NThreading::TSpinLock>* guard) override
@@ -860,7 +860,11 @@ TFuture<R> ApplyUniqueHelper(TFutureBase<T> this_, TCallback<S> callback)
 }
 
 template <class T, class D>
-TFuture<T> ApplyTimeoutHelper(TFutureBase<T> this_, D timeoutOrDeadline, IInvokerPtr invoker)
+TFuture<T> ApplyTimeoutHelper(
+    TFutureBase<T> this_,
+    D timeoutOrDeadline,
+    TFutureTimeoutOptions options,
+    IInvokerPtr invoker)
 {
     auto promise = NewPromise<T>();
 
@@ -877,6 +881,9 @@ TFuture<T> ApplyTimeoutHelper(TFutureBase<T> this_, D timeoutOrDeadline, IInvoke
                 if constexpr (std::is_same_v<D, TInstant>) {
                     error = error << NYT::TErrorAttribute("deadline", timeoutOrDeadline);
                 }
+            }
+            if (!options.Error.IsOK()) {
+                error = options.Error << std::move(error);
             }
             promise.TrySet(error);
             cancelable.Cancel(error);
@@ -939,11 +946,6 @@ inline bool operator==(const TCancelable& lhs, const TCancelable& rhs)
     return lhs.Impl_ == rhs.Impl_;
 }
 
-inline bool operator!=(const TCancelable& lhs, const TCancelable& rhs)
-{
-    return !(lhs == rhs);
-}
-
 inline void swap(TCancelable& lhs, TCancelable& rhs)
 {
     using std::swap;
@@ -957,12 +959,6 @@ bool operator==(const TFuture<T>& lhs, const TFuture<T>& rhs)
 }
 
 template <class T>
-bool operator!=(const TFuture<T>& lhs, const TFuture<T>& rhs)
-{
-    return !(lhs == rhs);
-}
-
-template <class T>
 void swap(TFuture<T>& lhs, TFuture<T>& rhs)
 {
     using std::swap;
@@ -973,12 +969,6 @@ template <class T>
 bool operator==(const TPromise<T>& lhs, const TPromise<T>& rhs)
 {
     return lhs.Impl_ == rhs.Impl_;
-}
-
-template <class T>
-bool operator!=(const TPromise<T>& lhs, const TPromise<T>& rhs)
-{
-    return *(lhs == rhs);
 }
 
 template <class T>
@@ -1142,7 +1132,10 @@ TFuture<T> TFutureBase<T>::ToImmediatelyCancelable() const
 }
 
 template <class T>
-TFuture<T> TFutureBase<T>::WithDeadline(TInstant deadline, IInvokerPtr invoker) const
+TFuture<T> TFutureBase<T>::WithDeadline(
+    TInstant deadline,
+    TFutureTimeoutOptions options,
+    IInvokerPtr invoker) const
 {
     YT_ASSERT(Impl_);
 
@@ -1150,11 +1143,14 @@ TFuture<T> TFutureBase<T>::WithDeadline(TInstant deadline, IInvokerPtr invoker) 
         return TFuture<T>(Impl_);
     }
 
-    return NYT::NDetail::ApplyTimeoutHelper(*this, deadline, std::move(invoker));
+    return NYT::NDetail::ApplyTimeoutHelper(*this, deadline, std::move(options), std::move(invoker));
 }
 
 template <class T>
-TFuture<T> TFutureBase<T>::WithTimeout(TDuration timeout, IInvokerPtr invoker) const
+TFuture<T> TFutureBase<T>::WithTimeout(
+    TDuration timeout,
+    TFutureTimeoutOptions options,
+    IInvokerPtr invoker) const
 {
     YT_ASSERT(Impl_);
 
@@ -1162,15 +1158,16 @@ TFuture<T> TFutureBase<T>::WithTimeout(TDuration timeout, IInvokerPtr invoker) c
         return TFuture<T>(Impl_);
     }
 
-    return NYT::NDetail::ApplyTimeoutHelper(*this, timeout, std::move(invoker));
+    return NYT::NDetail::ApplyTimeoutHelper(*this, timeout, std::move(options), std::move(invoker));
 }
 
 template <class T>
 TFuture<T> TFutureBase<T>::WithTimeout(
     std::optional<TDuration> timeout,
+    TFutureTimeoutOptions options,
     IInvokerPtr invoker) const
 {
-    return timeout ? WithTimeout(*timeout, std::move(invoker)) : TFuture<T>(Impl_);
+    return timeout ? WithTimeout(*timeout, std::move(options), std::move(invoker)) : TFuture<T>(Impl_);
 }
 
 template <class T>
@@ -1597,12 +1594,26 @@ struct TAsyncViaHelper<R(TArgs...)>
         TArgs... args)
     {
         auto promise = NewPromise<TUnderlying>();
+        auto makeOnSuccess = [&] <size_t... Indeces> (std::index_sequence<Indeces...>) {
+            return
+                [
+                    promise,
+                    this_ = std::move(this_),
+                    tuple = std::tuple(std::forward<TArgs>(args)...)
+                ] {
+                    if constexpr (sizeof...(TArgs) == 0) {
+                        Y_UNUSED(tuple);
+                    }
+                    Inner(std::move(this_), promise, std::forward<TArgs>(std::get<Indeces>(tuple))...);
+                };
+        };
+
         GuardedInvoke(
             invoker,
-            BIND_NO_PROPAGATE(&Inner, std::move(this_), promise, WrapToPassed(std::forward<TArgs>(args))...),
-            BIND_NO_PROPAGATE([promise, cancellationError = std::move(cancellationError)] {
+            makeOnSuccess(std::make_index_sequence<sizeof...(TArgs)>()),
+            [promise, cancellationError = std::move(cancellationError)] {
                 promise.Set(std::move(cancellationError));
-            }));
+            });
         return promise;
     }
 
@@ -1722,9 +1733,76 @@ TFuture<T>* TFutureHolder<T>::operator->() // noexcept
 namespace NDetail {
 
 template <class T>
+concept CLightweight =
+    std::default_initializable<T> &&
+    std::is_trivially_destructible_v<T> &&
+    std::is_move_assignable_v<T>;
+
+template <class T>
+class TFutureCombinerResultHolderStorage
+{
+public:
+    constexpr explicit TFutureCombinerResultHolderStorage(size_t size)
+        : Impl_(size)
+    { }
+
+    template <class... TArgs>
+        requires std::constructible_from<T, TArgs...>
+    constexpr void ConstructAt(size_t index, TArgs&&... args)
+    {
+        Impl_[index].emplace(std::forward<TArgs>(args)...);
+    }
+
+    constexpr std::vector<T> VectorFromThis() &&
+    {
+        std::vector<T> result;
+
+        result.reserve(Impl_.size());
+
+        for (auto& opt : Impl_) {
+            YT_VERIFY(opt.has_value());
+
+            result.push_back(std::move(*opt));
+        }
+
+        return result;
+    }
+
+private:
+    std::vector<std::optional<T>> Impl_;
+};
+
+template <NDetail::CLightweight T>
+class TFutureCombinerResultHolderStorage<T>
+{
+public:
+    constexpr explicit TFutureCombinerResultHolderStorage(size_t size)
+        : Impl_(size)
+    { }
+
+    template <class... TArgs>
+        requires std::constructible_from<T, TArgs...>
+    constexpr void ConstructAt(size_t index, TArgs&&... args)
+    {
+        Impl_[index] = T(std::forward<TArgs>(args)...);
+    }
+
+    //! This method is inherently unsafe because it assumes
+    //! that you have filled every slot.
+    constexpr std::vector<T> VectorFromThis() &&
+    {
+        return std::move(Impl_);
+    }
+
+private:
+    std::vector<T> Impl_;
+};
+
+template <class T>
 class TFutureCombinerResultHolder
 {
 public:
+    using TStorage = TFutureCombinerResultHolderStorage<T>;
     using TResult = std::vector<T>;
 
     explicit TFutureCombinerResultHolder(int size)
@@ -1734,7 +1812,7 @@ public:
     bool TrySetResult(int index, const NYT::TErrorOr<T>& errorOrValue)
     {
         if (errorOrValue.IsOK()) {
-            Result_[index] = errorOrValue.Value();
+            Result_.ConstructAt(index, errorOrValue.Value());
             return true;
         } else {
             return false;
@@ -1743,17 +1821,18 @@ public:
 
     bool TrySetPromise(const TPromise<TResult>& promise)
     {
-        return promise.TrySet(std::move(Result_));
+        return promise.TrySet(std::move(Result_).VectorFromThis());
     }
 
 private:
-    TResult Result_;
+    TStorage Result_;
 };
 
 template <class T>
 class TFutureCombinerResultHolder<TErrorOr<T>>
 {
 public:
+    using TStorage = TFutureCombinerResultHolderStorage<TErrorOr<T>>;
     using TResult = std::vector<TErrorOr<T>>;
 
     explicit TFutureCombinerResultHolder(int size)
@@ -1762,17 +1841,17 @@ public:
 
     bool TrySetResult(int index, const NYT::TErrorOr<T>& errorOrValue)
     {
-        Result_[index] = errorOrValue;
+        Result_.ConstructAt(index, errorOrValue);
         return true;
     }
 
     bool TrySetPromise(const TPromise<TResult>& promise)
     {
-        return promise.TrySet(std::move(Result_));
+        return promise.TrySet(std::move(Result_).VectorFromThis());
     }
 
 private:
-    TResult Result_;
+    TStorage Result_;
 };
 
 template <>
@@ -2142,8 +2221,8 @@ private:
             }
 
             if (Options_.CancelInputOnShortcut &&
-               responseIndex < static_cast<int>(this->Futures_.size()) - 1 &&
-               this->TryAcquireFuturesCancelLatch())
+                responseIndex < static_cast<int>(this->Futures_.size()) - 1 &&
+                this->TryAcquireFuturesCancelLatch())
             {
                 this->CancelFutures(NYT::TError(
                     NYT::EErrorCode::FutureCombinerShortcut,
@@ -2179,7 +2258,7 @@ private:
         }
 
         if (Options_.CancelInputOnShortcut &&
-           this->TryAcquireFuturesCancelLatch())
+            this->TryAcquireFuturesCancelLatch())
         {
             this->CancelFutures(NYT::TError(
                 NYT::EErrorCode::FutureCombinerShortcut,

@@ -4,8 +4,12 @@
 #include <yt/yt/core/misc/proc.h>
 #include <yt/yt/core/misc/singleton.h>
 
+#include <library/cpp/yt/cpu_clock/clock.h>
+
 #include <library/cpp/yt/threading/fork_aware_spin_lock.h>
 #include <library/cpp/yt/threading/event_count.h>
+
+#include <library/cpp/yt/misc/tls.h>
 
 #include <util/generic/algorithm.h>
 
@@ -35,7 +39,8 @@ public:
 
         if (ShutdownStarted_.load()) {
             if (auto* logFile = TryGetShutdownLogFile()) {
-                ::fprintf(logFile, "*** Attempt to register shutdown callback when shutdown is already in progress (Name: %s)\n",
+                ::fprintf(logFile, "%s\t*** Attempt to register shutdown callback when shutdown is already in progress (Name: %s)\n",
+                    GetInstant().ToString().c_str(),
                     name.c_str());
             }
             return nullptr;
@@ -48,7 +53,8 @@ public:
         InsertOrCrash(RegisteredCallbacks_, registeredCallback.Get());
 
         if (auto* logFile = TryGetShutdownLogFile()) {
-            ::fprintf(logFile, "*** Shutdown callback registered (Name: %s, Priority: %d)\n",
+            ::fprintf(logFile, "%s\t*** Shutdown callback registered (Name: %s, Priority: %d)\n",
+                GetInstant().ToString().c_str(),
                 registeredCallback->Name.c_str(),
                 registeredCallback->Priority);
         }
@@ -56,7 +62,7 @@ public:
         return registeredCallback;
     }
 
-    void Shutdown(const TShutdownOptions& options)
+    void Shutdown(const TShutdownOptions& options = {})
     {
         std::vector<TRegisteredCallback> registeredCallbacks;
 
@@ -71,7 +77,8 @@ public:
             ShutdownThreadId_.store(GetCurrentThreadId());
 
             if (auto* logFile = TryGetShutdownLogFile()) {
-                ::fprintf(logFile, "*** Shutdown started (ThreadId: %" PRISZT ")\n",
+                ::fprintf(logFile, "%s\t*** Shutdown started (ThreadId: %" PRISZT ")\n",
+                    GetInstant().ToString().c_str(),
                     GetCurrentThreadId());
             }
 
@@ -106,7 +113,8 @@ public:
         for (auto it = registeredCallbacks.rbegin(); it != registeredCallbacks.rend(); it++) {
             const auto& registeredCallback = *it;
             if (auto* logFile = TryGetShutdownLogFile()) {
-                ::fprintf(logFile, "*** Running callback (Name: %s, Priority: %d)\n",
+                ::fprintf(logFile, "%s\t*** Running callback (Name: %s, Priority: %d)\n",
+                    GetInstant().ToString().c_str(),
                     registeredCallback.Name.c_str(),
                     registeredCallback.Priority);
             }
@@ -119,13 +127,26 @@ public:
     #endif
 
         if (auto* logFile = TryGetShutdownLogFile()) {
-            ::fprintf(logFile, "*** Shutdown completed\n");
+            ::fprintf(logFile, "%s\t*** Shutdown completed\n",
+                GetInstant().ToString().c_str());
+        }
+    }
+
+    void AutoShutdown()
+    {
+        if (AutoShutdownEnabled_.load()) {
+            Shutdown();
         }
     }
 
     bool IsShutdownStarted()
     {
         return ShutdownStarted_.load();
+    }
+
+    void SetAutoShutdownEnabled(bool enabled)
+    {
+        AutoShutdownEnabled_.store(enabled);
     }
 
     void EnableShutdownLoggingToStderr()
@@ -180,6 +201,7 @@ private:
 
     std::unordered_set<TRefCountedRegisteredCallback*> RegisteredCallbacks_;
     std::atomic<bool> ShutdownStarted_ = false;
+    std::atomic<bool> AutoShutdownEnabled_ = true;
     std::atomic<size_t> ShutdownThreadId_ = 0;
 
 
@@ -194,7 +216,8 @@ private:
     {
         auto guard = Guard(Lock_);
         if (auto* logFile = TryGetShutdownLogFile()) {
-            ::fprintf(logFile, "*** Shutdown callback unregistered (Name: %s, Priority: %d)\n",
+            ::fprintf(logFile, "%s\t*** Shutdown callback unregistered (Name: %s, Priority: %d)\n",
+                GetInstant().ToString().c_str(),
                 registeredCallback->Name.c_str(),
                 registeredCallback->Priority);
         }
@@ -225,6 +248,11 @@ void Shutdown(const TShutdownOptions& options)
 bool IsShutdownStarted()
 {
     return TShutdownManager::Get()->IsShutdownStarted();
+}
+
+void SetAutoShutdownEnabled(bool enabled)
+{
+    TShutdownManager::Get()->SetAutoShutdownEnabled(enabled);
 }
 
 void EnableShutdownLoggingToStderr()
@@ -258,11 +286,11 @@ static const void* ShutdownGuardInitializer = [] {
             if (auto* logFile = TShutdownManager::Get()->TryGetShutdownLogFile()) {
                 fprintf(logFile, "*** Shutdown guard destructed\n");
             }
-            Shutdown();
+            TShutdownManager::Get()->AutoShutdown();
         }
     };
 
-    static thread_local TShutdownGuard Guard;
+    static YT_THREAD_LOCAL(TShutdownGuard) Guard;
     return nullptr;
 }();
 

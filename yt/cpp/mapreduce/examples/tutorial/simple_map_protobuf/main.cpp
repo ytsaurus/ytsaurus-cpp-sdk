@@ -18,8 +18,8 @@ public:
             const auto& loginRecord = cursor.GetRow();
 
             TEmailRecord emailRecord;
-            emailRecord.SetName(loginRecord.GetName());
-            emailRecord.SetEmail(loginRecord.GetLogin() + "@yandex-team.ru");
+            emailRecord.set_name(loginRecord.name());
+            emailRecord.set_email(loginRecord.login() + "@yandex-team.ru");
 
             writer->AddRow(emailRecord);
         }
@@ -37,7 +37,7 @@ int main() {
 
     client->Map(
         TMapOperationSpec()
-            .AddInput<TLoginRecord>("//home/dev/tutorial/staff_unsorted")
+            .AddInput<TLoginRecord>("//home/tutorial/staff_unsorted")
             .AddOutput<TEmailRecord>(outputTable),
         new TComputeEmailsMapper);
 

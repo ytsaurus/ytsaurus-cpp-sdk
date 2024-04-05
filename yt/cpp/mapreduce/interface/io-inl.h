@@ -242,7 +242,7 @@ protected:
     template <typename U, typename TMover, typename TCacheMover>
     void DoMoveRowCached(U* result, TMover mover, TCacheMover cacheMover)
     {
-        Y_VERIFY(result);
+        Y_ABORT_UNLESS(result);
         switch (RowState_) {
             case ERowState::None:
                 mover(result);
@@ -355,7 +355,7 @@ public:
             },
             /* cacheGetter */ [&] {
                 auto result = dynamic_cast<const U*>(CachedRow_.Get());
-                Y_VERIFY(result);
+                Y_ABORT_UNLESS(result);
                 return result;
             });
     }
@@ -372,7 +372,7 @@ public:
             },
             /* cacheMover */ [&] (U* result) {
                 auto cast = dynamic_cast<U*>(CachedRow_.Get());
-                Y_VERIFY(cast);
+                Y_ABORT_UNLESS(cast);
                 result->Swap(cast);
             });
     }
@@ -430,7 +430,7 @@ public:
                 Reader_->ReadRow(result);
             },
             /* cacheMover */ [&] (U* result) {
-                Y_VERIFY((NDetail::TIndexInTuple<U, decltype(CachedRows_)>::Value) == CachedIndex_);
+                Y_ABORT_UNLESS((NDetail::TIndexInTuple<U, decltype(CachedRows_)>::Value) == CachedIndex_);
                 *result = std::move(std::get<U>(CachedRows_));
             });
     }
@@ -531,7 +531,7 @@ public:
                 *result = std::move(std::get<U>(CachedRows_));
             },
             /* cacheMover */ [&] (U* result) {
-                Y_VERIFY((NDetail::TIndexInTuple<U, decltype(CachedRows_)>::Value) == CachedIndex_);
+                Y_ABORT_UNLESS((NDetail::TIndexInTuple<U, decltype(CachedRows_)>::Value) == CachedIndex_);
                 *result = std::move(std::get<U>(CachedRows_));
             });
     }
@@ -740,6 +740,11 @@ struct IWriterImplBase
         }
     }
 
+    virtual size_t GetBufferMemoryUsage() const
+    {
+        return 0;
+    }
+
     virtual size_t GetTableCount() const = 0;
     virtual void FinishTable(size_t tableIndex) = 0;
     virtual void Abort()
@@ -779,7 +784,7 @@ public:
     ~TTableWriterBase() override
     {
         if (Locks_.RefCount() == 1) {
-            NDetail::FinishOrDie(this, "TTableWriterBase");
+            NDetail::FinishOrDie(this, /*autoFinish*/ true, "TTableWriterBase");
         }
     }
 
@@ -814,6 +819,11 @@ public:
             auto guard = Guard((*Locks_)[i]);
             Writer_->FinishTable(i);
         }
+    }
+
+    size_t GetBufferMemoryUsage() const
+    {
+        return DoGetBufferMemoryUsage();
     }
 
 protected:
@@ -867,6 +877,11 @@ protected:
 
         auto guard = Guard((*Locks_)[tableIndex]);
         Writer_->AddRowBatch(std::move(rowBatch), tableIndex, rowBatchWeight);
+    }
+
+    size_t DoGetBufferMemoryUsage() const
+    {
+        return Writer_->GetBufferMemoryUsage();
     }
 
     ::TIntrusivePtr<IWriterImpl> GetWriterImpl()

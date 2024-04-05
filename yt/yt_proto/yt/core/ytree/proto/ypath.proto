@@ -2,6 +2,7 @@ package NYT.NYTree.NProto;
 
 import "yt_proto/yt/core/rpc/proto/rpc.proto";
 import "yt_proto/yt/core/ytree/proto/attributes.proto";
+import "yt_proto/yt/core/ytree/proto/request_complexity_limits.proto";
 
 option go_package = "a.yandex-team.ru/yt/go/proto/core/ytree";
 
@@ -30,6 +31,9 @@ message TYPathHeaderExt
     //! A copy of additional_paths in case of path rewrite.
     repeated string original_additional_paths = 5;
 
+    optional TReadRequestComplexityLimits read_complexity_limits = 7;
+
+    // COMPAT(kvk1920): Unreserve `6` after 23.2.
     reserved 6;
 }
 
@@ -56,6 +60,7 @@ message TReqGet
 {
     // TODO(max42): rename attributes -> attribute_filter
     optional TAttributeFilter attributes = 1;
+    // TODO(h0pless): rename limit -> max_size
     optional int64 limit = 2;
     optional bool ignore_opaque = 3;
     optional NYT.NYTree.NProto.TAttributeDictionary options = 4;
@@ -134,6 +139,7 @@ message TReqMultiset
     }
 
     repeated TSubrequest subrequests = 1;
+    optional bool force = 2 [default = false];
 }
 
 message TRspMultiset
@@ -150,6 +156,7 @@ message TReqMultisetAttributes
     }
 
     repeated TSubrequest subrequests = 1;
+    optional bool force = 2 [default = false];
 }
 
 message TRspMultisetAttributes

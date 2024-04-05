@@ -94,6 +94,12 @@ NSkiff::EWireType ValueTypeToSkiffType(EValueType valueType)
 
         case VT_INTERVAL:
             return EWireType::Int64;
+
+        case VT_DATE32:
+        case VT_DATETIME64:
+        case VT_TIMESTAMP64:
+        case VT_INTERVAL64:
+            return EWireType::Int64;
     };
     ythrow yexception() << "Cannot convert EValueType '" << valueType << "' to NSkiff::EWireType";
 }
@@ -108,8 +114,17 @@ NSkiff::TSkiffSchemaPtr CreateSkiffSchema(
     TVector<TSkiffSchemaPtr> skiffColumns;
     for (const auto& column: schema.Columns()) {
         TSkiffSchemaPtr skiffColumn;
+        if (column.Deleted().Defined() && *column.Deleted()) {
+            continue;
+        }
         if (column.Type() == VT_ANY && *column.TypeV3() != *NTi::Optional(NTi::Yson())) {
             // We ignore all complex types until YT-12717 is done.
+            return nullptr;
+        }
+        if (column.TypeV3()->IsDecimal() ||
+            column.TypeV3()->IsOptional() && column.TypeV3()->AsOptional()->GetItemType()->IsDecimal())
+        {
+            // Complex logic for decimal types, ignore them for now.
             return nullptr;
         }
         if (column.Required() || NTi::IsSingular(column.TypeV3()->GetTypeName())) {
@@ -282,7 +297,7 @@ NSkiff::TSkiffSchemaPtr CreateSkiffSchemaIfNecessary(
                 case ENodeReaderFormat::Auto:
                     return nullptr;
                 default:
-                    Y_FAIL("Unexpected node reader format: %d", static_cast<int>(nodeReaderFormat));
+                    Y_ABORT("Unexpected node reader format: %d", static_cast<int>(nodeReaderFormat));
             }
         }
     }
@@ -325,7 +340,7 @@ NSkiff::TSkiffSchemaPtr CreateSkiffSchemaIfNecessary(
                 }
                 break;
             default:
-                Y_FAIL("Unexpected node reader format: %d", static_cast<int>(nodeReaderFormat));
+                Y_ABORT("Unexpected node reader format: %d", static_cast<int>(nodeReaderFormat));
         }
 
         NSkiff::TSkiffSchemaPtr curSkiffSchema;

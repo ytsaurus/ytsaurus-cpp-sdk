@@ -18,13 +18,13 @@ public:
         TDoc doc;
         for (auto& cursor : *reader) {
             auto entry = cursor.MoveRow();
-            if (!doc.HasTitle()) {
-                doc.SetTitle(entry.GetDocTitle());
+            if (!doc.has_title()) {
+                doc.set_title(entry.doc_title());
             }
-            doc.AddLinks()->Swap(entry.MutableLink());
-            doc.AddOccurenceCounts(entry.GetOccurenceCount());
-            auto newCount = doc.GetExtraInfo().GetTotalOccurenceCount() + entry.GetOccurenceCount();
-            doc.MutableExtraInfo()->SetTotalOccurenceCount(newCount);
+            doc.add_links()->Swap(entry.mutable_link());
+            doc.add_occurrence_count(entry.occurrence_count());
+            auto newCount = doc.extra_info().total_occurrence_count() + entry.occurrence_count();
+            doc.mutable_extra_info()->set_total_occurrence_count(newCount);
         }
         writer->AddRow(doc);
     }
@@ -34,10 +34,10 @@ REGISTER_REDUCER(AggregateLinksReducer)
 int main() {
     NYT::Initialize();
 
-    TString cluster = "hume";
+    TString cluster = "freud";
     auto client = CreateClient(cluster);
 
-    const TString sortedLinksTable  = "//home/levysotsky/yt-tutorial/links-sorted-schematized";
+    const TString sortedLinksTable  = "//home/tutorial/links_sorted_schematized";
 
     Cout << "Sorted links table: https://yt.yandex-team.ru/" << cluster << "/#page=navigation&offsetMode=row&path=" << sortedLinksTable << Endl;
 

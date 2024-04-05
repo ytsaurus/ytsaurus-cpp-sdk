@@ -474,11 +474,6 @@ bool operator == (const TNetworkAddress& lhs, const TNetworkAddress& rhs)
     return rawLhs == rawRhs;
 }
 
-bool operator != (const TNetworkAddress& lhs, const TNetworkAddress& rhs)
-{
-    return !(lhs == rhs);
-}
-
 ////////////////////////////////////////////////////////////////////////////////
 
 namespace {
@@ -760,11 +755,6 @@ bool operator == (const TIP6Address& lhs, const TIP6Address& rhs)
     return ::memcmp(lhs.GetRawBytes(), rhs.GetRawBytes(), TIP6Address::ByteSize) == 0;
 }
 
-bool operator != (const TIP6Address& lhs, const TIP6Address& rhs)
-{
-    return !(lhs == rhs);
-}
-
 TIP6Address operator|(const TIP6Address& lhs, const TIP6Address& rhs)
 {
     auto result = lhs;
@@ -938,7 +928,6 @@ public:
             /*logger*/ {},
             DnsProfiler.WithPrefix("/resolve_cache"))
     {
-        SetDnsResolver(CreateAresDnsResolver(config));
         Configure(std::move(config));
     }
 
@@ -981,9 +970,7 @@ public:
         TNetworkAddress localIP{address, 0};
 
         const auto& localAddresses = GetLocalAddresses();
-        auto&& it = std::find(localAddresses.begin(), localAddresses.end(), localIP);
-        auto jt = localAddresses.end();
-        return it != jt;
+        return std::find(localAddresses.begin(), localAddresses.end(), localIP) != localAddresses.end();
     }
 
     void PurgeCache()
@@ -995,6 +982,9 @@ public:
     void Configure(TAddressResolverConfigPtr config)
     {
         Config_ = std::move(config);
+
+        SetDnsResolver(CreateAresDnsResolver(Config_));
+        TAsyncExpiringCache::Reconfigure(Config_);
 
         if (Config_->LocalHostNameOverride) {
             WriteLocalHostName(*Config_->LocalHostNameOverride);

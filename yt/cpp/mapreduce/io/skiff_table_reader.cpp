@@ -105,6 +105,9 @@ void TSkiffTableReader::Next()
             }
             BufferedInput_ = TBufferedInput(&Input_);
             Parser_.emplace(NSkiff::TUncheckedSkiffParser(&BufferedInput_));
+            if (RangeIndex_) {
+                RangeIndexShift_ += *RangeIndex_;
+            }
             RangeIndex_.Clear();
             RowIndex_.Clear();
         }
@@ -120,7 +123,7 @@ ui32 TSkiffTableReader::GetTableIndex() const
 ui32 TSkiffTableReader::GetRangeIndex() const
 {
     EnsureValidity();
-    return RangeIndex_.GetOrElse(0);
+    return RangeIndex_.GetOrElse(0) + RangeIndexShift_;
 }
 
 ui64 TSkiffTableReader::GetRowIndex() const
@@ -177,10 +180,9 @@ TVector<TSkiffTableReader::TSkiffTableSchema> TSkiffTableReader::CreateSkiffTabl
             "Expected 'tuple' wire type for table schema, got '" << tableSchema->GetWireType() << "'");
         TVector<TSkiffColumnSchema> columns;
         for (const auto& columnSchema : tableSchema->GetChildren()) {
-            if (columnSchema->GetName().StartsWith("$")) {
-                auto iter = specialColumns.find(columnSchema->GetName());
-                Y_ENSURE(iter != specialColumns.end(), "Unknown special column: " << columnSchema->GetName());
-                columns.push_back(iter->second);
+            auto specialColumnIter = specialColumns.find(columnSchema->GetName());
+            if (specialColumnIter != specialColumns.end()) {
+                columns.push_back(specialColumnIter->second);
             } else {
                 auto wireType = columnSchema->GetWireType();
                 bool required = true;
@@ -241,7 +243,7 @@ void TSkiffTableReader::ReadRow()
             case NSkiff::EWireType::Nothing:
                 return TNode::CreateEntity();
             default:
-                Y_FAIL("Bad column wire type: '%s'", ::ToString(wireType).data());
+                Y_ABORT("Bad column wire type: '%s'", ::ToString(wireType).data());
         }
     };
 
@@ -275,7 +277,7 @@ void TSkiffTableReader::ReadRow()
                 RowIndex_ = value.AsInt64();
                 break;
             default:
-                Y_FAIL("Bad column type: %d", static_cast<int>(columnSchema.Type));
+                Y_ABORT("Bad column type: %d", static_cast<int>(columnSchema.Type));
         }
     }
 

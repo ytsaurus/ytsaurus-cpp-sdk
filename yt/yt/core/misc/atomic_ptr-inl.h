@@ -9,8 +9,10 @@ namespace NYT {
 
 ////////////////////////////////////////////////////////////////////////////////
 
+namespace NDetail {
+
 template <class T>
-TIntrusivePtr<T> MakeStrong(const THazardPtr<T>& ptr)
+TIntrusivePtr<T> TryMakeStrongFromHazard(const THazardPtr<T>& ptr)
 {
     if (!ptr) {
         return nullptr;
@@ -23,8 +25,10 @@ TIntrusivePtr<T> MakeStrong(const THazardPtr<T>& ptr)
         return nullptr;
     }
 
-    return TIntrusivePtr<T>(ptr.Get(), false);
+    return TIntrusivePtr<T>(ptr.Get(), /*addReference*/ false);
 }
+
+} // namespace NDetail
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -107,14 +111,14 @@ THazardPtr<T> TAtomicPtr<T, EnableAcquireHazard>::DoAcquireHazard() const
 template <class T, bool EnableAcquireHazard>
 TIntrusivePtr<T> TAtomicPtr<T, EnableAcquireHazard>::AcquireWeak() const
 {
-    return MakeStrong(DoAcquireHazard());
+    return NYT::NDetail::TryMakeStrongFromHazard(DoAcquireHazard());
 }
 
 template <class T, bool EnableAcquireHazard>
 TIntrusivePtr<T> TAtomicPtr<T, EnableAcquireHazard>::Acquire() const
 {
     while (auto hazardPtr = DoAcquireHazard()) {
-        if (auto ptr = MakeStrong(hazardPtr)) {
+        if (auto ptr = NYT::NDetail::TryMakeStrongFromHazard(hazardPtr)) {
             return ptr;
         }
     }
@@ -200,15 +204,15 @@ TAtomicPtr<T, EnableAcquireHazard>::operator bool() const
 ////////////////////////////////////////////////////////////////////////////////
 
 template <class T, bool EnableAcquireHazard>
-bool operator==(const TAtomicPtr<T, EnableAcquireHazard>& lhs, const TIntrusivePtr<T>& rhs)
+bool operator==(const TAtomicPtr<T, EnableAcquireHazard>& lhs, const T* rhs)
 {
-    return lhs.Ptr_.load() == rhs.Get();
+    return lhs.Ptr_.load() == rhs;
 }
 
 template <class T, bool EnableAcquireHazard>
-bool operator==(const TIntrusivePtr<T>& lhs, const TAtomicPtr<T, EnableAcquireHazard>& rhs)
+bool operator==(const T* lhs, const TAtomicPtr<T, EnableAcquireHazard>& rhs)
 {
-    return lhs.Get() == rhs.Ptr_.load();
+    return lhs == rhs.Ptr_.load();
 }
 
 ////////////////////////////////////////////////////////////////////////////////

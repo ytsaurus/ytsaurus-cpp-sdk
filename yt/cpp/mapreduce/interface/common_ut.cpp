@@ -176,6 +176,45 @@ Y_UNIT_TEST_SUITE(Common)
         UNIT_ASSERT_EXCEPTION(checkSortBy(schema, {"a", "junk"}), yexception);
     }
 
+    Y_UNIT_TEST(TTableSchema_Decimal)
+    {
+        NYT::TTableSchema tableSchema;
+
+        tableSchema.AddColumn("a", NTi::Decimal(35, 18));
+        tableSchema.AddColumn("b", NTi::Optional(NTi::Decimal(35, 18)));
+        tableSchema.AddColumn("c", NTi::List(NTi::Decimal(35, 18)));
+
+        auto tableSchemaNode = tableSchema.ToNode();
+        const auto& tableSchemaNodeList = tableSchemaNode.AsList();
+
+        // There was a bug in the serialization of decimal type: https://github.com/ytsaurus/ytsaurus/issues/173
+        {
+            const auto& currentType = tableSchemaNodeList[0];
+            UNIT_ASSERT_VALUES_EQUAL(currentType.ChildAsString("type"), "string");
+            UNIT_ASSERT(currentType.ChildAsBool("required"));
+            UNIT_ASSERT(currentType.HasKey("type_v3"));
+            UNIT_ASSERT_VALUES_EQUAL(currentType.At("type_v3").ChildAsString("type_name"), "decimal");
+        }
+        {
+            const auto& currentType = tableSchemaNodeList[1];
+            UNIT_ASSERT_VALUES_EQUAL(currentType.ChildAsString("type"), "string");
+            UNIT_ASSERT(!currentType.ChildAsBool("required"));
+            UNIT_ASSERT(currentType.HasKey("type_v3"));
+            UNIT_ASSERT_VALUES_EQUAL(currentType.At("type_v3").ChildAsString("type_name"), "optional");
+            UNIT_ASSERT_VALUES_EQUAL(currentType.At("type_v3").At("item").ChildAsString("type_name"), "decimal");
+        }
+        {
+            const auto& currentType = tableSchemaNodeList[2];
+            UNIT_ASSERT_VALUES_EQUAL(currentType.ChildAsString("type"), "any");
+            UNIT_ASSERT(currentType.ChildAsBool("required"));
+            UNIT_ASSERT(currentType.HasKey("type_v3"));
+            UNIT_ASSERT_VALUES_EQUAL(currentType.At("type_v3").ChildAsString("type_name"), "list");
+            UNIT_ASSERT_VALUES_EQUAL(currentType.At("type_v3").At("item").ChildAsString("type_name"), "decimal");
+        }
+
+        UNIT_ASSERT_EQUAL(tableSchema, TTableSchema::FromNode(tableSchemaNode));
+    }
+
     Y_UNIT_TEST(TColumnSchema_TypeV3)
     {
         {
@@ -189,6 +228,16 @@ Y_UNIT_TEST_SUITE(Common)
             UNIT_ASSERT_VALUES_EQUAL(column.Type(), VT_DATE);
         }
         {
+            auto column = TColumnSchema().Type(NTi::Interval64());
+            UNIT_ASSERT_VALUES_EQUAL(column.Required(), true);
+            UNIT_ASSERT_VALUES_EQUAL(column.Type(), VT_INTERVAL64);
+        }
+        {
+            auto column = TColumnSchema().Type(NTi::Optional(NTi::Date32()));
+            UNIT_ASSERT_VALUES_EQUAL(column.Required(), false);
+            UNIT_ASSERT_VALUES_EQUAL(column.Type(), VT_DATE32);
+        }
+        {
             auto column = TColumnSchema().Type(NTi::Null());
             UNIT_ASSERT_VALUES_EQUAL(column.Required(), false);
             UNIT_ASSERT_VALUES_EQUAL(column.Type(), VT_NULL);
@@ -197,6 +246,11 @@ Y_UNIT_TEST_SUITE(Common)
             auto column = TColumnSchema().Type(NTi::Optional(NTi::Null()));
             UNIT_ASSERT_VALUES_EQUAL(column.Required(), false);
             UNIT_ASSERT_VALUES_EQUAL(column.Type(), VT_ANY);
+        }
+        {
+            auto column = TColumnSchema().Type(NTi::Decimal(35, 18));
+            UNIT_ASSERT_VALUES_EQUAL(column.Required(), true);
+            UNIT_ASSERT_VALUES_EQUAL(column.Type(), VT_STRING);
         }
     }
 

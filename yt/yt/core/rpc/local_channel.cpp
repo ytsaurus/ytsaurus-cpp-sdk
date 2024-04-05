@@ -128,6 +128,11 @@ public:
         Terminated_.Unsubscribe(callback);
     }
 
+    int GetInflightRequestCount() override
+    {
+        return 0;
+    }
+
 private:
     class TSession;
     using TSessionPtr = TIntrusivePtr<TSession>;
@@ -326,7 +331,7 @@ private:
             YT_LOG_DEBUG(detailedError, "Local request failed (RequestId: %v)",
                 RequestId_);
 
-            Handler_->HandleError(detailedError);
+            Handler_->HandleError(std::move(detailedError));
         }
     };
 

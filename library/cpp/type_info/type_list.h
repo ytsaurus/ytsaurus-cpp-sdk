@@ -59,6 +59,11 @@ namespace NTi {
         Json,
         Yson,
         Uuid,
+
+        Date32,
+        Datetime64,
+        Timestamp64,
+        Interval64,
     };
 
     /// Enum with names of all types, including primitives.
@@ -98,8 +103,13 @@ namespace NTi {
         Yson,
         Uuid,
 
+        Date32,
+        Datetime64,
+        Timestamp64,
+        Interval64,
+
         FIRST_PRIMITIVE = Bool,
-        LAST_PRIMITIVE = Uuid,
+        LAST_PRIMITIVE = Interval64,
 
         //
         // # Singular types
@@ -176,7 +186,7 @@ namespace NTi {
     /// Enumerator values should not relied upon, therefore users should not cast `NTi::ETypeName`
     /// to `NTi::EPrimitiveTypeName` using `static_cast`.
     inline constexpr EPrimitiveTypeName ToPrimitiveTypeName(ETypeName typeName) {
-        Y_VERIFY(IsPrimitive(typeName));
+        Y_ABORT_UNLESS(IsPrimitive(typeName));
         // Note: there's a test in ut/type_list.cpp that checks this is a safe conversion
         return static_cast<EPrimitiveTypeName>(typeName);
     }

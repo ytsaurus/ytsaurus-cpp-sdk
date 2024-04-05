@@ -165,8 +165,7 @@ TNodeId Create(
     return ParseGuidFromResponse(RetryRequestWithPolicy(retryPolicy, context, header).Response);
 }
 
-TNodeId Copy(
-    const IRequestRetryPolicyPtr& retryPolicy,
+TNodeId CopyWithoutRetries(
     const TClientContext& context,
     const TTransactionId& transactionId,
     const TYPath& sourcePath,
@@ -176,10 +175,41 @@ TNodeId Copy(
     THttpHeader header("POST", "copy");
     header.AddMutationId();
     header.MergeParameters(SerializeParamsForCopy(transactionId, context.Config->Prefix, sourcePath, destinationPath, options));
+    return ParseGuidFromResponse(RequestWithoutRetry(context, header).Response);
+}
+
+TNodeId CopyInsideMasterCell(
+    const IRequestRetryPolicyPtr& retryPolicy,
+    const TClientContext& context,
+    const TTransactionId& transactionId,
+    const TYPath& sourcePath,
+    const TYPath& destinationPath,
+    const TCopyOptions& options)
+{
+    THttpHeader header("POST", "copy");
+    header.AddMutationId();
+    auto params = SerializeParamsForCopy(transactionId, context.Config->Prefix, sourcePath, destinationPath, options);
+
+    // Make cross cell copying disable.
+    params["enable_cross_cell_copying"] = false;
+    header.MergeParameters(params);
     return ParseGuidFromResponse(RetryRequestWithPolicy(retryPolicy, context, header).Response);
 }
 
-TNodeId Move(
+TNodeId MoveWithoutRetries(
+    const TClientContext& context,
+    const TTransactionId& transactionId,
+    const TYPath& sourcePath,
+    const TYPath& destinationPath,
+    const TMoveOptions& options)
+{
+    THttpHeader header("POST", "move");
+    header.AddMutationId();
+    header.MergeParameters(SerializeParamsForMove(transactionId, context.Config->Prefix, sourcePath, destinationPath, options));
+    return ParseGuidFromResponse(RequestWithoutRetry( context, header).Response);
+}
+
+TNodeId MoveInsideMasterCell(
     const IRequestRetryPolicyPtr& retryPolicy,
     const TClientContext& context,
     const TTransactionId& transactionId,
@@ -189,7 +219,11 @@ TNodeId Move(
 {
     THttpHeader header("POST", "move");
     header.AddMutationId();
-    header.MergeParameters(NRawClient::SerializeParamsForMove(transactionId, context.Config->Prefix, sourcePath, destinationPath, options));
+    auto params = SerializeParamsForMove(transactionId, context.Config->Prefix, sourcePath, destinationPath, options);
+
+    // Make cross cell copying disable.
+    params["enable_cross_cell_copying"] = false;
+    header.MergeParameters(params);
     return ParseGuidFromResponse(RetryRequestWithPolicy(retryPolicy, context, header).Response);
 }
 
@@ -306,7 +340,7 @@ TOperationAttributes ParseOperationAttributes(const TNode& node)
     if (auto typeNode = mapNode.FindPtr("type")) {
         result.Type = FromString<EOperationType>(typeNode->AsString());
     } else if (auto operationTypeNode = mapNode.FindPtr("operation_type")) {
-        // COMPAT(levysotsky): "operation_type" is a deprecated synonim for "type".
+        // COMPAT(levysotsky): "operation_type" is a deprecated synonym for "type".
         // This branch should be removed when all clusters are updated.
         result.Type = FromString<EOperationType>(operationTypeNode->AsString());
     }
@@ -418,6 +452,18 @@ TOperationAttributes GetOperation(
 {
     THttpHeader header("GET", "get_operation");
     header.MergeParameters(SerializeParamsForGetOperation(operationId, options));
+    auto result = RetryRequestWithPolicy(retryPolicy, context, header);
+    return ParseOperationAttributes(NodeFromYsonString(result.Response));
+}
+
+TOperationAttributes GetOperation(
+    const IRequestRetryPolicyPtr& retryPolicy,
+    const TClientContext& context,
+    const TString& alias,
+    const TGetOperationOptions& options)
+{
+    THttpHeader header("GET", "get_operation");
+    header.MergeParameters(SerializeParamsForGetOperation(alias, options));
     auto result = RetryRequestWithPolicy(retryPolicy, context, header);
     return ParseOperationAttributes(NodeFromYsonString(result.Response));
 }
@@ -657,8 +703,14 @@ public:
             header.SetToken(context.Token);
         }
 
+        if (context.ImpersonationUser) {
+            header.SetImpersonationUser(*context.ImpersonationUser);
+        }
+
         auto hostName = GetProxyForHeavyRequest(context);
         auto requestId = CreateGuidAsString();
+
+        UpdateHeaderForProxyIfNeed(hostName, context, header);
 
         Response_ = context.HttpClient->Request(GetFullUrl(hostName, context, header), requestId, header);
         ResponseStream_ = Response_->GetResponseStream();

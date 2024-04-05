@@ -54,6 +54,21 @@ DEFINE_ENUM(EUploadDeduplicationMode,
 
 ////////////////////////////////////////////////////////////////////////////////
 
+/// Enum describing possible versions of table writer implemetation.
+enum class ETableWriterVersion
+{
+    /// Allow library to choose version of writer.
+    Auto,
+
+    /// Stable but slower version of writer.
+    V1,
+
+    /// Unstable but faster version of writer (going to be default in the future).
+    V2,
+};
+
+////////////////////////////////////////////////////////////////////////////////
+
 struct TConfig
     : public TThrRefBase
 {
@@ -114,7 +129,7 @@ struct TConfig
     //
     // Infer schemas for nonexstent tables from typed rows (e.g. protobuf)
     // when writing from operation or client writer.
-    // This options can be overriden in TOperationOptions and TTableWriterOptions.
+    // This options can be overridden in TOperationOptions and TTableWriterOptions.
     bool InferTableSchema;
 
     bool UseClientProtobuf;
@@ -139,6 +154,9 @@ struct TConfig
     /// @brief Used to prevent concurrent uploading of the same file to the file cache.
     /// NB: Each mode affects only users with the same mode enabled.
     EUploadDeduplicationMode CacheUploadDeduplicationMode;
+
+    // @brief Minimum byte size for files to undergo deduplication at upload
+    i64 CacheUploadDeduplicationThreshold;
 
     bool MountSandboxInTmpfs;
 
@@ -174,8 +192,11 @@ struct TConfig
     TMaybe<int> SocketPriority;
 
     // Framing settings
-    // (cf. https://yt.yandex-team.ru/docs/description/proxy/http_proxy_reference#framing).
+    // (cf. https://ytsaurus.tech/docs/en/user-guide/proxy/http-reference#framing).
     THashSet<TString> CommandsWithFraming;
+
+    /// Which implemetation of table writer to use.
+    ETableWriterVersion TableWriterVersion = ETableWriterVersion::Auto;
 
     static bool GetBool(const char* var, bool defaultValue = false);
     static int GetInt(const char* var, int defaultValue);

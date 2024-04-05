@@ -17,6 +17,7 @@
 #include <yt/yt/core/bus/public.h>
 
 #include <yt/yt/core/misc/fs.h>
+#include <yt/yt/core/misc/memory_usage_tracker.h>
 
 #include <yt/yt/core/rpc/bus/channel.h>
 #include <yt/yt/core/rpc/bus/server.h>
@@ -31,7 +32,7 @@
 #include <yt/yt/core/rpc/service_detail.h>
 #include <yt/yt/core/rpc/stream.h>
 
-#include <yt/yt/core/rpc/unittests/lib/my_service.h>
+#include <yt/yt/core/rpc/unittests/lib/test_service.h>
 #include <yt/yt/core/rpc/unittests/lib/no_baggage_service.h>
 
 #include <yt/yt/core/rpc/grpc/config.h>
@@ -58,35 +59,120 @@ namespace NYT::NRpc {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-template <class TImpl>
-class TTestBase
-    : public ::testing::Test
+class TTestServerHost
 {
 public:
-    void SetUp() final
+    void InitilizeAddress()
     {
         Port_ = NTesting::GetFreePort();
         Address_ = Format("localhost:%v", Port_);
+    }
 
-        Server_ = CreateServer(Port_);
-        WorkerPool_ = NConcurrency::CreateThreadPool(4, "Worker");
-        bool secure = TImpl::Secure;
-        MyService_ = CreateMyService(WorkerPool_->GetInvoker(), secure);
-        NoBaggageService_ = CreateNoBaggageService(WorkerPool_->GetInvoker());
-        Server_->RegisterService(MyService_);
+    void InitializeServer(
+        IServerPtr server,
+        const IInvokerPtr& invoker,
+        bool secure,
+        TTestCreateChannelCallback createChannel)
+    {
+        Server_ = server;
+        TestService_ = CreateTestService(invoker, secure, createChannel);
+        NoBaggageService_ = CreateNoBaggageService(invoker);
+        Server_->RegisterService(TestService_);
         Server_->RegisterService(NoBaggageService_);
         Server_->Start();
     }
 
-    void TearDown() final
+    void TearDown()
     {
         Server_->Stop().Get().ThrowOnError();
         Server_.Reset();
     }
 
-    IServerPtr CreateServer(ui16 port)
+    const NTesting::TPortHolder& GetPort() const
     {
-        return TImpl::CreateServer(port);
+        return Port_;
+    }
+
+    TString GetAddress() const
+    {
+        return Address_;
+    }
+
+protected:
+    NTesting::TPortHolder Port_;
+    TString Address_;
+
+    ITestServicePtr TestService_;
+    IServicePtr NoBaggageService_;
+    IServerPtr Server_;
+};
+
+////////////////////////////////////////////////////////////////////////////////
+
+class TTestNodeMemoryTracker
+    : public IMemoryUsageTracker
+{
+public:
+    explicit TTestNodeMemoryTracker(size_t limit);
+
+    i64 GetLimit() const;
+    i64 GetUsed() const;
+    i64 GetFree() const;
+    bool IsExceeded() const;
+
+    TError TryAcquire(i64 size) override;
+    TError TryChange(i64 size) override;
+    bool Acquire(i64 size) override;
+    void Release(i64 size) override;
+    void SetLimit(i64 size) override;
+
+    void ClearTotalUsage();
+    i64 GetTotalUsage() const;
+
+private:
+    YT_DECLARE_SPIN_LOCK(NThreading::TSpinLock, Lock_);
+    i64 Usage_;
+    i64 Limit_;
+    i64 TotalUsage_;
+
+    TError DoTryAcquire(i64 size);
+    void DoAcquire(i64 size);
+    void DoRelease(i64 size);
+};
+
+DECLARE_REFCOUNTED_CLASS(TTestNodeMemoryTracker)
+DEFINE_REFCOUNTED_TYPE(TTestNodeMemoryTracker)
+
+////////////////////////////////////////////////////////////////////////////////
+
+template <class TImpl>
+class TTestBase
+    : public ::testing::Test
+    , public TTestServerHost
+{
+public:
+    void SetUp() final
+    {
+        TTestServerHost::InitilizeAddress();
+
+        WorkerPool_ = NConcurrency::CreateThreadPool(4, "Worker");
+        bool secure = TImpl::Secure;
+        MemoryUsageTracker_ = New<TTestNodeMemoryTracker>(32_MB);
+        TTestServerHost::InitializeServer(
+            TImpl::CreateServer(Port_, MemoryUsageTracker_),
+            WorkerPool_->GetInvoker(),
+            secure,
+            /*createChannel*/ {});
+    }
+
+    void TearDown() final
+    {
+        TTestServerHost::TearDown();
+    }
+
+    TTestNodeMemoryTrackerPtr GetMemoryUsageTracker()
+    {
+        return MemoryUsageTracker_;
     }
 
     IChannelPtr CreateChannel(
@@ -122,14 +208,9 @@ public:
         return false;
     }
 
-protected:
-    NTesting::TPortHolder Port_;
-    TString Address_;
-
+private:
     NConcurrency::IThreadPoolPtr WorkerPool_;
-    IMyServicePtr MyService_;
-    IServicePtr NoBaggageService_;
-    IServerPtr Server_;
+    TTestNodeMemoryTrackerPtr MemoryUsageTracker_;
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -141,9 +222,9 @@ public:
     static constexpr bool AllowTransportErrors = false;
     static constexpr bool Secure = false;
 
-    static IServerPtr CreateServer(ui16 port)
+    static IServerPtr CreateServer(ui16 port, IMemoryUsageTrackerPtr memoryUsageTracker)
     {
-        auto busServer = MakeBusServer(port);
+        auto busServer = MakeBusServer(port, memoryUsageTracker);
         return NRpc::NBus::CreateBusServer(busServer);
     }
 
@@ -155,9 +236,9 @@ public:
         return TImpl::CreateChannel(address, serverAddress, std::move(grpcArguments));
     }
 
-    static NYT::NBus::IBusServerPtr MakeBusServer(ui16 port)
+    static NYT::NBus::IBusServerPtr MakeBusServer(ui16 port, IMemoryUsageTrackerPtr memoryUsageTracker)
     {
-        return TImpl::MakeBusServer(port);
+        return TImpl::MakeBusServer(port, memoryUsageTracker);
     }
 };
 
@@ -176,10 +257,13 @@ public:
         return NRpc::NBus::CreateBusChannel(client);
     }
 
-    static NYT::NBus::IBusServerPtr MakeBusServer(ui16 port)
+    static NYT::NBus::IBusServerPtr MakeBusServer(ui16 port, IMemoryUsageTrackerPtr memoryUsageTracker)
     {
         auto busConfig = NYT::NBus::TBusServerConfig::CreateTcp(port);
-        return CreateBusServer(busConfig);
+        return CreateBusServer(
+            busConfig,
+            NYT::NBus::GetYTPacketTranscoderFactory(memoryUsageTracker),
+            memoryUsageTracker);
     }
 };
 
@@ -325,7 +409,7 @@ inline TString ServerCert(
 
 ////////////////////////////////////////////////////////////////////////////////
 
-template <bool EnableSsl>
+template <bool EnableSsl, bool EnableUds>
 class TRpcOverGrpcImpl
 {
 public:
@@ -348,12 +432,20 @@ public:
             channelConfig->Credentials->PemKeyCertPair->CertChain = New<NCrypto::TPemBlobConfig>();
             channelConfig->Credentials->PemKeyCertPair->CertChain->Value = ClientCert;
         }
-        channelConfig->Address = address;
+
+        if (EnableUds) {
+            channelConfig->Address = Format("unix:%v", address);
+        } else {
+            channelConfig->Address = address;
+        }
+
         channelConfig->GrpcArguments = std::move(grpcArguments);
         return NGrpc::CreateGrpcChannel(channelConfig);
     }
 
-    static IServerPtr CreateServer(ui16 port)
+    static IServerPtr CreateServer(
+        ui16 port,
+        IMemoryUsageTrackerPtr /*memoryUsageTracker*/)
     {
         auto serverAddressConfig = New<NGrpc::TServerAddressConfig>();
         if (EnableSsl) {
@@ -367,9 +459,12 @@ public:
             serverAddressConfig->Credentials->PemKeyCertPairs[0]->CertChain->Value = ServerCert;
         }
 
-        auto address = Format("localhost:%v", port);
+        if (EnableUds) {
+            serverAddressConfig->Address = Format("unix:localhost:%v", port);
+        } else {
+            serverAddressConfig->Address = Format("localhost:%v", port);
+        }
 
-        serverAddressConfig->Address = address;
         auto serverConfig = New<NGrpc::TServerConfig>();
         serverConfig->Addresses.push_back(serverAddressConfig);
         return NGrpc::CreateServer(serverConfig);
@@ -382,11 +477,14 @@ public:
 class TRpcOverUdsImpl
 {
 public:
-    static NYT::NBus::IBusServerPtr MakeBusServer(ui16 port)
+    static NYT::NBus::IBusServerPtr MakeBusServer(ui16 port, IMemoryUsageTrackerPtr memoryUsageTracker)
     {
         SocketPath_ = GetWorkPath() + "/socket_" + ToString(port);
         auto busConfig = NYT::NBus::TBusServerConfig::CreateUds(SocketPath_);
-        return CreateBusServer(busConfig);
+        return CreateBusServer(
+            busConfig,
+            NYT::NBus::GetYTPacketTranscoderFactory(memoryUsageTracker),
+            memoryUsageTracker);
     }
 
     static IChannelPtr CreateChannel(
@@ -412,8 +510,10 @@ using TAllTransports = ::testing::Types<
     TRpcOverBus<TRpcOverBusImpl<true>>,
 #endif
     TRpcOverBus<TRpcOverBusImpl<false>>,
-    TRpcOverGrpcImpl<false>,
-    TRpcOverGrpcImpl<true>
+    TRpcOverGrpcImpl<false, false>,
+    TRpcOverGrpcImpl<false, true>,
+    TRpcOverGrpcImpl<true, false>,
+    TRpcOverGrpcImpl<true, true>
 >;
 
 using TWithoutUds = ::testing::Types<
@@ -421,8 +521,8 @@ using TWithoutUds = ::testing::Types<
     TRpcOverBus<TRpcOverBusImpl<true>>,
 #endif
     TRpcOverBus<TRpcOverBusImpl<false>>,
-    TRpcOverGrpcImpl<false>,
-    TRpcOverGrpcImpl<true>
+    TRpcOverGrpcImpl<false, false>,
+    TRpcOverGrpcImpl<true, false>
 >;
 
 using TWithoutGrpc = ::testing::Types<
@@ -434,8 +534,10 @@ using TWithoutGrpc = ::testing::Types<
 >;
 
 using TGrpcOnly = ::testing::Types<
-    TRpcOverGrpcImpl<false>,
-    TRpcOverGrpcImpl<true>
+    TRpcOverGrpcImpl<false, false>,
+    TRpcOverGrpcImpl<false, true>,
+    TRpcOverGrpcImpl<true, false>,
+    TRpcOverGrpcImpl<true, true>
 >;
 
 ////////////////////////////////////////////////////////////////////////////////

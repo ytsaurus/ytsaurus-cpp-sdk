@@ -2,6 +2,7 @@
 
 #include "retryful_writer.h"
 #include "retryless_writer.h"
+#include "retryful_writer_v2.h"
 
 #include <yt/cpp/mapreduce/interface/io.h>
 #include <yt/cpp/mapreduce/common/fwd.h>
@@ -19,7 +20,7 @@ TClientWriter::TClientWriter(
     const TTransactionId& transactionId,
     const TMaybe<TFormat>& format,
     const TTableWriterOptions& options)
-    : BUFFER_SIZE(options.BufferSize_)
+    : BufferSize_(options.BufferSize_)
 {
     if (options.SingleHttpRequest_) {
         RawWriter_.Reset(new TRetrylessWriter(
@@ -28,18 +29,35 @@ TClientWriter::TClientWriter(
             GetWriteTableCommand(context.Config->ApiVersion),
             format,
             path,
-            BUFFER_SIZE,
+            BufferSize_,
             options));
     } else {
-        RawWriter_.Reset(new TRetryfulWriter(
-            std::move(clientRetryPolicy),
-            std::move(transactionPinger),
-            context,
-            transactionId,
-            GetWriteTableCommand(context.Config->ApiVersion),
-            format,
-            path,
-            options));
+        bool useV2Writer = context.Config->TableWriterVersion == ETableWriterVersion::V2;
+        if (useV2Writer) {
+            auto serializedWriterOptions = FormIORequestParameters(options);
+
+            RawWriter_ = MakeIntrusive<NPrivate::TRetryfulWriterV2>(
+                    std::move(clientRetryPolicy),
+                    std::move(transactionPinger),
+                    context,
+                    transactionId,
+                    GetWriteTableCommand(context.Config->ApiVersion),
+                    format,
+                    path,
+                    serializedWriterOptions,
+                    static_cast<ssize_t>(options.BufferSize_),
+                    options.CreateTransaction_);
+        } else {
+            RawWriter_.Reset(new TRetryfulWriter(
+                std::move(clientRetryPolicy),
+                std::move(transactionPinger),
+                context,
+                transactionId,
+                GetWriteTableCommand(context.Config->ApiVersion),
+                format,
+                path,
+                options));
+        }
     }
 }
 
@@ -62,6 +80,11 @@ void TClientWriter::OnRowFinished(size_t)
 void TClientWriter::Abort()
 {
     RawWriter_->Abort();
+}
+
+size_t TClientWriter::GetBufferMemoryUsage() const
+{
+    return RawWriter_->GetBufferMemoryUsage();
 }
 
 ////////////////////////////////////////////////////////////////////////////////

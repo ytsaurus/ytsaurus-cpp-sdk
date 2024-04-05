@@ -7,6 +7,8 @@
 #include <yt/yt/core/misc/ref_counted_tracker.h>
 #include <yt/yt/core/misc/mpsc_stack.h>
 
+#include <yt/yt/core/ytree/attributes.h>
+
 #include <util/system/thread.h>
 
 #include <thread>
@@ -23,6 +25,11 @@ static const auto SleepQuantum = TDuration::MilliSeconds(50);
 class TFutureTest
     : public ::testing::Test
 { };
+
+struct TNonAssignable
+{
+    const int Value = 0;
+};
 
 TEST_F(TFutureTest, NoncopyableGet)
 {
@@ -92,6 +99,60 @@ TEST_F(TFutureTest, NoncopyableApply5)
     EXPECT_TRUE(g.IsSet());
     EXPECT_TRUE(g.Get().IsOK());
     EXPECT_EQ(2, g.Get().Value());
+}
+
+TEST_F(TFutureTest, NonAssignable1)
+{
+    auto f = MakeFuture<TNonAssignable>({
+        .Value = 1
+    });
+
+    auto g = f.ApplyUnique(BIND([] (TNonAssignable&& object) {
+        EXPECT_EQ(1, object.Value);
+    }));
+
+    EXPECT_TRUE(g.IsSet());
+    EXPECT_TRUE(g.Get().IsOK());
+}
+
+TEST_F(TFutureTest, NonAssignable2)
+{
+    auto f = MakeFuture<TNonAssignable>({
+        .Value = 1
+    });
+
+    std::vector<decltype(f)> futures;
+
+    futures.push_back(f);
+    futures.push_back(f);
+
+    auto g = AllSet(futures).ApplyUnique(BIND([] (std::vector<TErrorOr<TNonAssignable>>&& objects) {
+        EXPECT_TRUE(objects.at(0).IsOK());
+        EXPECT_TRUE(objects.at(1).IsOK());
+        EXPECT_EQ(1, objects[0].Value().Value);
+    }));
+
+    EXPECT_TRUE(g.IsSet());
+    EXPECT_TRUE(g.Get().IsOK());
+}
+
+TEST_F(TFutureTest, NonAssignable3)
+{
+    auto f = MakeFuture<TNonAssignable>({
+        .Value = 1
+    });
+
+    std::vector<decltype(f)> futures;
+
+    futures.push_back(f);
+    futures.push_back(f);
+
+    auto g = AllSucceeded(futures).ApplyUnique(BIND([] (std::vector<TNonAssignable>&& objects) {
+        EXPECT_EQ(1, objects[0].Value);
+    }));
+
+    EXPECT_TRUE(g.IsSet());
+    EXPECT_TRUE(g.Get().IsOK());
 }
 
 TEST_F(TFutureTest, Unsubscribe)
@@ -1626,6 +1687,34 @@ TEST_F(TFutureTest, AbandonDuringGet)
     });
     EXPECT_EQ(future.Get().GetCode(), EErrorCode::Canceled);
     thread.join();
+}
+
+TEST_F(TFutureTest, CancelAppliedToUncancellable)
+{
+    auto promise = NewPromise<void>();
+    auto future = promise.ToFuture();
+
+    auto uncancelable = future.ToUncancelable();
+    auto future1 = uncancelable.Apply(BIND([&] () -> void {}));
+    future1.Cancel(TError("Cancel"));
+    EXPECT_FALSE(promise.IsSet());
+    EXPECT_FALSE(promise.IsCanceled());
+    EXPECT_FALSE(uncancelable.IsSet());
+    EXPECT_FALSE(future1.IsSet());
+
+    auto immediatelyCancelable = uncancelable.ToImmediatelyCancelable();
+    auto future2 = immediatelyCancelable.Apply(BIND([&] () -> void {}));
+    future2.Cancel(TError("Cancel"));
+    EXPECT_FALSE(promise.IsSet());
+    EXPECT_FALSE(promise.IsCanceled());
+    EXPECT_TRUE(immediatelyCancelable.IsSet());
+    EXPECT_TRUE(future2.IsSet());
+    EXPECT_EQ(NYT::EErrorCode::Canceled, future2.Get().GetCode());
+
+    promise.Set();
+    EXPECT_TRUE(uncancelable.IsSet());
+    EXPECT_TRUE(future1.IsSet());
+    EXPECT_TRUE(future1.Get().IsOK());
 }
 
 ///////////////////////////////////////////////////////////////////////////////

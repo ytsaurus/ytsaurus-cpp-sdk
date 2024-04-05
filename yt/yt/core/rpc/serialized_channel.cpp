@@ -9,7 +9,7 @@ namespace NYT::NRpc {
 ////////////////////////////////////////////////////////////////////////////////
 
 class TSerializedChannel;
-typedef TIntrusivePtr<TSerializedChannel> TSerializedChannelPtr;
+using TSerializedChannelPtr = TIntrusivePtr<TSerializedChannel>;
 
 class TSerializedChannel
     : public TChannelWrapper
@@ -78,9 +78,9 @@ private:
             Owner_->OnRequestCompleted();
         }
 
-        void HandleError(const TError& error) override
+        void HandleError(TError error) override
         {
-            UnderlyingHandler_->HandleError(error);
+            UnderlyingHandler_->HandleError(std::move(error));
             Owner_->OnRequestCompleted();
         }
 
@@ -118,7 +118,7 @@ private:
         TClientRequestControlThunkPtr RequestControlThunk = New<TClientRequestControlThunk>();
     };
 
-    typedef TIntrusivePtr<TEntry> TEntryPtr;
+    using TEntryPtr = TIntrusivePtr<TEntry>;
 
     YT_DECLARE_SPIN_LOCK(NThreading::TSpinLock, SpinLock_);
     std::queue<TEntryPtr> Queue_;

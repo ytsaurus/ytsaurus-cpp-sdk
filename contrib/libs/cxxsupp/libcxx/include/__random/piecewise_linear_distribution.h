@@ -11,6 +11,7 @@
 
 #include <__algorithm/upper_bound.h>
 #include <__config>
+#include <__random/is_valid.h>
 #include <__random/uniform_real_distribution.h>
 #include <iosfwd>
 #include <numeric>
@@ -40,19 +41,19 @@ public:
     public:
         typedef piecewise_linear_distribution distribution_type;
 
-        param_type();
+        _LIBCPP_HIDE_FROM_ABI param_type();
         template<class _InputIteratorB, class _InputIteratorW>
-            param_type(_InputIteratorB __fB, _InputIteratorB __lB,
-                       _InputIteratorW __fW);
+        _LIBCPP_HIDE_FROM_ABI param_type(_InputIteratorB __f_b, _InputIteratorB __l_b,
+                       _InputIteratorW __f_w);
 #ifndef _LIBCPP_CXX03_LANG
         template<class _UnaryOperation>
-            param_type(initializer_list<result_type> __bl, _UnaryOperation __fw);
+        _LIBCPP_HIDE_FROM_ABI param_type(initializer_list<result_type> __bl, _UnaryOperation __fw);
 #endif // _LIBCPP_CXX03_LANG
         template<class _UnaryOperation>
-            param_type(size_t __nw, result_type __xmin, result_type __xmax,
+        _LIBCPP_HIDE_FROM_ABI param_type(size_t __nw, result_type __xmin, result_type __xmax,
                        _UnaryOperation __fw);
-        param_type(param_type const&) = default;
-        param_type & operator=(const param_type& __rhs);
+        _LIBCPP_HIDE_FROM_ABI param_type(param_type const&) = default;
+        _LIBCPP_HIDE_FROM_ABI param_type & operator=(const param_type& __rhs);
 
         _LIBCPP_INLINE_VISIBILITY
         vector<result_type> intervals() const {return __b_;}
@@ -67,7 +68,7 @@ public:
             {return !(__x == __y);}
 
     private:
-        void __init();
+        _LIBCPP_HIDE_FROM_ABI void __init();
 
         friend class piecewise_linear_distribution;
 
@@ -93,10 +94,10 @@ public:
     piecewise_linear_distribution() {}
     template<class _InputIteratorB, class _InputIteratorW>
         _LIBCPP_INLINE_VISIBILITY
-        piecewise_linear_distribution(_InputIteratorB __fB,
-                                      _InputIteratorB __lB,
-                                      _InputIteratorW __fW)
-        : __p_(__fB, __lB, __fW) {}
+        piecewise_linear_distribution(_InputIteratorB __f_b,
+                                      _InputIteratorB __l_b,
+                                      _InputIteratorW __f_w)
+        : __p_(__f_b, __l_b, __f_w) {}
 
 #ifndef _LIBCPP_CXX03_LANG
     template<class _UnaryOperation>
@@ -124,7 +125,8 @@ public:
         _LIBCPP_INLINE_VISIBILITY
         result_type operator()(_URNG& __g)
         {return (*this)(__g, __p_);}
-    template<class _URNG> result_type operator()(_URNG& __g, const param_type& __p);
+    template<class _URNG>
+    _LIBCPP_HIDE_FROM_ABI result_type operator()(_URNG& __g, const param_type& __p);
 
     // property functions
     _LIBCPP_INLINE_VISIBILITY
@@ -187,23 +189,23 @@ void
 piecewise_linear_distribution<_RealType>::param_type::__init()
 {
     __areas_.assign(__densities_.size() - 1, result_type());
-    result_type _Sp = 0;
+    result_type __sp = 0;
     for (size_t __i = 0; __i < __areas_.size(); ++__i)
     {
         __areas_[__i] = (__densities_[__i+1] + __densities_[__i]) *
                         (__b_[__i+1] - __b_[__i]) * .5;
-        _Sp += __areas_[__i];
+        __sp += __areas_[__i];
     }
     for (size_t __i = __areas_.size(); __i > 1;)
     {
         --__i;
-        __areas_[__i] = __areas_[__i-1] / _Sp;
+        __areas_[__i] = __areas_[__i-1] / __sp;
     }
     __areas_[0] = 0;
     for (size_t __i = 1; __i < __areas_.size(); ++__i)
         __areas_[__i] += __areas_[__i-1];
     for (size_t __i = 0; __i < __densities_.size(); ++__i)
-        __densities_[__i] /= _Sp;
+        __densities_[__i] /= __sp;
 }
 
 template<class _RealType>
@@ -218,8 +220,8 @@ piecewise_linear_distribution<_RealType>::param_type::param_type()
 template<class _RealType>
 template<class _InputIteratorB, class _InputIteratorW>
 piecewise_linear_distribution<_RealType>::param_type::param_type(
-        _InputIteratorB __fB, _InputIteratorB __lB, _InputIteratorW __fW)
-    : __b_(__fB, __lB)
+        _InputIteratorB __f_b, _InputIteratorB __l_b, _InputIteratorW __f_w)
+    : __b_(__f_b, __l_b)
 {
     if (__b_.size() < 2)
     {
@@ -232,8 +234,8 @@ piecewise_linear_distribution<_RealType>::param_type::param_type(
     else
     {
         __densities_.reserve(__b_.size());
-        for (size_t __i = 0; __i < __b_.size(); ++__i, ++__fW)
-            __densities_.push_back(*__fW);
+        for (size_t __i = 0; __i < __b_.size(); ++__i, ++__f_w)
+            __densities_.push_back(*__f_w);
         __init();
     }
 }
@@ -289,6 +291,7 @@ template<class _URNG>
 _RealType
 piecewise_linear_distribution<_RealType>::operator()(_URNG& __g, const param_type& __p)
 {
+    static_assert(__libcpp_random_is_valid_urng<_URNG>::value, "");
     typedef uniform_real_distribution<result_type> _Gen;
     result_type __u = _Gen()(__g);
     ptrdiff_t __k = _VSTD::upper_bound(__p.__areas_.begin(), __p.__areas_.end(),
@@ -308,7 +311,7 @@ piecewise_linear_distribution<_RealType>::operator()(_URNG& __g, const param_typ
 }
 
 template <class _CharT, class _Traits, class _RT>
-basic_ostream<_CharT, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_ostream<_CharT, _Traits>&
 operator<<(basic_ostream<_CharT, _Traits>& __os,
            const piecewise_linear_distribution<_RT>& __x)
 {
@@ -334,7 +337,7 @@ operator<<(basic_ostream<_CharT, _Traits>& __os,
 }
 
 template <class _CharT, class _Traits, class _RT>
-basic_istream<_CharT, _Traits>&
+_LIBCPP_HIDE_FROM_ABI basic_istream<_CharT, _Traits>&
 operator>>(basic_istream<_CharT, _Traits>& __is,
            piecewise_linear_distribution<_RT>& __x)
 {

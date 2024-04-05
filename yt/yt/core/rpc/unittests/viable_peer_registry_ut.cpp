@@ -124,6 +124,11 @@ public:
         }
     }
 
+    int GetInflightRequestCount() override
+    {
+        return 0;
+    }
+
     DEFINE_SIGNAL_OVERRIDE(void(const TError&), Terminated);
 private:
     TString Address_;
@@ -166,7 +171,10 @@ IViablePeerRegistryPtr CreateTestRegistry(
 
     config->PeerPriorityStrategy = peerPriorityStrategy;
 
-    return CreateViablePeerRegistry(config, BIND([=] (const TString& address) { return channelFactory->CreateChannel(address); }), Logger);
+    return CreateViablePeerRegistry(
+        config,
+        BIND([=] (const TString& address) { return channelFactory->CreateChannel(address); }),
+        Logger);
 }
 
 std::vector<TString> AddressesFromChannels(const std::vector<IChannelPtr>& channels)

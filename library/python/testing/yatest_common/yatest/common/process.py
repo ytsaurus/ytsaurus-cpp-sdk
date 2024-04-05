@@ -1,5 +1,6 @@
 # coding: utf-8
 
+import io
 import os
 import re
 import time
@@ -25,7 +26,7 @@ from . import path
 from . import environment
 
 
-MAX_OUT_LEN = 1000 * 1000  # 1 mb
+MAX_OUT_LEN = 64 * 1024  # 64K
 MAX_MESSAGE_LEN = 1500
 SANITIZER_ERROR_PATTERN = br": ([A-Z][\w]+Sanitizer)"
 GLIBC_PATTERN = re.compile(r"\S+@GLIBC_([0-9.]+)")
@@ -207,6 +208,7 @@ class _Execution(object):
         """
         Deprecated, use stderr
         """
+        # TODO: Fix bytes/str, maybe need to change a lot of tests
         if self._std_err is not None:
             return self._std_err
         if self._process.stderr and not self._user_stderr:
@@ -373,7 +375,10 @@ class _Execution(object):
 
         try:
             if timeout:
-                process_is_finished = lambda: not self.running
+
+                def process_is_finished():
+                    return not self.running
+
                 fail_message = "Command '%s' stopped by %d seconds timeout" % (self._command, timeout)
                 try:
                     wait_for(
@@ -439,7 +444,7 @@ class _Execution(object):
         if self._std_err and self._check_sanitizer and runtime._get_ya_config().sanitizer_extra_checks:
             build_path = runtime.build_path()
             if self.command[0].startswith(build_path):
-                match = re.search(SANITIZER_ERROR_PATTERN, self._std_err)
+                match = re.search(SANITIZER_ERROR_PATTERN, six.ensure_binary(self._std_err))
                 if match:
                     yatest_logger.error(
                         "%s sanitizer found errors:\n\tstd_err:%s\n",
@@ -544,13 +549,18 @@ def execute(
 
     def get_out_stream(stream, default_name):
         mode = 'w+t' if text else 'w+b'
+        open_kwargs = {'errors': 'ignore', 'encoding': 'utf-8'} if text else {'buffering': 0}
         if stream is None:
             # No stream is supplied: open new temp file
-            return _get_command_output_file(command, default_name, mode), False
+            return _get_command_output_file(command, default_name, mode, open_kwargs), False
 
         if isinstance(stream, six.string_types):
+            is_block = stream.startswith('/dev/')
+            if is_block:
+                mode = 'w+b'
+                open_kwargs = {'buffering': 0}
             # User filename is supplied: open file for writing
-            return open(stream, mode), stream.startswith('/dev/')
+            return io.open(stream, mode, **open_kwargs), is_block
 
         # Open file or PIPE sentinel is supplied
         is_pipe = stream == subprocess.PIPE
@@ -647,7 +657,9 @@ def execute(
     return res
 
 
-def _get_command_output_file(cmd, ext, mode):
+def _get_command_output_file(cmd, ext, mode, open_kwargs=None):
+    if open_kwargs is None:
+        open_kwargs = {}
     parts = [get_command_name(cmd)]
     if 'YA_RETRY_INDEX' in os.environ:
         parts.append('retry{}'.format(os.environ.get('YA_RETRY_INDEX')))
@@ -664,9 +676,9 @@ def _get_command_output_file(cmd, ext, mode):
             raise ImportError("not in test")
         filename = path.get_unique_file_path(yatest.common.output_path(), filename)
         yatest_logger.debug("Command %s will be placed to %s", ext, os.path.basename(filename))
-        return open(filename, mode)
+        return io.open(filename, mode, **open_kwargs)
     except ImportError:
-        return tempfile.NamedTemporaryFile(mode=mode, delete=False, suffix=filename)
+        return tempfile.NamedTemporaryFile(mode=mode, delete=False, suffix=filename, **(open_kwargs if six.PY3 else {}))
 
 
 def _get_proc_tree_info(pids):
@@ -830,8 +842,8 @@ def _run_readelf(binary_path):
 def check_glibc_version(binary_path):
     lucid_glibc_version = packaging.version.parse("2.11")
 
-    for l in _run_readelf(binary_path).split('\n'):
-        match = GLIBC_PATTERN.search(l)
+    for line in _run_readelf(binary_path).split('\n'):
+        match = GLIBC_PATTERN.search(line)
         if not match:
             continue
         assert packaging.version.parse(match.group(1)) <= lucid_glibc_version, match.group(0)
@@ -840,6 +852,9 @@ def check_glibc_version(binary_path):
 def backtrace_to_html(bt_filename, output):
     try:
         from library.python import coredump_filter
+
+        # XXX reduce noise from core_dumpfilter
+        logging.getLogger("sandbox.sdk2.helpers.coredump_filter").setLevel(logging.ERROR)
 
         with open(output, "w") as afile:
             coredump_filter.filter_stackdump(bt_filename, stream=afile)

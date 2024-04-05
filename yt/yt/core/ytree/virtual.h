@@ -4,8 +4,18 @@
 #include "ypath_detail.h"
 
 #include <yt/yt/core/yson/producer.h>
+#include <yt/yt/core/yson/async_writer.h>
 
 namespace NYT::NYTree {
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct TVirtualCompositeNodeReadOffloadParams
+{
+    IInvokerPtr OffloadInvoker;
+    NConcurrency::EWaitForStrategy WaitForStrategy = NConcurrency::EWaitForStrategy::WaitFor;
+    i64 BatchSize = 10'000;
+};
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -17,10 +27,12 @@ public:
     DEFINE_BYVAL_RW_PROPERTY(bool, Opaque, true);
 
 protected:
-    TVirtualMapBase();
-    explicit TVirtualMapBase(INodePtr owningNode);
+    explicit TVirtualMapBase(INodePtr owningNode = nullptr);
+
+    virtual std::optional<TVirtualCompositeNodeReadOffloadParams> GetReadOffloadParams() const;
 
     virtual std::vector<TString> GetKeys(i64 limit = std::numeric_limits<i64>::max()) const = 0;
+
     virtual i64 GetSize() const = 0;
 
     virtual IYPathServicePtr FindItemService(TStringBuf key) const = 0;
@@ -31,7 +43,7 @@ protected:
     void GetSelf(TReqGet* request, TRspGet* response, const TCtxGetPtr& context) override;
     void ListSelf(TReqList* request, TRspList* response, const TCtxListPtr& context) override;
     void RemoveRecursive(
-        const TYPath &path,
+        const TYPath& path,
         TReqRemove* request,
         TRspRemove* response,
         const TCtxRemovePtr& context) override;
@@ -44,7 +56,7 @@ protected:
     const THashSet<TInternedAttributeKey>& GetBuiltinAttributeKeys() override;
     bool GetBuiltinAttribute(TInternedAttributeKey key, NYson::IYsonConsumer* consumer) override;
     TFuture<NYson::TYsonString> GetBuiltinAttributeAsync(TInternedAttributeKey key) override;
-    bool SetBuiltinAttribute(TInternedAttributeKey key, const NYson::TYsonString& value) override;
+    bool SetBuiltinAttribute(TInternedAttributeKey key, const NYson::TYsonString& value, bool force) override;
     bool RemoveBuiltinAttribute(TInternedAttributeKey key) override;
 
 private:
@@ -60,7 +72,6 @@ class TCompositeMapService
 {
 public:
     TCompositeMapService();
-
     ~TCompositeMapService();
 
     std::vector<TString> GetKeys(i64 limit = std::numeric_limits<i64>::max()) const override;
@@ -93,7 +104,10 @@ public:
     DEFINE_BYVAL_RW_PROPERTY(bool, Opaque, true);
 
 protected:
+    virtual std::optional<TVirtualCompositeNodeReadOffloadParams> GetReadOffloadParams() const;
+
     virtual i64 GetSize() const = 0;
+
     virtual IYPathServicePtr FindItemService(int index) const = 0;
 
     bool DoInvoke(const IYPathServiceContextPtr& context) override;
@@ -109,7 +123,7 @@ protected:
     const THashSet<TInternedAttributeKey>& GetBuiltinAttributeKeys() override;
     bool GetBuiltinAttribute(TInternedAttributeKey key, NYson::IYsonConsumer* consumer) override;
     TFuture<NYson::TYsonString> GetBuiltinAttributeAsync(TInternedAttributeKey key) override;
-    bool SetBuiltinAttribute(TInternedAttributeKey key, const NYson::TYsonString& value) override;
+    bool SetBuiltinAttribute(TInternedAttributeKey key, const NYson::TYsonString& value, bool force) override;
     bool RemoveBuiltinAttribute(TInternedAttributeKey key) override;
 
 private:

@@ -15,7 +15,6 @@
 
 namespace NYT {
 
-using ::google::protobuf::FieldDescriptor;
 using ::google::protobuf::Descriptor;
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -71,29 +70,14 @@ bool TSortColumn::operator == (TStringBuf rhsName) const
     return Name_ == rhsName;
 }
 
-bool TSortColumn::operator != (TStringBuf rhsName) const
-{
-    return !(*this == rhsName);
-}
-
 bool TSortColumn::operator == (const TString& rhsName) const
 {
     return *this == static_cast<TStringBuf>(rhsName);
 }
 
-bool TSortColumn::operator != (const TString& rhsName) const
-{
-    return !(*this == rhsName);
-}
-
 bool TSortColumn::operator == (const char* rhsName) const
 {
     return *this == static_cast<TStringBuf>(rhsName);
-}
-
-bool TSortColumn::operator != (const char* rhsName) const
-{
-    return !(*this == rhsName);
 }
 
 TSortColumn::operator TStringBuf() const
@@ -208,6 +192,15 @@ static NTi::TTypePtr OldTypeToTypeV3(EValueType type)
             return NTi::Float();
         case VT_JSON:
             return NTi::Json();
+
+        case VT_DATE32:
+            return NTi::Date32();
+        case VT_DATETIME64:
+            return NTi::Datetime64();
+        case VT_TIMESTAMP64:
+            return NTi::Timestamp64();
+        case VT_INTERVAL64:
+            return NTi::Interval64();
     }
 }
 
@@ -269,6 +262,15 @@ static std::pair<EValueType, bool> Simplify(const NTi::TTypePtr& type)
             break;
         case ETypeName::Yson:
             return {VT_ANY, true};
+
+        case ETypeName::Date32:
+            return {VT_DATE32, true};
+        case ETypeName::Datetime64:
+            return {VT_DATETIME64, true};
+        case ETypeName::Timestamp64:
+            return {VT_TIMESTAMP64, true};
+        case ETypeName::Interval64:
+            return {VT_INTERVAL64, true};
 
         case ETypeName::Void:
             return {VT_VOID, false};
@@ -341,14 +343,14 @@ TColumnSchema TColumnSchema::Type(EValueType type) &&
 
 TColumnSchema& TColumnSchema::Type(const NTi::TTypePtr& type) &
 {
-    Y_VERIFY(type.Get(), "Cannot create column schema with nullptr type");
+    Y_ABORT_UNLESS(type.Get(), "Cannot create column schema with nullptr type");
     TypeV3_ = type;
     return *this;
 }
 
 TColumnSchema TColumnSchema::Type(const NTi::TTypePtr& type) &&
 {
-    Y_VERIFY(type.Get(), "Cannot create column schema with nullptr type");
+    Y_ABORT_UNLESS(type.Get(), "Cannot create column schema with nullptr type");
     TypeV3_ = type;
     return *this;
 }
@@ -514,6 +516,11 @@ bool operator==(const TTableSchema& lhs, const TTableSchema& rhs)
         lhs.UniqueKeys() == rhs.UniqueKeys();
 }
 
+void PrintTo(const TTableSchema& schema, std::ostream* out)
+{
+    (*out) << NodeToYsonString(schema.ToNode(), NYson::EYsonFormat::Pretty);
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 TKeyBound::TKeyBound(ERelation relation, TKey key)
@@ -537,7 +544,7 @@ TTableSchema CreateTableSchema(
 
 TTableSchema CreateTableSchema(NTi::TTypePtr type)
 {
-    Y_VERIFY(type);
+    Y_ABORT_UNLESS(type);
     TTableSchema schema;
     Deserialize(schema, NodeFromYsonString(NTi::NIo::AsYtSchema(type.Get())));
     return schema;
@@ -644,6 +651,15 @@ TString ToString(EValueType type)
 
         case VT_JSON:
             return "json";
+
+        case VT_DATE32:
+            return "date32";
+        case VT_DATETIME64:
+            return "datetime64";
+        case VT_TIMESTAMP64:
+            return "timestamp64";
+        case VT_INTERVAL64:
+            return "interval64";
     }
     ythrow yexception() << "Invalid value type " << static_cast<int>(type);
 }
