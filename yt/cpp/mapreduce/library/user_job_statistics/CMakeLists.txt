@@ -13,10 +13,27 @@
 # by maintainers. Any complex modifications which can't be easily ported back to the ya build 
 # system may be rejected.
 
-add_subdirectory(lambda)
-add_subdirectory(mock_client)
-add_subdirectory(operation_tracker)
-add_subdirectory(parallel_io)
-add_subdirectory(user_job_statistics)
+find_package(linux-headers-generic REQUIRED)
+add_library(mapreduce-library-user_job_statistics)
+
+
+target_compile_options(mapreduce-library-user_job_statistics PRIVATE
+  -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
+)
+
+target_link_libraries(mapreduce-library-user_job_statistics PUBLIC
+  linux-headers-generic::linux-headers-generic
+  contrib-libs-cxxsupp
+  yutil
+  cpp-mapreduce-common
+)
+
+target_sources(mapreduce-library-user_job_statistics PRIVATE
+  ${PROJECT_SOURCE_DIR}/yt/cpp/mapreduce/library/user_job_statistics/user_job_statistics.cpp
+)
+
+
+
+
 
 
