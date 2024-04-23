@@ -13,10 +13,34 @@
 # by maintainers. Any complex modifications which can't be easily ported back to the ya build 
 # system may be rejected.
 
-add_subdirectory(gtest_main)
-add_subdirectory(native)
-add_subdirectory(yt_initialize_hook)
-add_subdirectory(yt_unittest_lib)
-add_subdirectory(yt_unittest_main)
+find_package(linux-headers-generic REQUIRED)
+add_library(cpp-testing-gtest)
+
+
+target_compile_options(cpp-testing-gtest PRIVATE
+  -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
+)
+
+target_link_libraries(cpp-testing-gtest PUBLIC
+  linux-headers-generic::linux-headers-generic
+  contrib-libs-cxxsupp
+  yutil
+  restricted-googletest-googlemock
+  restricted-googletest-googletest
+  cpp-string_utils-relaxed_escaper
+  cpp-testing-common
+  cpp-testing-gtest_extensions
+  cpp-testing-hook
+)
+
+target_sources(cpp-testing-gtest PRIVATE
+  ${PROJECT_SOURCE_DIR}/library/cpp/testing/gtest/gtest.cpp
+  ${PROJECT_SOURCE_DIR}/library/cpp/testing/gtest/main.cpp
+  ${PROJECT_SOURCE_DIR}/library/cpp/testing/gtest/matchers.cpp
+)
+
+
+
+
 
 
