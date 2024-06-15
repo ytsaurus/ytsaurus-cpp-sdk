@@ -38,8 +38,6 @@ jobs:
     steps:
       - name: Checkout ytsaurus-cpp-sdk
         uses: actions/checkout@v3
-        with:
-          path: ytsaurus-cpp-sdk
 
   build:
     name: Build
@@ -56,10 +54,10 @@ jobs:
           cmake \
             -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_TOOLCHAIN_FILE=../ytsaurus/ytsaurus-cpp-sdk/clang.toolchain \
+            -DCMAKE_TOOLCHAIN_FILE=../ytsaurus-cpp-sdk/clang.toolchain \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-            ../ytsaurus/ytsaurus-cpp-sdk
+            ../ytsaurus-cpp-sdk
 
           export CCACHE_BASEDIR="$(realpath ..)"
           export CCACHE_REMOTE_ONLY=true
@@ -68,4 +66,19 @@ jobs:
           cd ../build
           ninja
 
-
+  stop-vm:
+    name: Stop VM
+    needs:
+      - start-vm
+      - build
+    runs-on: trampoline
+    if: ${{ always() }}
+    steps:
+      - name: Stop YC runner
+        uses: yc-actions/yc-github-runner@v1
+        with:
+          mode: stop
+          yc-sa-json-credentials: ${{ secrets.YC_SA_JSON_CREDENTIALS }}
+          github-token: ${{ secrets.GH_PERSONAL_ACCESS_TOKEN }}
+          label: ${{ needs.start-vm.outputs.label }}
+          instance-id: ${{ needs.start-vm.outputs.instance-id }}
