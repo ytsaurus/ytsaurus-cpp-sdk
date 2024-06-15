@@ -57,7 +57,7 @@ jobs:
             -DCMAKE_TOOLCHAIN_FILE=../ytsaurus-cpp-sdk/clang.toolchain \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-                -DREQUIRED_LLVM_TOOLING_VERSION=14 \
+                -DREQUIRED_LLVM_TOOLING_VERSION=16 \
             ../ytsaurus-cpp-sdk
 
           export CCACHE_BASEDIR="$(realpath ..)"
