@@ -28,5 +28,6 @@ target_link_options(libs-cxxsupp-system_stl INTERFACE
   -l:libatomic.a
   -lstdc++
   -rtlib=compiler-rt
+  -unwindlib=libunwind
 )
 
