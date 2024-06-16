@@ -12,4 +12,4 @@ set(CMAKE_SHARED_LINKER_FLAGS -fuse-ld=lld-16)
 
 set(CMAKE_POSITION_INDEPENDENT_CODE On)
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++20 -stdlib=libc++  -lpthread")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++20 -stdlib=libc++  -lstdc++ -lpthread")
