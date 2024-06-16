@@ -27,5 +27,6 @@ target_link_libraries(libs-cxxsupp-system_stl INTERFACE
 target_link_options(libs-cxxsupp-system_stl INTERFACE
   -l:libatomic.a
   -lstdc++
+  -rtlib=compiler-rt
 )
 
