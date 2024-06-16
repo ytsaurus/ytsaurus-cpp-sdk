@@ -17,10 +17,7 @@ find_package(linux-headers-generic REQUIRED)
 add_library(libs-cxxsupp-system_stl INTERFACE)
 
 target_compile_options(libs-cxxsupp-system_stl INTERFACE
-  -DLLVM_ENABLE_RUNTIMES=libunwind
-  -DLIBCXXABI_USE_LLVM_UNWINDER=YES
-  -DLIBCXX_USE_COMPILER_RT=YES
-  -DLIBCXXABI_USE_COMPILER_RT=YES
+  -DLIBCXX_BUILDING_LIBGCC
 )
 
 target_include_directories(libs-cxxsupp-system_stl INTERFACE
@@ -33,6 +30,7 @@ target_link_libraries(libs-cxxsupp-system_stl INTERFACE
 
 target_link_options(libs-cxxsupp-system_stl INTERFACE
   -lstdc++
+  -stdlib=libc++
   -rtlib=compiler-rt
 )
 
