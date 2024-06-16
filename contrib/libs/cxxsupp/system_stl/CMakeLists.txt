@@ -16,10 +16,6 @@ find_package(linux-headers-generic REQUIRED)
 
 add_library(libs-cxxsupp-system_stl INTERFACE)
 
-target_compile_options(libs-cxxsupp-system_stl INTERFACE
-  -DLIBCXX_BUILDING_LIBCXXRT
-)
-
 target_include_directories(libs-cxxsupp-system_stl INTERFACE
   ${PROJECT_SOURCE_DIR}/contrib/libs/cxxsupp/system_stl/include
 )
@@ -30,6 +26,6 @@ target_link_libraries(libs-cxxsupp-system_stl INTERFACE
 
 target_link_options(libs-cxxsupp-system_stl INTERFACE
   -l:libatomic.a
-  -lc++
+  -lstdc++
 )
 
