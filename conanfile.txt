@@ -7,6 +7,10 @@ protobuf/3.19.1
 ragel/6.10
 yasm/1.3.0
 
+[settings]
+compiler=clang-16
+compiler.libcxx=libc++
+
 [options]
 
 [imports]
