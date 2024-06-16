@@ -58,10 +58,10 @@ jobs:
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DREQUIRED_LLVM_TOOLING_VERSION=16 \
-              -DLLVM_ENABLE_RUNTIMES=libunwind \
-  -DLIBCXXABI_USE_LLVM_UNWINDER=YES \
-  -DLIBCXX_USE_COMPILER_RT=YES \
-  -DLIBCXXABI_USE_COMPILER_RT=YES \
+            -DLLVM_ENABLE_RUNTIMES=libunwind \
+            -DLIBCXXABI_USE_LLVM_UNWINDER=YES \
+            -DLIBCXX_USE_COMPILER_RT=YES \
+            -DLIBCXXABI_USE_COMPILER_RT=YES \
             ../ytsaurus-cpp-sdk
 
           export CCACHE_BASEDIR="$(realpath ..)"
