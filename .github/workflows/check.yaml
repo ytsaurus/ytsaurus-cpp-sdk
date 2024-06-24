@@ -49,28 +49,6 @@ jobs:
       - checkout
     runs-on: ${{ needs.start-vm.outputs.label }}
     steps:
-      - name: Build with libstdc++
-        run: |
-          mkdir -p ../build_gcc
-          cd ../build_gcc
-          rm -rf *
-          cmake \
-            -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_TOOLCHAIN_FILE=../ytsaurus-cpp-sdk/clang.toolchain \
-            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
-            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-            -DREQUIRED_LLVM_TOOLING_VERSION=14 \
-            -DCMAKE_CXX_FLAGS_INIT="-stdlib=libstdc++" \
-            ../ytsaurus-cpp-sdk
-
-          export CCACHE_BASEDIR="$(realpath ..)"
-          export CCACHE_REMOTE_ONLY=true
-          export CCACHE_REMOTE_STORAGE="${{ vars.CCACHE_REMOTE_STORAGE }}"
-
-          cd ../build_gcc
-          ninja
-
       - name: Build with libc++
         run: |
           mkdir -p ../build
@@ -91,6 +69,28 @@ jobs:
           export CCACHE_REMOTE_STORAGE="${{ vars.CCACHE_REMOTE_STORAGE }}"
 
           cd ../build
+          ninja
+
+      - name: Build with libstdc++
+        run: |
+          mkdir -p ../build_gcc
+          cd ../build_gcc
+          rm -rf *
+          cmake \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_TOOLCHAIN_FILE=../ytsaurus-cpp-sdk/clang.toolchain \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DREQUIRED_LLVM_TOOLING_VERSION=14 \
+            -DCMAKE_CXX_FLAGS_INIT="-stdlib=libstdc++ -std=c++20" \
+            ../ytsaurus-cpp-sdk
+
+          export CCACHE_BASEDIR="$(realpath ..)"
+          export CCACHE_REMOTE_ONLY=true
+          export CCACHE_REMOTE_STORAGE="${{ vars.CCACHE_REMOTE_STORAGE }}"
+
+          cd ../build_gcc
           ninja
 
   stop-vm:
