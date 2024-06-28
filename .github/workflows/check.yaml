@@ -1,0 +1,126 @@
+name: Check
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  start-vm:
+    name: Start VM
+    runs-on: trampoline
+    outputs:
+      label: ${{ steps.start-yc-runner.outputs.label }}
+      instance-id: ${{ steps.start-yc-runner.outputs.instance-id }}
+    steps:
+      - name: Start YC runner
+        id: start-yc-runner
+        uses: yc-actions/yc-github-runner@v1
+        with:
+          mode: start
+          yc-sa-json-credentials: ${{ secrets.YC_SA_JSON_CREDENTIALS }}
+          github-token: ${{ secrets.GH_PERSONAL_ACCESS_TOKEN }}
+          folder-id: ${{ vars.YC_FOLDER_ID }}
+          image-id: fd84cji032a91np7mpgn
+          zone-id: ${{ vars.YC_ZONE_ID }}
+          subnet-id: ${{ vars.YC_SUBNET_ID }}
+          cores: 16
+          memory: 32GB
+          core-fraction: 100
+          disk-type: network-ssd-nonreplicated
+          disk-size: 279GB
+          user: ${{ secrets.YC_VM_USERNAME }}
+          ssh-public-key: ${{ secrets.YC_VM_SSH_PUBLIC_KEY }}
+          public-ip: false
+
+  checkout:
+    name: Checkout sources
+    needs: start-vm
+    runs-on: ${{ needs.start-vm.outputs.label }}
+    steps:
+      - name: Checkout ytsaurus-cpp-sdk
+        uses: actions/checkout@v3
+
+  build:
+    name: Build
+    needs:
+      - start-vm
+      - checkout
+    runs-on: ${{ needs.start-vm.outputs.label }}
+    steps:
+      - name: Build with libc++
+        run: |
+          mkdir -p ../build
+          cd ../build
+          rm -rf *
+          cmake \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_TOOLCHAIN_FILE=../ytsaurus-cpp-sdk/clang.toolchain \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DREQUIRED_LLVM_TOOLING_VERSION=14 \
+            -DCMAKE_CXX_FLAGS_INIT="-stdlib=libc++" \
+            ../ytsaurus-cpp-sdk
+          export CCACHE_BASEDIR="$(realpath ..)"
+          export CCACHE_REMOTE_ONLY=true
+          export CCACHE_REMOTE_STORAGE="${{ vars.CCACHE_REMOTE_STORAGE }}"
+          cd ../build
+          ninja
+      - name: Build with libstdc++
+        run: |
+          mkdir -p ../build_gcc
+          cd ../build_gcc
+          rm -rf *
+          cmake \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_TOOLCHAIN_FILE=../ytsaurus-cpp-sdk/clang.toolchain \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DREQUIRED_LLVM_TOOLING_VERSION=14 \
+            -DCMAKE_CXX_FLAGS_INIT="-stdlib=libstdc++ -std=c++20" \
+            ../ytsaurus-cpp-sdk
+          export CCACHE_BASEDIR="$(realpath ..)"
+          export CCACHE_REMOTE_ONLY=true
+          export CCACHE_REMOTE_STORAGE="${{ vars.CCACHE_REMOTE_STORAGE }}"
+          cd ../build_gcc
+          ninja
+  stop-vm:
+    name: Stop VM
+    needs:
+      - start-vm
+      - build
+    runs-on: trampoline
+    if: ${{ always() }}
+    steps:
+      - name: Stop YC runner
+        uses: yc-actions/yc-github-runner@v1
+        with:
+          mode: stop
+          yc-sa-json-credentials: ${{ secrets.YC_SA_JSON_CREDENTIALS }}
+          github-token: ${{ secrets.GH_PERSONAL_ACCESS_TOKEN }}
+          label: ${{ needs.start-vm.outputs.label }}
+          instance-id: ${{ needs.start-vm.outputs.instance-id }}
+
+  send-notifications:
+    name: Send notifications
+    needs:
+      - stop-vm
+    runs-on: ubuntu-latest
+    if: ${{ failure() }}
+    steps:
+      - name: Send telegram message
+        uses: appleboy/telegram-action@master
+        with:
+          to: ${{ secrets.TELEGRAM_CHAT_ID }}
+          token: ${{ secrets.TELEGRAM_TOKEN }}
+          disable_web_page_preview: true
+          format: markdown
+          message: |
+            Workflow *${{github.workflow}}* failed: ${{github.server_url}}/${{github.repository}}/actions/runs/${{github.run_id}}.
+            Git ${{github.ref_type}}: *${{github.ref_name}}*.
+            Commit:
+            ```
+            ${{github.event.head_commit.message}}
+            ```
