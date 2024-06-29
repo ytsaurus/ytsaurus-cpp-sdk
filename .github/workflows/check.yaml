@@ -86,11 +86,26 @@ jobs:
           export CCACHE_REMOTE_STORAGE="${{ vars.CCACHE_REMOTE_STORAGE }}"
           cd ../build_gcc
           ninja
+
+  tests:
+    name: Tests
+    needs:
+      - start-vm
+      - checkout
+      - build
+    runs-on: ${{ needs.start-vm.outputs.label }}
+    steps:
+      - name: Run unittests (libc++)
+        run: |
+          cp ../ytsaurus-cpp-sdk/yt/yt/scripts/run_unittests.sh ../build
+          cd ../build
+          ./run_unittests.sh
+
   stop-vm:
     name: Stop VM
     needs:
       - start-vm
-      - build
+      - tests
     runs-on: trampoline
     if: ${{ always() }}
     steps:
