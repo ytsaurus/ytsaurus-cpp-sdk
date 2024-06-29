@@ -1,4 +1,4 @@
-#!/bin/bash -ex
+#!/bin/bash
 # Should be run inside build directory
 
 # unittester-containers requires porto to be installed.
