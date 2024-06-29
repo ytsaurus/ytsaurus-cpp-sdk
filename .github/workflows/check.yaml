@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - members/nadya73/tests
 
 jobs:
   start-vm:
