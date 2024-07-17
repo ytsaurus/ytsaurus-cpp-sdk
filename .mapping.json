@@ -8,6 +8,7 @@
   "CODE_OF_CONDUCT.md":"yt/opensource/repos/ytsaurus-cpp-sdk/github_toplevel/CODE_OF_CONDUCT.md",
   "CONTRIBUTING.md":"yt/opensource/repos/ytsaurus-cpp-sdk/github_toplevel/CONTRIBUTING.md",
   "LICENSE":"yt/opensource/repos/ytsaurus-cpp-sdk/github_toplevel/LICENSE",
+  "README.md":"yt/opensource/repos/ytsaurus-cpp-sdk/github_toplevel/README.md",
   "SECURITY.md":"yt/opensource/repos/ytsaurus-cpp-sdk/github_toplevel/SECURITY.md",
   "build/mapping.conf.json":"devtools/ya/opensource/mapping.conf.json",
   "build/scripts/export_script_gen.py":"",
