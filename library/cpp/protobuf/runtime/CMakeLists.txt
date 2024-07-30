@@ -15,40 +15,13 @@
 find_package(Protobuf REQUIRED)
 find_package(linux-headers-generic REQUIRED)
 
-add_library(library-cpp-tdigest)
+add_library(cpp-protobuf-runtime INTERFACE)
 
-target_compile_options(library-cpp-tdigest PRIVATE
-  -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
-)
-
-target_link_libraries(library-cpp-tdigest PUBLIC
+target_link_libraries(cpp-protobuf-runtime INTERFACE
   linux-headers-generic::linux-headers-generic
   contrib-libs-cxxsupp
   yutil
-  cpp-protobuf-runtime
   protobuf::libprotobuf
   protobuf::libprotoc
-)
-
-target_proto_messages(library-cpp-tdigest PRIVATE
-  ${PROJECT_SOURCE_DIR}/library/cpp/tdigest/tdigest.proto
-)
-
-target_sources(library-cpp-tdigest PRIVATE
-  ${PROJECT_BINARY_DIR}/library/cpp/tdigest/tdigest.pb.h
-  ${PROJECT_SOURCE_DIR}/library/cpp/tdigest/tdigest.cpp
-)
-
-target_proto_addincls(library-cpp-tdigest
-  ./
-  ${PROJECT_SOURCE_DIR}/
-  ${PROJECT_BINARY_DIR}
-  ${PROJECT_SOURCE_DIR}
-  ${PROJECT_BINARY_DIR}
-  ${protobuf_INCLUDE_DIRS}
-)
-
-target_proto_outs(library-cpp-tdigest
-  --cpp_out=${PROJECT_BINARY_DIR}/
 )
 
