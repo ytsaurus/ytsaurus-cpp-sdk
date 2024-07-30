@@ -30,6 +30,7 @@ class TWhenThenExpression;
 class TJoinClause;
 class TQuery;
 class TQueryOptions;
+class TFeatureFlags;
 class TDataSource;
 
 } // namespace NProto
@@ -41,9 +42,6 @@ using TConstExpressionPtr = TIntrusivePtr<const TExpression>;
 
 DECLARE_REFCOUNTED_STRUCT(TFunctionExpression)
 using TConstFunctionExpressionPtr = TIntrusivePtr<const TFunctionExpression>;
-
-DECLARE_REFCOUNTED_STRUCT(TAggregateFunctionExpression)
-using TConstAggregateFunctionExpressionPtr = TIntrusivePtr<const TAggregateFunctionExpression>;
 
 DECLARE_REFCOUNTED_STRUCT(TArrayJoinClause)
 using TConstArrayJoinClausePtr = TIntrusivePtr<const TArrayJoinClause>;

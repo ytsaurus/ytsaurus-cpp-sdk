@@ -1,0 +1,203 @@
+package NYT.NCypressClient.NProto;
+
+import "yt_proto/yt/client/table_chunk_format/proto/chunk_meta.proto";
+
+import "yt_proto/yt/core/misc/proto/guid.proto";
+
+import "yt_proto/yt/core/ytree/proto/attributes.proto";
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TReqLock
+{
+    required int32 mode = 1;
+    optional bool waitable = 2 [default = false];
+    optional string child_key = 3;
+    optional string attribute_key = 4;
+    optional uint64 timestamp = 5 [default = 0];
+}
+
+message TRspLock
+{
+    required NYT.NProto.TGuid lock_id = 1;
+    required NYT.NProto.TGuid node_id = 2;
+    optional NYT.NProto.TGuid external_transaction_id = 5;
+    required uint32 external_cell_tag = 3;
+    optional uint64 revision = 4;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TReqUnlock
+{ }
+
+message TRspUnlock
+{ }
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TReqCreate
+{
+    required int32 type = 1;
+    optional NYT.NYTree.NProto.TAttributeDictionary node_attributes = 2;
+    optional bool recursive = 3 [default = false];
+    optional bool ignore_existing = 4 [default = false];
+    optional bool lock_existing = 5 [default = false];
+    optional bool force = 6 [default = false];
+    optional bool ignore_type_mismatch = 7 [default = false];
+    optional NYT.NProto.TGuid hint_id = 8;
+}
+
+message TRspCreate
+{
+    required NYT.NProto.TGuid node_id = 1;
+    required uint32 cell_tag = 2;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TReqCopy
+{
+    optional int32 mode = 3; // ENodeCloneMode
+    optional bool recursive = 4 [default = false];
+    optional bool force = 5 [default = false];
+    optional bool preserve_account = 2 [default = false];
+    optional bool preserve_creation_time = 7 [default = false];
+    optional bool preserve_modification_time = 10 [default = false];
+    optional bool preserve_expiration_time = 6 [default = false];
+    optional bool preserve_expiration_timeout = 14 [default = false];
+    optional bool preserve_owner = 11 [default = false];
+    optional bool preserve_acl = 12 [default = false];
+    optional bool ignore_existing = 8 [default = false];
+    optional bool lock_existing = 13 [default = false];
+    optional bool pessimistic_quota_check = 9 [default = true];
+    optional bool enable_cross_cell_copying = 15 [default = true];
+
+    reserved 1;
+}
+
+message TRspCopy
+{
+    required NYT.NProto.TGuid node_id = 1;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+// COMPAT(h0pless): Remove when BeginCopy uses newer format.
+message TSerializedTree
+{
+    required int32 version = 1;
+    required bytes data = 2;
+    optional int32 codec_id = 3; // ECodec
+}
+
+// COMPAT(h0pless): Remove when BeginCopy uses newer format.
+message TRegisteredSchema
+{
+    required int32 key = 1; // TEntitySerializationKey
+    required NYT.NTableClient.NProto.TTableSchemaExt schema = 2;
+}
+
+message TReqBeginCopy
+{
+    required int32 mode = 1; // ENodeCloneMode
+}
+
+message TSerializedNode
+{
+    required NYT.NProto.TGuid node_id = 1;
+    required bytes data = 2;
+    // Needed to decide where this node in particular can be copied to.
+    optional uint32 external_cell_tag = 3;
+}
+
+message TRspBeginCopy
+{
+    required int32 version = 7; // EMasterReign
+
+    repeated TSerializedNode serialized_nodes = 8;
+    repeated NYT.NProto.TGuid schema_ids = 10;
+
+    // This field is seemingly useless. Remove it later.
+    repeated NYT.NProto.TGuid portal_child_ids = 2;
+    repeated uint32 external_cell_tags = 3;
+    // Opaques are still used when calling BeginCopy on Cypress subtree.
+    repeated string opaque_child_paths = 5;
+
+    // COMPAT(h0pless)
+    optional TSerializedTree serialized_tree = 1;
+    optional NYT.NProto.TGuid node_id = 4;
+    repeated TRegisteredSchema schemas = 6;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+// Cf. TReqCopy.
+message TReqEndCopy
+{
+    message TSchemaIdToSchemaMapping
+    {
+        required NYT.NProto.TGuid schema_id = 1;
+        required NYT.NTableClient.NProto.TTableSchemaExt schema = 2;
+    }
+
+    required int32 mode = 1; // ENodeCloneMode
+
+    optional bool preserve_account = 2 [default = false];
+    optional bool recursive = 4 [default = false];
+    optional bool force = 5 [default = false];
+    optional bool preserve_creation_time = 7 [default = false];
+    optional bool preserve_modification_time = 11 [default = false];
+    optional bool preserve_expiration_time = 6 [default = false];
+    optional bool preserve_expiration_timeout = 16 [default = false];
+    optional bool preserve_owner = 13 [default = false];
+    optional bool preserve_acl = 14 [default = false];
+    optional bool ignore_existing = 8 [default = false];
+    optional bool lock_existing = 15 [default = false];
+    optional bool pessimistic_quota_check = 9 [default = true];
+    optional bool enable_cross_cell_copying = 18 [default = true];
+
+    optional bool inplace = 12;
+    repeated TSerializedNode serialized_nodes = 19;
+    repeated TSchemaIdToSchemaMapping schema_id_to_schema = 20;
+    required int32 version = 21; // EMasterReign
+
+    // COMPAT(h0pless): Remove when BeginCopy uses newer format.
+    required TSerializedTree serialized_tree = 10;
+    repeated TRegisteredSchema schemas = 17;
+}
+
+message TRspEndCopy
+{
+    required NYT.NProto.TGuid node_id = 1;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TReqEnumerate
+{
+    optional NYT.NYTree.NProto.TAttributeFilter attributes = 1;
+    required int64 limit = 2;
+}
+
+message TRspEnumerate
+{
+    message TItem
+    {
+        required bytes key = 1;
+        optional bytes attributes = 2;
+    }
+
+    required bool incomplete = 1;
+    repeated TItem items = 2;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TReqCreateRootstock
+{
+    required TReqCreate request = 1;
+    required string path = 2;
+}
+
+////////////////////////////////////////////////////////////////////////////////

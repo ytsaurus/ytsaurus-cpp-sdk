@@ -2,17 +2,11 @@
 
 #include "public.h"
 
-#include <yt/yt/library/query/base/public.h>
-
-#include <yt/yt/core/bus/public.h>
 #include <yt/yt/core/bus/bus.h>
 
 #include <yt/yt/core/net/address.h>
 
-#include <yt/yt/core/rpc/public.h>
 #include <yt/yt/core/rpc/channel.h>
-
-#include <yt/yt/core/rpc/bus/channel.h>
 
 #include <yt/yt/core/logging/log.h>
 
@@ -116,6 +110,8 @@ public:
 
     int GetInflightRequestCount() override;
 
+    const IMemoryUsageTrackerPtr& GetChannelMemoryTracker() override;
+
     void SubscribeTerminated(const TCallback<void(const TError&)>& callback) override;
 
     void UnsubscribeTerminated(const TCallback<void(const TError&)>& callback) override;
@@ -125,6 +121,7 @@ private:
     const TRealmIdServiceMap DefaultServices_;
     const TString Address_;
     const NYTree::IAttributeDictionaryPtr Attributes_;
+    const IMemoryUsageTrackerPtr MemoryUsageTracker_ = GetNullMemoryUsageTracker();
 
     TSingleShotCallbackList<void(const TError&)> Terminated_;
 

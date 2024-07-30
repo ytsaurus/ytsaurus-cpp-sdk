@@ -14,6 +14,7 @@
 
 find_package(Protobuf REQUIRED)
 find_package(linux-headers-generic REQUIRED)
+add_subdirectory(ut)
 
 add_library(cpp-mapreduce-io)
 
@@ -29,12 +30,12 @@ target_link_libraries(cpp-mapreduce-io PUBLIC
   protobuf::libprotobuf
   protobuf::libprotoc
   library-cpp-yson
+  cpp-yson-node
   cpp-mapreduce-common
   cpp-mapreduce-interface
   mapreduce-interface-logging
-  yt_proto-yt-formats
-  cpp-yson-node
   cpp-mapreduce-skiff
+  yt_proto-yt-formats
   yt-yt-core
 )
 

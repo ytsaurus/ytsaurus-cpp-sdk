@@ -1,0 +1,296 @@
+package NYT.NControllerAgent.NProto;
+
+import "yt/ytlib/scheduler/proto/resources.proto";
+import "yt/ytlib/scheduler/proto/rich_transaction_id.proto";
+
+import "yt_proto/yt/core/misc/proto/guid.proto";
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TJobMetrics
+{
+    message TEntry
+    {
+        required int64 key = 1;
+        required int64 value = 2;
+    }
+    message TCustomEntry
+    {
+        required string statistics_path = 1;
+        required string profiling_name = 2;
+        required int64 value = 3;
+    }
+
+    repeated TEntry values = 1;
+    repeated TCustomEntry custom_values = 2;
+}
+
+message TTreeTaggedJobMetrics
+{
+    required string tree_id = 1;
+    optional TJobMetrics metrics = 2;
+}
+
+message TCompositeNeededResources
+{
+    optional NScheduler.NProto.TJobResources default_resources = 1;
+    map<string, NScheduler.NProto.TJobResources> resources_per_pool_tree = 2;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TReqGetOperationInfo
+{
+    required NYT.NProto.TGuid operation_id = 1;
+}
+
+message TRspGetOperationInfo
+{
+    required bytes progress = 1;       // YSON
+    required bytes brief_progress = 2; // YSON
+    required bytes running_jobs = 3;   // YSON
+    required int64 controller_memory_usage = 5;
+    required int32 controller_state = 6;
+    required bytes alerts = 7; // YSON
+
+    reserved 4;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TPoolTreeControllerSettings
+{
+    required string tree_name = 1;
+    required string scheduling_tag_filter = 2;
+    required bool tentative = 3;
+    optional int32 main_resource = 4;
+    optional bool probing = 5;
+    optional bool offloading = 6;
+    optional bool allow_idle_cpu_policy = 7;
+}
+
+message TPoolTreeControllerSettingsMap
+{
+    repeated TPoolTreeControllerSettings tree_settings = 1;
+}
+
+message TOperationDescriptor
+{
+    required NYT.NProto.TGuid operation_id = 1;
+    required int32 operation_type = 2; // EOperationType
+    required bytes spec = 3; // YSON
+    required uint64 start_time = 4; // TInstant
+    required string authenticated_user = 5;
+    optional bytes secure_vault = 6; // YSON
+    required NYT.NProto.TGuid user_transaction_id = 8;
+    required TPoolTreeControllerSettingsMap pool_tree_controller_settings_map = 9;
+    required bytes acl = 10; // YSON
+    required bytes experiment_assignments = 11; // YSON
+    required int32 controller_epoch = 12 [default = -1];
+
+    reserved 7;
+}
+
+message TReqRegisterOperation
+{
+    required NYT.NProto.TGuid incarnation_id = 1;
+    required TOperationDescriptor operation_descriptor = 2;
+}
+
+message TRspRegisterOperation
+{ }
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TControllerTransactionIds
+{
+    optional NYT.NProto.TGuid async_id = 1;
+    optional NYT.NProto.TGuid input_id = 2;
+    optional NYT.NProto.TGuid output_id = 3;
+    optional NYT.NProto.TGuid debug_id = 4;
+    optional NYT.NProto.TGuid output_completion_id = 5;
+    optional NYT.NProto.TGuid debug_completion_id = 6;
+    repeated NYT.NProto.TGuid nested_input_ids = 7;
+    repeated NScheduler.NProto.TRichTransactionId input_ids = 8;
+}
+
+message TInitializeOperationResult
+{
+    required bytes brief_spec = 2; // YSON
+    required bytes unrecognized_spec = 3; // YSON
+    required bytes full_spec = 4; // YSON
+    required TControllerTransactionIds transaction_ids = 5;
+    optional bool erase_offloading_trees = 6;
+}
+
+message TReqInitializeOperation
+{
+    required NYT.NProto.TGuid incarnation_id = 1;
+    required NYT.NProto.TGuid operation_id = 2;
+    required bool clean = 3;
+    optional TControllerTransactionIds transaction_ids = 4;
+}
+
+message TRspInitializeOperation
+{
+    // If the result is missing, it will be sent later in a heartbeat.
+    optional TInitializeOperationResult result = 1;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TPrepareOperationResult
+{
+    optional bytes attributes = 1; // YSON
+}
+
+message TReqPrepareOperation
+{
+    required NYT.NProto.TGuid incarnation_id = 1;
+    required NYT.NProto.TGuid operation_id = 2;
+}
+
+message TRspPrepareOperation
+{
+    // If the result is missing, it will be sent later in a heartbeat.
+    optional TPrepareOperationResult result = 1;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TMaterializeOperationResult
+{
+    // Set to true if suspend_operation_after_materialization is set.
+    required bool suspend = 1;
+    required TCompositeNeededResources initial_composite_needed_resources = 2;
+    repeated NScheduler.NProto.TJobResourcesWithQuota initial_min_needed_resources = 3;
+}
+
+message TReqMaterializeOperation
+{
+    required NYT.NProto.TGuid incarnation_id = 1;
+    required NYT.NProto.TGuid operation_id = 2;
+}
+
+message TRspMaterializeOperation
+{
+    // If the result is missing, it will be sent later in a heartbeat.
+    optional TMaterializeOperationResult result = 1;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TReviveOperationResult
+{
+    message TRevivedAllocation
+    {
+        required NYT.NProto.TGuid allocation_id = 1;
+        required uint64 start_time = 2; // TInstant
+        optional uint64 preemptible_progress_start_time = 8; // TInstant
+        required NScheduler.NProto.TJobResourcesWithQuota resource_limits = 3;
+        required string tree_id = 4;
+        required uint32 node_id = 5;
+        required string node_address = 6;
+    }
+
+    required bytes attributes = 1; // YSON
+    required bool revived_from_snapshot = 2;
+    repeated TRevivedAllocation revived_allocations = 3;
+    repeated string revived_banned_tree_ids = 4;
+    required TCompositeNeededResources composite_needed_resources = 5;
+    repeated NScheduler.NProto.TJobResourcesWithQuota min_needed_resources = 6;
+    repeated NScheduler.NProto.TJobResourcesWithQuota initial_min_needed_resources = 9;
+    required int32 controller_epoch = 8;
+}
+
+message TReqReviveOperation
+{
+    required NYT.NProto.TGuid incarnation_id = 1;
+    required NYT.NProto.TGuid operation_id = 2;
+}
+
+message TRspReviveOperation
+{
+    // If the result is missing, it will be sent later in a heartbeat.
+    optional TReviveOperationResult result = 1;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TCommitOperationResult
+{ }
+
+message TReqCommitOperation
+{
+    required NYT.NProto.TGuid incarnation_id = 1;
+    required NYT.NProto.TGuid operation_id = 2;
+}
+
+message TRspCommitOperation
+{
+    // If the result is missing, it will be sent later in a heartbeat.
+    optional TCommitOperationResult result = 1;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TReqCompleteOperation
+{
+    required NYT.NProto.TGuid incarnation_id = 1;
+    required NYT.NProto.TGuid operation_id = 2;
+}
+
+message TRspCompleteOperation
+{ }
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TReqTerminateOperation
+{
+    required NYT.NProto.TGuid incarnation_id = 1;
+    required NYT.NProto.TGuid operation_id = 2;
+    required int32 controller_final_state = 3; // EControllerState
+}
+
+message TRspTerminateOperation
+{ }
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TReqWriteOperationControllerCoreDump
+{
+    required NYT.NProto.TGuid operation_id = 1;
+}
+
+message TRspWriteOperationControllerCoreDump
+{
+    required string path = 1;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TReqUnregisterOperation
+{
+    required NYT.NProto.TGuid incarnation_id = 1;
+    required NYT.NProto.TGuid operation_id = 2;
+}
+
+message TRspUnregisterOperation
+{
+    repeated TTreeTaggedJobMetrics residual_job_metrics = 1;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TReqUpdateOperationRuntimeParameters
+{
+    required NYT.NProto.TGuid incarnation_id = 1;
+    required NYT.NProto.TGuid operation_id = 2;
+
+    required bytes parameters = 3;
+}
+
+message TRspUpdateOperationRuntimeParameters
+{ }
+
+////////////////////////////////////////////////////////////////////////////////

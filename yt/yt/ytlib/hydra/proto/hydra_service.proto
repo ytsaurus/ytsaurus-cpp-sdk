@@ -1,0 +1,127 @@
+package NYT.NHydra.NProto;
+
+import "yt_proto/yt/core/misc/proto/error.proto";
+import "yt_proto/yt/core/rpc/proto/rpc.proto";
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TPeerKindExt
+{
+    extend NRpc.NProto.TReqDiscover
+    {
+        optional TPeerKindExt peer_kind_ext = 100;
+    }
+
+    required int32 peer_kind = 1;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TDiscombobulationExt
+{
+    extend NRpc.NProto.TRspDiscover
+    {
+        optional TDiscombobulationExt discombobulation_ext = 100;
+    }
+
+    required bool discombobulated = 1;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TReqForceSyncWithLeader
+{
+}
+
+message TRspForceSyncWithLeader
+{
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TReqPoke
+{
+}
+
+message TRspPoke
+{
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TReqForceBuildSnapshot
+{
+    optional bool set_read_only = 1 [default = false];
+    optional bool wait_for_snapshot_completion = 2 [default = true];
+}
+
+message TRspForceBuildSnapshot
+{
+    required int32 snapshot_id = 1;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TReqPrepareLeaderSwitch
+{
+}
+
+message TRspPrepareLeaderSwitch
+{
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TReqForceRestart
+{
+    required NYT.NProto.TError reason = 1;
+    optional bool arm_priority_boost = 2;
+}
+
+message TRspForceRestart
+{
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TReqGetPeerState
+{
+}
+
+message TRspGetPeerState
+{
+    required int32 peer_state = 1; // NHydra::EPeerState
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TReqResetStateHash
+{
+    required uint64 new_state_hash = 1;
+}
+
+message TRspResetStateHash
+{
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TReqExitReadOnly
+{
+}
+
+message TRspExitReadOnly
+{
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TReqDiscombobulateNonvotingPeers
+{
+}
+
+message TRspDiscombobulateNonvotingPeers
+{
+}
+
+////////////////////////////////////////////////////////////////////////////////

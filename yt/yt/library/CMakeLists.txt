@@ -12,7 +12,17 @@
 # Please refer to the build instructions in the repository for more information about manual
 # changes in this file.
 
+add_subdirectory(auth)
+add_subdirectory(column_converters)
+add_subdirectory(decimal)
+add_subdirectory(erasure)
+add_subdirectory(formats)
+add_subdirectory(named_value)
+add_subdirectory(numeric)
 add_subdirectory(profiling)
+add_subdirectory(quantile_digest)
+add_subdirectory(re2)
+add_subdirectory(skiff_ext)
 add_subdirectory(syncmap)
 add_subdirectory(tracing)
 add_subdirectory(tvm)

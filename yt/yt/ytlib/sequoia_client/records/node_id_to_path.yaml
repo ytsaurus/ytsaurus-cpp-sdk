@@ -1,0 +1,26 @@
+namespace: NYT::NSequoiaClient::NRecords
+
+types:
+  - table_name: node_id_to_path
+    table_group: resolve_tables
+    type_name: TNodeIdToPath
+    fields:
+      - cpp_name: NodeId
+        cpp_type: NCypressClient::TNodeId
+        column_name: node_id
+        column_type: String
+        sort_order: Ascending
+
+      - cpp_name: Path
+        cpp_type: NYPath::TYPath
+        column_name: path
+        column_type: String
+
+      - cpp_name: TargetPath
+        cpp_type: NYPath::TYPath
+        column_name: target_path
+        column_type: String
+
+    verbatim: |
+        static constexpr auto Queue = EGroundUpdateQueue::Sequoia;
+        static constexpr auto Table = ESequoiaTable::NodeIdToPath;

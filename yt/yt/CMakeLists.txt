@@ -13,5 +13,6 @@
 # changes in this file.
 
 add_subdirectory(build)
+add_subdirectory(client)
 add_subdirectory(core)
 add_subdirectory(library)

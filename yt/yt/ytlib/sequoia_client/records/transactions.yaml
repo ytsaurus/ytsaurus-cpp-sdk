@@ -1,0 +1,37 @@
+namespace: NYT::NSequoiaClient::NRecords
+
+types:
+  - table_name: transactions
+    table_group: transaction_tables
+    type_name: TTransaction
+    fields:
+      - cpp_name: TransactionIdHash
+        cpp_type: ui64
+        column_name: transaction_id_hash
+        column_type: Uint64
+        sort_order: Ascending
+        expression: farm_hash(transaction_id)
+
+      - cpp_name: TransactionId
+        cpp_type: NCypressClient::TTransactionId
+        column_name: transaction_id
+        column_type: String
+        sort_order: Ascending
+
+      - cpp_name: AncestorIds
+        cpp_type: std::vector<NCypressClient::TTransactionId>
+        column_name: ancestor_ids
+        column_type: Any
+
+      - cpp_name: Attributes
+        cpp_type: NYTree::IMapNodePtr
+        column_name: attributes
+        column_type: Any
+
+      - cpp_name: PrerequisiteTransactionIds
+        cpp_type: std::vector<NCypressClient::TTransactionId>
+        column_name: prerequisite_transaction_ids
+        column_type: Any
+
+    verbatim: |
+        static constexpr auto Table = ESequoiaTable::Transactions;

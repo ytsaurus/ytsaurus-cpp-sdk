@@ -70,6 +70,18 @@ bool TSourceLocation::operator==(const TSourceLocation& other) const
         Line_ == other.Line_;
 }
 
+void FormatValue(TStringBuilderBase* builder, const TSourceLocation& location, TStringBuf /*spec*/)
+{
+    if (location.GetFileName() != nullptr) {
+        builder->AppendFormat(
+            "%v:%v",
+            location.GetFileName(),
+            location.GetLine());
+    } else {
+        builder->AppendString("<unknown>");
+    }
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 } // namespace NYT
