@@ -141,6 +141,8 @@
   "library/cpp/openssl/init/CMakeLists.txt":"",
   "library/cpp/openssl/io/CMakeLists.txt":"",
   "library/cpp/openssl/method/CMakeLists.txt":"",
+  "library/cpp/protobuf/CMakeLists.txt":"",
+  "library/cpp/protobuf/runtime/CMakeLists.txt":"",
   "library/cpp/regex/CMakeLists.txt":"",
   "library/cpp/regex/pcre/CMakeLists.txt":"",
   "library/cpp/resource/CMakeLists.txt":"",

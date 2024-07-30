@@ -12,31 +12,16 @@
 # Please refer to the build instructions in the repository for more information about manual
 # changes in this file.
 
-add_subdirectory(blockcodecs)
-add_subdirectory(colorizer)
-add_subdirectory(containers)
-add_subdirectory(cppparser)
-add_subdirectory(cpuid_check)
-add_subdirectory(deprecated)
-add_subdirectory(digest)
-add_subdirectory(getopt)
-add_subdirectory(http)
-add_subdirectory(json)
-add_subdirectory(malloc)
-add_subdirectory(openssl)
-add_subdirectory(protobuf)
-add_subdirectory(regex)
-add_subdirectory(resource)
-add_subdirectory(sanitizer)
-add_subdirectory(sighandler)
-add_subdirectory(skiff)
-add_subdirectory(streams)
-add_subdirectory(string_utils)
-add_subdirectory(svnversion)
-add_subdirectory(testing)
-add_subdirectory(threading)
-add_subdirectory(type_info)
-add_subdirectory(yson)
-add_subdirectory(yson_pull)
-add_subdirectory(yt)
-add_subdirectory(ytalloc)
+find_package(Protobuf REQUIRED)
+find_package(linux-headers-generic REQUIRED)
+
+add_library(cpp-protobuf-runtime INTERFACE)
+
+target_link_libraries(cpp-protobuf-runtime INTERFACE
+  linux-headers-generic::linux-headers-generic
+  contrib-libs-cxxsupp
+  yutil
+  protobuf::libprotobuf
+  protobuf::libprotoc
+)
+
