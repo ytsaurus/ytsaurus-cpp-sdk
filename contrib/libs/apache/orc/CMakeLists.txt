@@ -12,6 +12,7 @@
 # Please refer to the build instructions in the repository for more information about manual
 # changes in this file.
 
+find_package(Protobuf REQUIRED)
 find_package(linux-headers-generic REQUIRED)
 
 add_library(libs-apache-orc)
@@ -39,6 +40,8 @@ target_link_libraries(libs-apache-orc PUBLIC
   contrib-libs-snappy
   contrib-libs-zlib
   contrib-libs-zstd
+  protobuf::libprotobuf
+  protobuf::libprotoc
 )
 
 target_sources(libs-apache-orc PRIVATE
