@@ -21,11 +21,12 @@
 
 #include <algorithm>
 #include <iostream>
+#include <random>
 
 #include <thrift/transport/TSocketPool.h>
 
 using std::pair;
-using std::random_shuffle;
+using std::shuffle;
 using std::string;
 using std::vector;
 
@@ -189,7 +190,9 @@ void TSocketPool::open() {
   }
 
   if (randomize_ && numServers > 1) {
-    random_shuffle(servers_.begin(), servers_.end());
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    shuffle(servers_.begin(), servers_.end(), gen);
   }
 
   for (size_t i = 0; i < numServers; ++i) {
