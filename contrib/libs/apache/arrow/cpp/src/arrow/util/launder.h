@@ -17,22 +17,19 @@
 
 #pragma once
 
-#define nssv_CONFIG_SELECT_STRING_VIEW nssv_STRING_VIEW_NONSTD
-
-#include <cstdint>
-#include <string>
-
-#include "arrow/vendored/string_view.hpp"  // IWYU pragma: export
+#include <new>
 
 namespace arrow {
-namespace util {
+namespace internal {
 
-using nonstd::string_view;
+#if __cpp_lib_launder
+using std::launder;
+#else
+template <class T>
+constexpr T* launder(T* p) noexcept {
+  return p;
+}
+#endif
 
-template <class Char, class Traits = std::char_traits<std::make_signed_t<Char>>>
-using basic_string_view = nonstd::basic_string_view<Char, Traits>;
-
-using bytes_view = basic_string_view<uint8_t>;
-
-}  // namespace util
+}  // namespace internal
 }  // namespace arrow
