@@ -108,7 +108,7 @@ IClientsCachePtr CreateFederatedClientsCache(
     TString clusterSeparator)
 {
     TClustersConfig clustersConfig;
-    *clustersConfig.MutableDefaultConfig() = config;
+    *clustersConfig.mutable_default_config() = config;
 
     return NYT::New<TClientsCache>(
         std::move(clustersConfig),

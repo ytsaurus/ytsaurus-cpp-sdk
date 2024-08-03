@@ -94,8 +94,8 @@ void FormatValue(TStringBuilderBase* builder, const TNodeDescriptor& descriptor,
 
 // Accessors for some well-known addresses.
 std::optional<TString> FindDefaultAddress(const TAddressMap& addresses);
-const TString& GetDefaultAddress(const TAddressMap& addresses);
-const TString& GetDefaultAddress(const NProto::TAddressMap& addresses);
+TString GetDefaultAddress(const TAddressMap& addresses);
+TString GetDefaultAddress(const NProto::TAddressMap& addresses);
 
 const TString& GetAddressOrThrow(const TAddressMap& addresses, const TNetworkPreferenceList& networks);
 std::optional<TString> FindAddress(const TAddressMap& addresses, const TNetworkPreferenceList& networks);

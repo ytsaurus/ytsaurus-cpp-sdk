@@ -246,7 +246,7 @@ std::optional<TString> FindDefaultAddress(const TAddressMap& addresses)
     return std::nullopt;
 }
 
-const TString& GetDefaultAddress(const TAddressMap& addresses)
+TString GetDefaultAddress(const TAddressMap& addresses)
 {
     if (addresses.empty()) {
         return NullNodeAddress();
@@ -254,14 +254,14 @@ const TString& GetDefaultAddress(const TAddressMap& addresses)
     return GetOrCrash(addresses, DefaultNetworkName);
 }
 
-const TString& GetDefaultAddress(const NProto::TAddressMap& addresses)
+TString GetDefaultAddress(const NProto::TAddressMap& addresses)
 {
     if (addresses.entries_size() == 0) {
         return NullNodeAddress();
     }
     for (const auto& entry : addresses.entries()) {
         if (entry.network() == DefaultNetworkName) {
-            return entry.address();
+            return FromProto<TString>(entry.address());
         }
     }
     YT_ABORT();

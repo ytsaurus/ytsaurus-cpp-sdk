@@ -10,25 +10,25 @@ message THedgingClientConfig
 {
     // All timeouts also in milliseconds.
     message TClientOptions {
-        optional NYT.NClient.NCache.TConfig ClientConfig = 1;
-        optional uint32 InitialPenalty = 2;
+        optional NYT.NClient.NCache.TConfig client_config = 1;
+        optional uint32 initial_penalty = 2;
     };
 
-    repeated TClientOptions Clients = 1;
-    optional uint32 BanPenalty = 2 [default = 1];  // The penalty increment during ban.
-    optional uint32 BanDuration = 3 [default = 50]; // How long need to ban cllent after error.
-    map<string, string> Tags = 4 [
+    repeated TClientOptions clients = 1;
+    optional uint32 ban_penalty = 2 [default = 1];  // The penalty increment during ban.
+    optional uint32 ban_duration = 3 [default = 50]; // How long need to ban cllent after error.
+    map<string, string> tags = 4 [
         (NYT.NYson.NProto.yson_map) = true
     ];  // Tags for profiling.
 }
 
 message TReplicationLagPenaltyProviderConfig
 {
-    repeated string ReplicaClusters = 1; // Clusters that need checks for replication lag.
-    optional string TablePath = 2; // Table that needs checks for replication lag.
-    optional uint32 LagPenalty = 3 [default = 10]; // penalty in milliseconds, same as BanPenalty in THedgingClientConfig.
-    optional uint32 MaxTabletLag = 4 [default = 300]; // Tablet is considered "lagged" if CurrentTimestamp - TabletLastReplicationTimestamp >= MaxTabletLag (in seconds).
-    optional float MaxTabletsWithLagFraction = 5 [default = 0.05]; // Real value from 0.0 to 1.0. Replica cluster receives LagPenalty if NumberOfTabletsWithLag >= MaxTabletsWithLagFraction * TotalNumberOfTablets.
-    optional uint32 CheckPeriod = 6 [default = 60]; // Replication lag check period (in seconds).
-    optional bool ClearPenaltiesOnErrors = 7 [default = false]; // In case of any errors from master client - clear all penalties.
+    repeated string replica_clusters = 1; // Clusters that need checks for replication lag.
+    optional string table_path = 2; // Table that needs checks for replication lag.
+    optional uint32 lag_penalty = 3 [default = 10]; // penalty in milliseconds, same as BanPenalty in THedgingClientConfig.
+    optional uint32 max_tablet_lag = 4 [default = 300]; // Tablet is considered "lagged" if CurrentTimestamp - TabletLastReplicationTimestamp >= MaxTabletLag (in seconds).
+    optional float max_tablets_with_lag_fraction = 5 [default = 0.05]; // Real value from 0.0 to 1.0. Replica cluster receives LagPenalty if NumberOfTabletsWithLag >= MaxTabletsWithLagFraction * TotalNumberOfTablets.
+    optional uint32 check_period = 6 [default = 60]; // Replication lag check period (in seconds).
+    optional bool clear_penalties_on_errors = 7 [default = false]; // In case of any errors from master client - clear all penalties.
 }

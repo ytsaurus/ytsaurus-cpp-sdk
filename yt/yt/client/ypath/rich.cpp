@@ -741,6 +741,17 @@ void FromProto(TRichYPath* path, const TString& protoPath)
     *path = TRichYPath::Parse(protoPath);
 }
 
+void ToProto(std::string* protoPath, const TRichYPath& path)
+{
+    *protoPath = std::move(ConvertToString(path, EYsonFormat::Binary).MutRef());
+}
+
+void FromProto(TRichYPath* path, const std::string& protoPath)
+{
+    *path = TRichYPath::Parse(TString(protoPath));
+}
+
+
 ////////////////////////////////////////////////////////////////////////////////
 
 const std::vector<TString>& GetWellKnownRichYPathAttributes()

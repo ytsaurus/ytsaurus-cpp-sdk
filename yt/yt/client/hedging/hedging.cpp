@@ -270,22 +270,22 @@ NApi::IClientPtr CreateHedgingClient(
 THedgingClientOptions GetHedgingClientOptions(const THedgingClientConfig& config, TClientBuilder clientBuilder)
 {
     THedgingClientOptions options;
-    options.BanPenalty = TDuration::MilliSeconds(config.GetBanPenalty());
-    options.BanDuration = TDuration::MilliSeconds(config.GetBanDuration());
+    options.BanPenalty = TDuration::MilliSeconds(config.ban_penalty());
+    options.BanDuration = TDuration::MilliSeconds(config.ban_duration());
 
     NProfiling::TTagSet counterTagSet;
 
-    for (const auto& [tagName, tagValue] : config.GetTags()) {
+    for (const auto& [tagName, tagValue] : config.tags()) {
         counterTagSet.AddTag(NProfiling::TTag(tagName, tagValue));
     }
 
-    options.Clients.reserve(config.GetClients().size());
-    for (const auto& client : config.GetClients()) {
+    options.Clients.reserve(config.clients().size());
+    for (const auto& client : config.clients()) {
         options.Clients.emplace_back(
-            clientBuilder(client.GetClientConfig()),
-            client.GetClientConfig().GetClusterName(),
-            TDuration::MilliSeconds(client.GetInitialPenalty()),
-            New<TCounter>(counterTagSet.WithTag(NProfiling::TTag("yt_cluster", client.GetClientConfig().GetClusterName()))));
+            clientBuilder(client.client_config()),
+            TString(client.client_config().cluster_name()),
+            TDuration::MilliSeconds(client.initial_penalty()),
+            New<TCounter>(counterTagSet.WithTag(NProfiling::TTag("yt_cluster", client.client_config().cluster_name()))));
     }
     return options;
 }
@@ -300,7 +300,7 @@ THedgingClientOptions GetHedgingClientOptions(const THedgingClientConfig& config
 THedgingClientOptions GetHedgingClientOptions(const THedgingClientConfig& config, const IClientsCachePtr& clientsCache)
 {
     return GetHedgingClientOptions(config, [clientsCache] (const auto& clientConfig) {
-        return clientsCache->GetClient(clientConfig.GetClusterName());
+        return clientsCache->GetClient(clientConfig.cluster_name());
     });
 }
 

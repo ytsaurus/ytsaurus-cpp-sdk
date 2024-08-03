@@ -3,6 +3,7 @@
 #include <yt/yt_proto/yt/client/table_chunk_format/proto/chunk_meta.pb.h>
 
 #include <yt/yt/core/misc/serialize.h>
+#include <yt/yt/core/misc/protobuf_helpers.h>
 
 #include <yt/yt/core/ytree/fluent.h>
 
@@ -10,6 +11,8 @@ namespace NYT::NTableClient {
 
 using namespace NYson;
 using namespace NYTree;
+
+using NYT::FromProto;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -90,7 +93,7 @@ void FromProto(
     YT_VERIFY(protoSortColumns.names_size() == protoSortColumns.sort_orders_size());
     for (int columnIndex = 0; columnIndex < protoSortColumns.names_size(); ++columnIndex) {
         TColumnSortSchema sortColumn{
-            .Name = protoSortColumns.names(columnIndex),
+            .Name = FromProto<TString>(protoSortColumns.names(columnIndex)),
             .SortOrder = CheckedEnumCast<ESortOrder>(protoSortColumns.sort_orders(columnIndex))
         };
         sortColumns->push_back(sortColumn);

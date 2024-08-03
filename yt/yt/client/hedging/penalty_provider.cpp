@@ -43,23 +43,23 @@ class TLagPenaltyProvider
 {
 public:
     TLagPenaltyProvider(const TReplicationLagPenaltyProviderConfig& config, NApi::IClientPtr client)
-        : TablePath_(config.GetTablePath())
-        , MaxTabletLag_(TDuration::Seconds(config.GetMaxTabletLag()))
-        , LagPenalty_(NProfiling::DurationToCpuDuration(TDuration::MilliSeconds(config.GetLagPenalty())))
-        , MaxTabletsWithLagFraction_(config.GetMaxTabletsWithLagFraction())
+        : TablePath_(config.table_path())
+        , MaxTabletLag_(TDuration::Seconds(config.max_tablet_lag()))
+        , LagPenalty_(NProfiling::DurationToCpuDuration(TDuration::MilliSeconds(config.lag_penalty())))
+        , MaxTabletsWithLagFraction_(config.max_tablets_with_lag_fraction())
         , Client_(client)
-        , ClearPenaltiesOnErrors_(config.GetClearPenaltiesOnErrors())
+        , ClearPenaltiesOnErrors_(config.clear_penalties_on_errors())
         , Counters_(New<TLagPenaltyProviderCounters>(TablePath_,
-            TVector<TString>{config.GetReplicaClusters().begin(), config.GetReplicaClusters().end()}))
+            TVector<TString>{config.replica_clusters().begin(), config.replica_clusters().end()}))
         , Executor_(New<NConcurrency::TPeriodicExecutor>(
             NYT::NRpc::TDispatcher::Get()->GetLightInvoker(),
             BIND(&TLagPenaltyProvider::UpdateCurrentLagPenalty, MakeWeak(this)),
-            TDuration::Seconds(config.GetCheckPeriod())))
+            TDuration::Seconds(config.check_period())))
     {
         Y_ENSURE(Executor_);
         Y_ENSURE(Client_);
 
-        for (const auto& cluster : config.GetReplicaClusters()) {
+        for (const auto& cluster : config.replica_clusters()) {
             auto [_, inserted] = ReplicaClusters_.try_emplace(cluster);
             Y_ENSURE(inserted, "Replica cluster " << cluster << " is listed twice");
         }

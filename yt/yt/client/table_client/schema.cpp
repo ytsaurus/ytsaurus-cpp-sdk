@@ -437,10 +437,10 @@ void ToProto(NProto::TDeletedColumn* protoSchema, const TDeletedColumn& schema)
 
 void FromProto(TColumnSchema* schema, const NProto::TColumnSchema& protoSchema)
 {
-    schema->SetName(protoSchema.name());
+    schema->SetName(FromProto<TString>(protoSchema.name()));
     schema->SetStableName(protoSchema.has_stable_name()
-        ? TColumnStableName(protoSchema.stable_name())
-        : TColumnStableName(protoSchema.name()));
+        ? TColumnStableName(FromProto<TString>(protoSchema.stable_name()))
+        : TColumnStableName(FromProto<TString>(protoSchema.name())));
 
     if (protoSchema.has_logical_type()) {
         TLogicalTypePtr logicalType;
@@ -466,7 +466,7 @@ void FromProto(TColumnSchema* schema, const NProto::TColumnSchema& protoSchema)
 
 void FromProto(TDeletedColumn* schema, const NProto::TDeletedColumn& protoSchema)
 {
-    schema->SetStableName(TColumnStableName{protoSchema.stable_name()});
+    schema->SetStableName(TColumnStableName{TString(protoSchema.stable_name())});
 }
 
 void PrintTo(const TColumnSchema& columnSchema, std::ostream* os)

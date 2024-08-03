@@ -33,71 +33,71 @@ NApi::NRpcProxy::TConnectionConfigPtr GetConnectionConfig(const TConfig& config)
     auto connectionConfig = New<NApi::NRpcProxy::TConnectionConfig>();
     connectionConfig->SetDefaults();
 
-    connectionConfig->ClusterUrl = config.GetClusterName();
-    if (!config.GetProxyRole().empty()) {
-        connectionConfig->ProxyRole = config.GetProxyRole();
+    connectionConfig->ClusterUrl = config.cluster_name();
+    if (!config.proxy_role().empty()) {
+        connectionConfig->ProxyRole = config.proxy_role();
     }
-    if (config.GetChannelPoolSize() != 0) {
-        connectionConfig->DynamicChannelPool->MaxPeerCount = config.GetChannelPoolSize();
+    if (config.channel_pool_size() != 0) {
+        connectionConfig->DynamicChannelPool->MaxPeerCount = config.channel_pool_size();
     }
-    if (config.GetChannelPoolRebalanceIntervalSeconds() != 0) {
-        connectionConfig->DynamicChannelPool->RandomPeerEvictionPeriod = TDuration::Seconds(config.GetChannelPoolRebalanceIntervalSeconds());
+    if (config.channel_pool_rebalance_interval_seconds() != 0) {
+        connectionConfig->DynamicChannelPool->RandomPeerEvictionPeriod = TDuration::Seconds(config.channel_pool_rebalance_interval_seconds());
     }
-    if (config.HasEnablePowerOfTwoChoicesStrategy()) {
-        connectionConfig->DynamicChannelPool->EnablePowerOfTwoChoicesStrategy = config.GetEnablePowerOfTwoChoicesStrategy();
+    if (config.has_enable_power_of_two_choices_strategy()) {
+        connectionConfig->DynamicChannelPool->EnablePowerOfTwoChoicesStrategy = config.enable_power_of_two_choices_strategy();
     }
-    if (config.GetModifyRowsBatchCapacity() != 0) {
-        connectionConfig->ModifyRowsBatchCapacity = config.GetModifyRowsBatchCapacity();
+    if (config.modify_rows_batch_capacity() != 0) {
+        connectionConfig->ModifyRowsBatchCapacity = config.modify_rows_batch_capacity();
     }
-    if (config.HasEnableProxyDiscovery()) {
-        connectionConfig->EnableProxyDiscovery = config.GetEnableProxyDiscovery();
+    if (config.has_enable_proxy_discovery()) {
+        connectionConfig->EnableProxyDiscovery = config.enable_proxy_discovery();
     }
-    if (!config.GetProxyAddresses().empty()) {
-        connectionConfig->ProxyAddresses = std::vector<TString>(config.GetProxyAddresses().begin(), config.GetProxyAddresses().end());
+    if (!config.proxy_addresses().empty()) {
+        connectionConfig->ProxyAddresses = std::vector<TString>(config.proxy_addresses().begin(), config.proxy_addresses().end());
     }
 
-#define SET_TIMEOUT_OPTION(name) \
-    if (config.Get##name() != 0) connectionConfig->name = TDuration::MilliSeconds(config.Get ## name())
+#define SET_TIMEOUT_OPTION(snakeName, pascalName) \
+    if (config.snakeName() != 0) connectionConfig->pascalName = TDuration::MilliSeconds(config.snakeName())
 
-    SET_TIMEOUT_OPTION(DefaultTransactionTimeout);
-    SET_TIMEOUT_OPTION(DefaultSelectRowsTimeout);
-    SET_TIMEOUT_OPTION(DefaultLookupRowsTimeout);
-    SET_TIMEOUT_OPTION(DefaultTotalStreamingTimeout);
-    SET_TIMEOUT_OPTION(DefaultStreamingStallTimeout);
-    SET_TIMEOUT_OPTION(DefaultPingPeriod);
+    SET_TIMEOUT_OPTION(default_transaction_timeout, DefaultTransactionTimeout);
+    SET_TIMEOUT_OPTION(default_select_rows_timeout, DefaultSelectRowsTimeout);
+    SET_TIMEOUT_OPTION(default_lookup_rows_timeout, DefaultLookupRowsTimeout);
+    SET_TIMEOUT_OPTION(default_total_streaming_timeout, DefaultTotalStreamingTimeout);
+    SET_TIMEOUT_OPTION(default_streaming_stall_timeout, DefaultStreamingStallTimeout);
+    SET_TIMEOUT_OPTION(default_ping_period, DefaultPingPeriod);
 
 #undef SET_TIMEOUT_OPTION
 
-    connectionConfig->RequestCodec = GetCompressionCodecFromProto(config.GetRequestCodec());
-    connectionConfig->ResponseCodec = GetCompressionCodecFromProto(config.GetResponseCodec());
-    connectionConfig->EnableRetries = config.GetEnableRetries();
+    connectionConfig->RequestCodec = GetCompressionCodecFromProto(config.request_codec());
+    connectionConfig->ResponseCodec = GetCompressionCodecFromProto(config.response_codec());
+    connectionConfig->EnableRetries = config.enable_retries();
 
-    if (config.HasEnableLegacyRpcCodecs()) {
-        connectionConfig->EnableLegacyRpcCodecs = config.GetEnableLegacyRpcCodecs();
+    if (config.has_enable_legacy_rpc_codecs()) {
+        connectionConfig->EnableLegacyRpcCodecs = config.enable_legacy_rpc_codecs();
     }
-    if (config.HasEnableSelectQueryTracingTag()) {
-        connectionConfig->EnableSelectQueryTracingTag = config.GetEnableSelectQueryTracingTag();
+    if (config.has_enable_select_query_tracing_tag()) {
+        connectionConfig->EnableSelectQueryTracingTag = config.enable_select_query_tracing_tag();
     }
-    if (config.HasRetryBackoffTime()) {
-        connectionConfig->RetryingChannel->RetryBackoffTime = TDuration::MilliSeconds(config.GetRetryBackoffTime());
+    if (config.has_retry_backoff_time()) {
+        connectionConfig->RetryingChannel->RetryBackoffTime = TDuration::MilliSeconds(config.retry_backoff_time());
     }
-    if (config.HasRetryAttempts()) {
-        connectionConfig->RetryingChannel->RetryAttempts = config.GetRetryAttempts();
+    if (config.has_retry_attempts()) {
+        connectionConfig->RetryingChannel->RetryAttempts = config.retry_attempts();
     }
-    if (config.HasRetryTimeout()) {
-        connectionConfig->RetryingChannel->RetryTimeout = TDuration::MilliSeconds(config.GetRetryTimeout());
-    }
-
-    if (config.HasClusterTag()) {
-        connectionConfig->ClusterTag = NApi::TClusterTag(config.GetClusterTag());
+    if (config.has_retry_timeout()) {
+        connectionConfig->RetryingChannel->RetryTimeout = TDuration::MilliSeconds(config.retry_timeout());
     }
 
-    if (config.HasClockClusterTag()) {
-        connectionConfig->ClockClusterTag = NObjectClient::TCellTag(config.GetClockClusterTag());
+    if (config.has_cluster_tag()) {
+        connectionConfig->ClusterTag = NApi::TClusterTag(config.cluster_tag());
     }
 
-    if (config.HasUdfRegistryPath()) {
-        connectionConfig->UdfRegistryPath = config.GetUdfRegistryPath();
+    if (config.has_clock_cluster_tag()) {
+        connectionConfig->ClockClusterTag = NObjectClient::TCellTag(config.clock_cluster_tag());
+    }
+
+    if (config.has_udf_registry_path()) {
+        connectionConfig->UdfRegistryPath = config.udf_registry_path();
     }
 
     connectionConfig->Postprocess();
@@ -140,10 +140,10 @@ void SetClusterUrl(TConfig& config, TStringBuf clusterUrl)
 {
     auto [cluster, proxyRole] = ExtractClusterAndProxyRole(clusterUrl);
     if (!proxyRole.empty()) {
-        Y_ENSURE(config.GetProxyRole().empty(), "ProxyRole specified in both: config and url");
-        config.SetProxyRole(ToString(proxyRole));
+        Y_ENSURE(config.proxy_role().empty(), "ProxyRole specified in both: config and url");
+        config.set_proxy_role(ToString(proxyRole));
     }
-    config.SetClusterName(ToString(cluster));
+    config.set_cluster_name(ToString(cluster));
 }
 
 NApi::IClientPtr CreateClient(const NApi::NRpcProxy::TConnectionConfigPtr& config, const NApi::TClientOptions& options)

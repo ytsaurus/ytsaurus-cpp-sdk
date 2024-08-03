@@ -1935,7 +1935,7 @@ TFuture<TMaintenanceIdPerTarget> TClient::AddMaintenance(
             } else {
                 result.reserve(value->id_per_target_size());
                 for (const auto& [target, id] : value->id_per_target()) {
-                    result.insert({target, FromProto<TMaintenanceId>(id)});
+                    result.insert({TString(target), FromProto<TMaintenanceId>(id)});
                 }
             }
             return result;
@@ -1997,7 +1997,7 @@ TFuture<TMaintenanceCountsPerTarget> TClient::RemoveMaintenance(
         } else {
             result.reserve(rspValue->removed_maintenance_counts_per_target_size());
             for (const auto& [target, protoCounts] : rspValue->removed_maintenance_counts_per_target()) {
-                auto& counts = result[target];
+                auto& counts = result[TString(target)];
                 for (const auto& [type, count] : protoCounts.counts()) {
                     counts[CheckedEnumCast<EMaintenanceType>(type)] = count;
                 }
@@ -2368,7 +2368,7 @@ TFuture<TGetQueryTrackerInfoResult> TClient::GetQueryTrackerInfo(
 
     return req->Invoke().Apply(BIND([] (const TApiServiceProxy::TRspGetQueryTrackerInfoPtr& rsp) {
         return TGetQueryTrackerInfoResult{
-            .ClusterName = rsp->cluster_name(),
+            .ClusterName = FromProto<TString>(rsp->cluster_name()),
             .SupportedFeatures = TYsonString(rsp->supported_features()),
             .AccessControlObjects = FromProto<std::vector<TString>>(rsp->access_control_objects()),
         };

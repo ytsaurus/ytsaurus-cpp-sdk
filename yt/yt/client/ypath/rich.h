@@ -186,6 +186,8 @@ void Deserialize(TRichYPath& richPath, NYson::TYsonPullParserCursor* cursor);
 
 void ToProto(TString* protoPath, const TRichYPath& path);
 void FromProto(TRichYPath* path, const TString& protoPath);
+void ToProto(std::string* protoPath, const TRichYPath& path);
+void FromProto(TRichYPath* path, const std::string& protoPath);
 
 ////////////////////////////////////////////////////////////////////////////////
 

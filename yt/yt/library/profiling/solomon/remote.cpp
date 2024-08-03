@@ -105,9 +105,9 @@ void TRemoteRegistry::Transfer(const NProto::TSensorDump& dump)
         options.DisableDefault = cube.disable_default();
         options.SummaryPolicy = NYT::FromProto<ESummaryPolicy>(cube.summary_policy());
 
-        auto sensorName = cube.name();
-        auto sensorSet = Registry_->FindSet(cube.name(), options);
-        auto& usedTags = Sensors_[cube.name()];
+        auto sensorName = TString(cube.name());
+        auto sensorSet = Registry_->FindSet(sensorName, options);
+        auto& usedTags = Sensors_[sensorName];
 
         for (const auto& projection : cube.projections()) {
             TTagIdList tagIds;

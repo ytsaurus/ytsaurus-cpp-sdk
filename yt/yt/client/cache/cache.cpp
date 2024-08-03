@@ -22,9 +22,9 @@ TStringBuf GetNormalClusterName(TStringBuf clusterName)
 TClustersConfig GetClustersConfigWithNormalClusterName(const TClustersConfig& config)
 {
     TClustersConfig newConfig(config);
-    newConfig.ClearClusterConfigs();
-    for (auto& [clusterName, clusterConfig] : config.GetClusterConfigs()) {
-        (*newConfig.MutableClusterConfigs())[ToString(GetNormalClusterName(clusterName))] = clusterConfig;
+    newConfig.clear_cluster_configs();
+    for (auto& [clusterName, clusterConfig] : config.cluster_configs()) {
+        (*newConfig.mutable_cluster_configs())[ToString(GetNormalClusterName(clusterName))] = clusterConfig;
     }
     return newConfig;
 }
@@ -36,11 +36,11 @@ TConfig MakeClusterConfig(
     TStringBuf clusterUrl)
 {
     auto [cluster, proxyRole] = ExtractClusterAndProxyRole(clusterUrl);
-    auto it = clustersConfig.GetClusterConfigs().find(GetNormalClusterName(cluster));
-    auto config = (it != clustersConfig.GetClusterConfigs().end()) ? it->second : clustersConfig.GetDefaultConfig();
-    config.SetClusterName(ToString(cluster));
+    auto it = clustersConfig.cluster_configs().find(GetNormalClusterName(cluster));
+    auto config = (it != clustersConfig.cluster_configs().end()) ? it->second : clustersConfig.default_config();
+    config.set_cluster_name(ToString(cluster));
     if (!proxyRole.empty()) {
-        config.SetProxyRole(ToString(proxyRole));
+        config.set_proxy_role(ToString(proxyRole));
     }
     return config;
 }
@@ -85,7 +85,7 @@ IClientsCachePtr CreateClientsCache(const TClustersConfig& config, const NApi::T
 IClientsCachePtr CreateClientsCache(const TConfig& config, const NApi::TClientOptions& options)
 {
     TClustersConfig clustersConfig;
-    *clustersConfig.MutableDefaultConfig() = config;
+    *clustersConfig.mutable_default_config() = config;
     return CreateClientsCache(clustersConfig, options);
 }
 

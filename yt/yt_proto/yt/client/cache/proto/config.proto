@@ -14,38 +14,38 @@ enum ECompressionCodec
 // Connection options.
 message TConfig
 {
-    optional string ClusterName = 1;
-    optional string ProxyRole = 2;
-    optional uint32 ChannelPoolSize = 3;
-    optional uint32 ChannelPoolRebalanceIntervalSeconds = 4;
+    optional string cluster_name = 1;
+    optional string proxy_role = 2;
+    optional uint32 channel_pool_size = 3;
+    optional uint32 channel_pool_rebalance_interval_seconds = 4;
 
     // All timeouts in milliseconds.
-    optional uint32 DefaultTransactionTimeout = 5;
-    optional uint32 DefaultSelectRowsTimeout = 6;
-    optional uint32 DefaultLookupRowsTimeout = 7;
-    optional uint32 DefaultTotalStreamingTimeout = 8;
-    optional uint32 DefaultStreamingStallTimeout = 9;
-    optional uint32 DefaultPingPeriod = 10;
-    optional uint32 ModifyRowsBatchCapacity = 11;
+    optional uint32 default_transaction_timeout = 5;
+    optional uint32 default_select_rows_timeout = 6;
+    optional uint32 default_lookup_rows_timeout = 7;
+    optional uint32 default_total_streaming_timeout = 8;
+    optional uint32 default_streaming_stall_timeout = 9;
+    optional uint32 default_ping_period = 10;
+    optional uint32 modify_rows_batch_capacity = 11;
 
-    optional ECompressionCodec RequestCodec = 17 [default = None];
-    optional ECompressionCodec ResponseCodec = 12 [default = None];
+    optional ECompressionCodec request_codec = 17 [default = None];
+    optional ECompressionCodec response_codec = 12 [default = None];
     // Should set EnableLegacyRpcCodecs=False, to enable RequestCodec & ResponseCodec: https://nda.ya.ru/t/iXCfYZjS6yNEwg
-    optional bool EnableLegacyRpcCodecs = 20;
+    optional bool enable_legacy_rpc_codecs = 20;
 
-    optional bool EnableRetries = 13;
-    optional uint32 RetryBackoffTime = 14;
-    optional uint32 RetryAttempts = 15;
-    optional uint32 RetryTimeout = 16;
+    optional bool enable_retries = 13;
+    optional uint32 retry_backoff_time = 14;
+    optional uint32 retry_attempts = 15;
+    optional uint32 retry_timeout = 16;
 
-    repeated string ProxyAddresses = 18;
-    optional bool EnableProxyDiscovery = 19;
-    optional bool EnablePowerOfTwoChoicesStrategy = 21;
-    optional bool EnableSelectQueryTracingTag = 22;
+    repeated string proxy_addresses = 18;
+    optional bool enable_proxy_discovery = 19;
+    optional bool enable_power_of_two_choices_strategy = 21;
+    optional bool enable_select_query_tracing_tag = 22;
 
-    optional uint32 ClusterTag = 23;
-    optional uint32 ClockClusterTag = 24;
-    optional string UdfRegistryPath = 25;
+    optional uint32 cluster_tag = 23;
+    optional uint32 clock_cluster_tag = 24;
+    optional string udf_registry_path = 25;
 }
 
 message TClustersConfig
@@ -54,9 +54,9 @@ message TClustersConfig
     // and field .ProxyRole can be overwritten with explicitly provided in cluster url one.
 
     // DefaultConfig is used for clusters not mentioned in ClusterConfigs.
-    optional TConfig DefaultConfig = 1;
+    optional TConfig default_config = 1;
     // Per-cluster configs.
-    map<string, TConfig> ClusterConfigs = 2 [
+    map<string, TConfig> cluster_configs = 2 [
         (NYT.NYson.NProto.yson_map) = true
     ];
 }

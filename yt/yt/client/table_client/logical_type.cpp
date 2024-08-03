@@ -1144,7 +1144,7 @@ void FromProto(TLogicalTypePtr* logicalType, const NProto::TLogicalType& protoLo
             for (const auto& protoField : protoLogicalType.struct_().fields()) {
                 TLogicalTypePtr fieldType;
                 FromProto(&fieldType, protoField.type());
-                fields.emplace_back(TStructField{protoField.name(), std::move(fieldType)});
+                fields.emplace_back(TStructField{TString(protoField.name()), std::move(fieldType)});
             }
             *logicalType = StructLogicalType(std::move(fields));
             return;
@@ -1172,7 +1172,7 @@ void FromProto(TLogicalTypePtr* logicalType, const NProto::TLogicalType& protoLo
             for (const auto& protoField : protoLogicalType.variant_struct().fields()) {
                 TLogicalTypePtr fieldType;
                 FromProto(&fieldType, protoField.type());
-                fields.emplace_back(TStructField{protoField.name(), std::move(fieldType)});
+                fields.emplace_back(TStructField{TString(protoField.name()), std::move(fieldType)});
             }
             *logicalType = VariantStructLogicalType(std::move(fields));
             return;
@@ -1188,7 +1188,7 @@ void FromProto(TLogicalTypePtr* logicalType, const NProto::TLogicalType& protoLo
         case NProto::TLogicalType::TypeCase::kTagged: {
             TLogicalTypePtr element;
             FromProto(&element, protoLogicalType.tagged().element());
-            *logicalType = TaggedLogicalType(protoLogicalType.tagged().tag(), std::move(element));
+            *logicalType = TaggedLogicalType(TString(protoLogicalType.tagged().tag()), std::move(element));
             return;
         }
         case NProto::TLogicalType::TypeCase::TYPE_NOT_SET:

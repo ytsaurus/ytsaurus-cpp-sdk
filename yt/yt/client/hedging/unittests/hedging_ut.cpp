@@ -67,13 +67,13 @@ IPenaltyProviderPtr CreateReplicationLagPenaltyProvider(
 {
     TReplicationLagPenaltyProviderConfig config;
 
-    config.SetTablePath(path);
-    config.AddReplicaClusters(cluster);
-    config.SetMaxTabletsWithLagFraction(0.5);
-    config.SetMaxTabletLag(maxTabletLag.Seconds());
-    config.SetCheckPeriod(checkPeriod.Seconds());
-    config.SetLagPenalty(lagPenalty.MilliSeconds());
-    config.SetClearPenaltiesOnErrors(clearPenaltiesOnErrors);
+    config.set_table_path(path);
+    config.add_replica_clusters(cluster);
+    config.set_max_tablets_with_lag_fraction(0.5);
+    config.set_max_tablet_lag(maxTabletLag.Seconds());
+    config.set_check_period(checkPeriod.Seconds());
+    config.set_lag_penalty(lagPenalty.MilliSeconds());
+    config.set_clear_penalties_on_errors(clearPenaltiesOnErrors);
 
     return CreateReplicationLagPenaltyProvider(config, client);
 }
@@ -444,11 +444,11 @@ TEST(THedgingClientTest, CreatingHedgingClientWithPreinitializedClients)
     EXPECT_CALL(*mockClientsCache, GetClient(clusterName)).WillOnce(Return(mockClient));
 
     THedgingClientConfig hedgingClientConfig;
-    hedgingClientConfig.SetBanDuration(100);
-    hedgingClientConfig.SetBanPenalty(200);
-    auto clientOptions = hedgingClientConfig.AddClients();
-    clientOptions->SetInitialPenalty(0);
-    clientOptions->MutableClientConfig()->SetClusterName(clusterName);
+    hedgingClientConfig.set_ban_duration(100);
+    hedgingClientConfig.set_ban_penalty(200);
+    auto clientOptions = hedgingClientConfig.add_clients();
+    clientOptions->set_initial_penalty(0);
+    clientOptions->mutable_client_config()->set_cluster_name(clusterName);
 
     auto hedgingClient = CreateHedgingClient(hedgingClientConfig, mockClientsCache);
 

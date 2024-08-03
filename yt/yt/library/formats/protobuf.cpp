@@ -121,7 +121,7 @@ public:
     void AddError(
         int line,
         ::google::protobuf::io::ColumnNumber column,
-        const TString& message) override
+        const std::string& message) override
     {
         if (std::ssize(Errors_) < ErrorCountLimit) {
             Errors_.push_back(TError("%v", message)
@@ -145,11 +145,11 @@ class TDescriptorPoolErrorCollector
 {
 public:
     void AddError(
-        const TString& fileName,
-        const TString& elementName,
+        const std::string& fileName,
+        const std::string& elementName,
         const Message* /*descriptor*/,
         DescriptorPool::ErrorCollector::ErrorLocation /*location*/,
-        const TString& message) override
+        const std::string& message) override
     {
         if (std::ssize(Errors_) < ErrorCountLimit) {
             Errors_.push_back(TError("%v", message)
@@ -679,7 +679,7 @@ private:
         if (type == EProtobufType::EnumString || type == EProtobufType::EnumInt) {
             auto enumDescriptor = fieldDescriptor->enum_type();
             YT_VERIFY(enumDescriptor);
-            const auto& enumName = enumDescriptor->full_name();
+            const auto& enumName = TString(enumDescriptor->full_name());
             auto child = Enumerations_->FindChild(enumName);
             if (!child) {
                 Enumerations_->AddChild(enumName, ConvertToEnumMap(enumDescriptor));

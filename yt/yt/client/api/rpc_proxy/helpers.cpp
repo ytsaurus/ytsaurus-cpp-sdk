@@ -476,11 +476,11 @@ void ToProto(NProto::TColumnSchema* protoSchema, const NTableClient::TColumnSche
 
 void FromProto(NTableClient::TColumnSchema* schema, const NProto::TColumnSchema& protoSchema)
 {
-    schema->SetName(protoSchema.name());
+    schema->SetName(FromProto<TString>(protoSchema.name()));
     schema->SetStableName(
         protoSchema.has_stable_name()
-        ? TColumnStableName(protoSchema.stable_name())
-        : TColumnStableName(protoSchema.name()));
+        ? TColumnStableName(FromProto<TString>(protoSchema.stable_name()))
+        : TColumnStableName(FromProto<TString>(protoSchema.name())));
 
     auto physicalType = CheckedEnumCast<EValueType>(protoSchema.type());
 
@@ -1284,7 +1284,7 @@ void FromProto(
     const NProto::TMultiTablePartition& protoMultiTablePartition)
 {
     for (const auto& range : protoMultiTablePartition.table_ranges()) {
-        multiTablePartition->TableRanges.emplace_back(NYPath::TRichYPath::Parse(range));
+        multiTablePartition->TableRanges.emplace_back(NYPath::TRichYPath::Parse(TString(range)));
     }
 
     if (protoMultiTablePartition.has_aggregate_statistics()) {
@@ -2092,8 +2092,8 @@ TTableSchemaPtr DeserializeRowsetSchema(
     for (int i = 0; i < descriptor.name_table_entries_size(); ++i) {
         const auto& entry = descriptor.name_table_entries(i);
         if (entry.has_name()) {
-            columns[i].SetName(entry.name());
-            columns[i].SetStableName(TColumnStableName(entry.name()));
+            columns[i].SetName(TString(entry.name()));
+            columns[i].SetStableName(TColumnStableName(TString(entry.name())));
         }
         if (entry.has_logical_type()) {
             auto simpleLogicalType = CheckedEnumCast<NTableClient::ESimpleLogicalValueType>(entry.logical_type());

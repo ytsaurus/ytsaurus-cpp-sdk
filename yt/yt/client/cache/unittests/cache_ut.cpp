@@ -90,43 +90,43 @@ TEST(TClientsCacheTest, MultiThreads)
 
 TEST(TClientsCacheTest, MakeClusterConfig) {
     TClustersConfig clustersCfg;
-    clustersCfg.MutableDefaultConfig()->SetClusterName("seneca-nan"); // will be ignored
-    clustersCfg.MutableDefaultConfig()->SetProxyRole("default_role"); // can be overwritten
-    clustersCfg.MutableDefaultConfig()->SetChannelPoolSize(42u);
-    auto& senecaVlaCfg = (*clustersCfg.MutableClusterConfigs())["seneca-vla"];
-    senecaVlaCfg.SetClusterName(""); // will be ignored
-    senecaVlaCfg.SetProxyRole("seneca_vla_role"); // can be overwritten
-    senecaVlaCfg.SetChannelPoolSize(43u);
+    clustersCfg.mutable_default_config()->set_cluster_name("seneca-nan"); // will be ignored
+    clustersCfg.mutable_default_config()->set_proxy_role("default_role"); // can be overwritten
+    clustersCfg.mutable_default_config()->set_channel_pool_size(42u);
+    auto& senecaVlaCfg = (*clustersCfg.mutable_cluster_configs())["seneca-vla"];
+    senecaVlaCfg.set_cluster_name(""); // will be ignored
+    senecaVlaCfg.set_proxy_role("seneca_vla_role"); // can be overwritten
+    senecaVlaCfg.set_channel_pool_size(43u);
 
     {
         auto cfg = MakeClusterConfig(clustersCfg, "seneca-man");
-        EXPECT_EQ(cfg.GetClusterName(), "seneca-man");
-        EXPECT_EQ(cfg.GetProxyRole(), "default_role");
-        EXPECT_EQ(cfg.GetChannelPoolSize(), 42u);
+        EXPECT_EQ(cfg.cluster_name(), "seneca-man");
+        EXPECT_EQ(cfg.proxy_role(), "default_role");
+        EXPECT_EQ(cfg.channel_pool_size(), 42u);
     }
     {
         auto cfg = MakeClusterConfig(clustersCfg, "seneca-man/overwriting_role");
-        EXPECT_EQ(cfg.GetClusterName(), "seneca-man");
-        EXPECT_EQ(cfg.GetProxyRole(), "overwriting_role");
-        EXPECT_EQ(cfg.GetChannelPoolSize(), 42u);
+        EXPECT_EQ(cfg.cluster_name(), "seneca-man");
+        EXPECT_EQ(cfg.proxy_role(), "overwriting_role");
+        EXPECT_EQ(cfg.channel_pool_size(), 42u);
     }
     {
         auto cfg = MakeClusterConfig(clustersCfg, "seneca-vla");
-        EXPECT_EQ(cfg.GetClusterName(), "seneca-vla");
-        EXPECT_EQ(cfg.GetProxyRole(), "seneca_vla_role");
-        EXPECT_EQ(cfg.GetChannelPoolSize(), 43u);
+        EXPECT_EQ(cfg.cluster_name(), "seneca-vla");
+        EXPECT_EQ(cfg.proxy_role(), "seneca_vla_role");
+        EXPECT_EQ(cfg.channel_pool_size(), 43u);
     }
     {
         auto cfg = MakeClusterConfig(clustersCfg, "seneca-vla/overwriting_role");
-        EXPECT_EQ(cfg.GetClusterName(), "seneca-vla");
-        EXPECT_EQ(cfg.GetProxyRole(), "overwriting_role");
-        EXPECT_EQ(cfg.GetChannelPoolSize(), 43u);
+        EXPECT_EQ(cfg.cluster_name(), "seneca-vla");
+        EXPECT_EQ(cfg.proxy_role(), "overwriting_role");
+        EXPECT_EQ(cfg.channel_pool_size(), 43u);
     }
     {
         auto cfg = MakeClusterConfig(clustersCfg, "seneca-vla.yt.yandex.net");
-        EXPECT_EQ(cfg.GetClusterName(), "seneca-vla.yt.yandex.net");
-        EXPECT_EQ(cfg.GetProxyRole(), "seneca_vla_role");
-        EXPECT_EQ(cfg.GetChannelPoolSize(), 43u);
+        EXPECT_EQ(cfg.cluster_name(), "seneca-vla.yt.yandex.net");
+        EXPECT_EQ(cfg.proxy_role(), "seneca_vla_role");
+        EXPECT_EQ(cfg.channel_pool_size(), 43u);
     }
 }
 
