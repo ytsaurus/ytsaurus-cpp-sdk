@@ -4,6 +4,7 @@ NO_UTIL()
 
 LICENSE(
     BSD-3-Clause AND
+    ISC AND
     JSON AND
     MIT
 )

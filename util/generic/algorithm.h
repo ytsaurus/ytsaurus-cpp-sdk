@@ -208,14 +208,24 @@ constexpr size_t FindIndexIf(C&& c, P p) {
 }
 
 //EqualToOneOf(x, "apple", "orange") means (x == "apple" || x == "orange")
-template <typename T, typename... Other>
-constexpr bool EqualToOneOf(const T& x, const Other&... values) {
-    return (... || (x == values));
+template <typename T>
+constexpr bool EqualToOneOf(const T&) {
+    return false;
 }
 
-template <typename T, typename... Other>
-constexpr size_t CountOf(const T& x, const Other&... values) {
-    return (0 + ... + static_cast<size_t>(x == values));
+template <typename T, typename U, typename... Other>
+constexpr bool EqualToOneOf(const T& x, const U& y, const Other&... other) {
+    return x == y || EqualToOneOf(x, other...);
+}
+
+template <typename T>
+constexpr size_t CountOf(const T&) {
+    return 0;
+}
+
+template <typename T, typename U, typename... Other>
+constexpr size_t CountOf(const T& x, const U& y, const Other&... other) {
+    return static_cast<size_t>(x == y) + CountOf(x, other...);
 }
 
 template <class I>
@@ -770,7 +780,7 @@ constexpr TO CopyIf(TI begin, TI end, TO to, P pred) {
 }
 
 template <class T>
-constexpr std::pair<const T&, const T&> MinMax(const T& first Y_LIFETIME_BOUND, const T& second Y_LIFETIME_BOUND) {
+constexpr std::pair<const T&, const T&> MinMax(const T& first, const T& second) {
     return std::minmax(first, second);
 }
 
