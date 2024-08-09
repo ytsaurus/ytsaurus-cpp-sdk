@@ -12,10 +12,11 @@
 # Please refer to the build instructions in the repository for more information about manual
 # changes in this file.
 
-find_package(Protobuf REQUIRED)
 find_package(linux-headers-generic REQUIRED)
+find_package(Protobuf REQUIRED)
 
 add_library(cpp-protobuf-runtime INTERFACE)
+
 
 target_link_libraries(cpp-protobuf-runtime INTERFACE
   linux-headers-generic::linux-headers-generic

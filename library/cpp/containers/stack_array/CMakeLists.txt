@@ -16,6 +16,7 @@ find_package(linux-headers-generic REQUIRED)
 
 add_library(cpp-containers-stack_array)
 
+
 target_compile_options(cpp-containers-stack_array PRIVATE
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )

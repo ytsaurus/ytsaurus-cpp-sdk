@@ -13,11 +13,13 @@
 # changes in this file.
 
 find_package(linux-headers-generic REQUIRED)
+
+add_subdirectory(misc)
 add_subdirectory(http)
 add_subdirectory(https)
-add_subdirectory(misc)
 
 add_library(yt-yt-core)
+
 
 target_compile_options(yt-yt-core PRIVATE
   -mpclmul
@@ -337,8 +339,8 @@ target_sources(yt-yt-core PRIVATE
 
 
 add_global_library_for(yt-yt-core.global
-  yt-yt-core
-)
+  yt-yt-core)
+
 
 target_compile_options(yt-yt-core.global PRIVATE
   -mpclmul

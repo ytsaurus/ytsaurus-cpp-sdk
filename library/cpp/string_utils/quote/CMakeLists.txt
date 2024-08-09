@@ -16,6 +16,7 @@ find_package(linux-headers-generic REQUIRED)
 
 add_library(cpp-string_utils-quote)
 
+
 target_compile_options(cpp-string_utils-quote PRIVATE
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
@@ -27,7 +28,7 @@ target_link_libraries(cpp-string_utils-quote PUBLIC
 )
 
 target_sources(cpp-string_utils-quote PRIVATE
-  ${PROJECT_SOURCE_DIR}/library/cpp/string_utils/quote/quote.h
   ${PROJECT_SOURCE_DIR}/library/cpp/string_utils/quote/quote.cpp
+  ${PROJECT_SOURCE_DIR}/library/cpp/string_utils/quote/quote.h
 )
 

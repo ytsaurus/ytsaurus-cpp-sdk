@@ -12,10 +12,11 @@
 # Please refer to the build instructions in the repository for more information about manual
 # changes in this file.
 
-find_package(Protobuf REQUIRED)
 find_package(linux-headers-generic REQUIRED)
+find_package(Protobuf REQUIRED)
 
 add_executable(multiple_input_multiple_output_reduce_protobuf)
+
 
 target_compile_options(multiple_input_multiple_output_reduce_protobuf PRIVATE
   -Wdeprecated-this-capture
@@ -32,6 +33,11 @@ target_link_libraries(multiple_input_multiple_output_reduce_protobuf PUBLIC
   protobuf::libprotoc
 )
 
+target_allocator(multiple_input_multiple_output_reduce_protobuf
+  cpp-malloc-tcmalloc
+  libs-tcmalloc-no_percpu_cache
+)
+
 target_link_options(multiple_input_multiple_output_reduce_protobuf PRIVATE
   -ldl
   -lrt
@@ -43,18 +49,18 @@ target_link_options(multiple_input_multiple_output_reduce_protobuf PRIVATE
   -lutil
 )
 
+target_sources(multiple_input_multiple_output_reduce_protobuf PRIVATE
+  ${PROJECT_SOURCE_DIR}/yt/cpp/mapreduce/examples/tutorial/multiple_input_multiple_output_reduce_protobuf/main.cpp
+  ${PROJECT_BINARY_DIR}/yt/cpp/mapreduce/examples/tutorial/multiple_input_multiple_output_reduce_protobuf/data.pb.h
+)
+
 target_proto_messages(multiple_input_multiple_output_reduce_protobuf PRIVATE
   ${PROJECT_SOURCE_DIR}/yt/cpp/mapreduce/examples/tutorial/multiple_input_multiple_output_reduce_protobuf/data.proto
 )
 
-target_sources(multiple_input_multiple_output_reduce_protobuf PRIVATE
-  ${PROJECT_BINARY_DIR}/yt/cpp/mapreduce/examples/tutorial/multiple_input_multiple_output_reduce_protobuf/data.pb.h
-  ${PROJECT_SOURCE_DIR}/yt/cpp/mapreduce/examples/tutorial/multiple_input_multiple_output_reduce_protobuf/main.cpp
-)
 
-target_allocator(multiple_input_multiple_output_reduce_protobuf
-  cpp-malloc-tcmalloc
-  libs-tcmalloc-no_percpu_cache
+target_proto_outs(multiple_input_multiple_output_reduce_protobuf
+  --cpp_out=${PROJECT_BINARY_DIR}/
 )
 
 target_proto_addincls(multiple_input_multiple_output_reduce_protobuf
@@ -67,9 +73,4 @@ target_proto_addincls(multiple_input_multiple_output_reduce_protobuf
   ${protobuf_INCLUDE_DIRS}
 )
 
-target_proto_outs(multiple_input_multiple_output_reduce_protobuf
-  --cpp_out=${PROJECT_BINARY_DIR}/
-)
-
 vcs_info(multiple_input_multiple_output_reduce_protobuf)
-

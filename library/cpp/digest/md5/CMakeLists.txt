@@ -16,6 +16,7 @@ find_package(linux-headers-generic REQUIRED)
 
 add_library(cpp-digest-md5)
 
+
 target_compile_options(cpp-digest-md5 PRIVATE
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )

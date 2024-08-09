@@ -16,6 +16,7 @@ find_package(linux-headers-generic REQUIRED)
 
 add_library(cpp-blockcodecs-core)
 
+
 target_compile_options(cpp-blockcodecs-core PRIVATE
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )

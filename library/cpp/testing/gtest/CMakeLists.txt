@@ -16,6 +16,7 @@ find_package(linux-headers-generic REQUIRED)
 
 add_library(cpp-testing-gtest)
 
+
 target_compile_options(cpp-testing-gtest PRIVATE
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )

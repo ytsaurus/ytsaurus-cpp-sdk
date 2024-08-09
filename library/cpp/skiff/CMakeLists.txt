@@ -23,6 +23,7 @@ get_built_tool_path(
 
 add_library(library-cpp-skiff)
 
+
 target_compile_options(library-cpp-skiff PRIVATE
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
@@ -41,9 +42,9 @@ target_sources(library-cpp-skiff PRIVATE
   ${PROJECT_SOURCE_DIR}/library/cpp/skiff/zerocopy_output_writer.cpp
 )
 
+
 generate_enum_serilization(library-cpp-skiff
   ${PROJECT_SOURCE_DIR}/library/cpp/skiff/public.h
   INCLUDE_HEADERS
   library/cpp/skiff/public.h
 )
-

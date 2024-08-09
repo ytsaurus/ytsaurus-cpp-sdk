@@ -16,6 +16,7 @@ find_package(linux-headers-generic REQUIRED)
 
 add_library(library-cpp-cppparser)
 
+
 target_compile_options(library-cpp-cppparser PRIVATE
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )

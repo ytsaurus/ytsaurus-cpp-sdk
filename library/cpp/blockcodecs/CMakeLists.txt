@@ -13,10 +13,12 @@
 # changes in this file.
 
 find_package(linux-headers-generic REQUIRED)
-add_subdirectory(codecs)
+
 add_subdirectory(core)
+add_subdirectory(codecs)
 
 add_library(library-cpp-blockcodecs)
+
 
 target_compile_options(library-cpp-blockcodecs PRIVATE
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR

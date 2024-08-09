@@ -16,6 +16,7 @@ find_package(linux-headers-generic REQUIRED)
 
 add_library(library-cpp-colorizer)
 
+
 target_compile_options(library-cpp-colorizer PRIVATE
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )

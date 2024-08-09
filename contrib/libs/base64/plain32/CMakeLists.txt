@@ -16,6 +16,7 @@ find_package(linux-headers-generic REQUIRED)
 
 add_library(libs-base64-plain32)
 
+
 target_compile_options(libs-base64-plain32 PRIVATE
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
@@ -30,6 +31,7 @@ target_sources(libs-base64-plain32 PRIVATE
   ${PROJECT_SOURCE_DIR}/contrib/libs/base64/plain32/lib.c
 )
 
+
 set_property(
   SOURCE
   ${PROJECT_SOURCE_DIR}/contrib/libs/base64/plain32/codec_plain.c
@@ -47,4 +49,3 @@ set_property(
   COMPILE_OPTIONS
   -std=c11
 )
-

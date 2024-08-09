@@ -12,10 +12,11 @@
 # Please refer to the build instructions in the repository for more information about manual
 # changes in this file.
 
-find_package(Protobuf REQUIRED)
 find_package(linux-headers-generic REQUIRED)
+find_package(Protobuf REQUIRED)
 
 add_executable(simple_map_lambda)
+
 
 target_compile_options(simple_map_lambda PRIVATE
   -Wdeprecated-this-capture
@@ -33,6 +34,11 @@ target_link_libraries(simple_map_lambda PUBLIC
   protobuf::libprotoc
 )
 
+target_allocator(simple_map_lambda
+  cpp-malloc-tcmalloc
+  libs-tcmalloc-no_percpu_cache
+)
+
 target_link_options(simple_map_lambda PRIVATE
   -ldl
   -lrt
@@ -44,18 +50,18 @@ target_link_options(simple_map_lambda PRIVATE
   -lutil
 )
 
+target_sources(simple_map_lambda PRIVATE
+  ${PROJECT_SOURCE_DIR}/yt/cpp/mapreduce/examples/tutorial/simple_map_lambda/main.cpp
+  ${PROJECT_BINARY_DIR}/yt/cpp/mapreduce/examples/tutorial/simple_map_lambda/data.pb.h
+)
+
 target_proto_messages(simple_map_lambda PRIVATE
   ${PROJECT_SOURCE_DIR}/yt/cpp/mapreduce/examples/tutorial/simple_map_lambda/data.proto
 )
 
-target_sources(simple_map_lambda PRIVATE
-  ${PROJECT_BINARY_DIR}/yt/cpp/mapreduce/examples/tutorial/simple_map_lambda/data.pb.h
-  ${PROJECT_SOURCE_DIR}/yt/cpp/mapreduce/examples/tutorial/simple_map_lambda/main.cpp
-)
 
-target_allocator(simple_map_lambda
-  cpp-malloc-tcmalloc
-  libs-tcmalloc-no_percpu_cache
+target_proto_outs(simple_map_lambda
+  --cpp_out=${PROJECT_BINARY_DIR}/
 )
 
 target_proto_addincls(simple_map_lambda
@@ -68,9 +74,4 @@ target_proto_addincls(simple_map_lambda
   ${protobuf_INCLUDE_DIRS}
 )
 
-target_proto_outs(simple_map_lambda
-  --cpp_out=${PROJECT_BINARY_DIR}/
-)
-
 vcs_info(simple_map_lambda)
-

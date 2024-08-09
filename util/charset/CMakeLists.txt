@@ -16,6 +16,7 @@ find_package(linux-headers-generic REQUIRED)
 
 add_library(util-charset)
 
+
 target_compile_options(util-charset PUBLIC
   -DTSTRING_IS_STD_STRING
 )
@@ -28,6 +29,7 @@ target_link_libraries(util-charset PUBLIC
   linux-headers-generic::linux-headers-generic
   contrib-libs-cxxsupp
 )
+
 
 target_joined_source(util-charset
   all_charset.cpp
@@ -46,4 +48,3 @@ target_sources_custom(util-charset
   CUSTOM_FLAGS
   -msse4.1
 )
-

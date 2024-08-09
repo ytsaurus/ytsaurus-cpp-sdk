@@ -16,6 +16,7 @@ find_package(linux-headers-generic REQUIRED)
 
 add_library(tools-enum_parser-enum_serialization_runtime)
 
+
 target_compile_options(tools-enum_parser-enum_serialization_runtime PRIVATE
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )

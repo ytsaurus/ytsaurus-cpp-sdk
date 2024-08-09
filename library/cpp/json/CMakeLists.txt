@@ -13,11 +13,13 @@
 # changes in this file.
 
 find_package(linux-headers-generic REQUIRED)
+
 add_subdirectory(common)
 add_subdirectory(fast_sax)
 add_subdirectory(writer)
 
 add_library(library-cpp-json)
+
 
 target_compile_options(library-cpp-json PRIVATE
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR

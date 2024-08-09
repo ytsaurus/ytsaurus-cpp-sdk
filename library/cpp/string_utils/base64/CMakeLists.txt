@@ -16,6 +16,7 @@ find_package(linux-headers-generic REQUIRED)
 
 add_library(cpp-string_utils-base64)
 
+
 target_compile_options(cpp-string_utils-base64 PRIVATE
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )

@@ -12,10 +12,11 @@
 # Please refer to the build instructions in the repository for more information about manual
 # changes in this file.
 
-find_package(Protobuf REQUIRED)
 find_package(linux-headers-generic REQUIRED)
+find_package(Protobuf REQUIRED)
 
 add_executable(prepare_operation)
+
 
 target_compile_options(prepare_operation PRIVATE
   -Wdeprecated-this-capture
@@ -32,6 +33,11 @@ target_link_libraries(prepare_operation PUBLIC
   protobuf::libprotoc
 )
 
+target_allocator(prepare_operation
+  cpp-malloc-tcmalloc
+  libs-tcmalloc-no_percpu_cache
+)
+
 target_link_options(prepare_operation PRIVATE
   -ldl
   -lrt
@@ -43,18 +49,18 @@ target_link_options(prepare_operation PRIVATE
   -lutil
 )
 
+target_sources(prepare_operation PRIVATE
+  ${PROJECT_SOURCE_DIR}/yt/cpp/mapreduce/examples/tutorial/prepare_operation/main.cpp
+  ${PROJECT_BINARY_DIR}/yt/cpp/mapreduce/examples/tutorial/prepare_operation/grepper.pb.h
+)
+
 target_proto_messages(prepare_operation PRIVATE
   ${PROJECT_SOURCE_DIR}/yt/cpp/mapreduce/examples/tutorial/prepare_operation/grepper.proto
 )
 
-target_sources(prepare_operation PRIVATE
-  ${PROJECT_BINARY_DIR}/yt/cpp/mapreduce/examples/tutorial/prepare_operation/grepper.pb.h
-  ${PROJECT_SOURCE_DIR}/yt/cpp/mapreduce/examples/tutorial/prepare_operation/main.cpp
-)
 
-target_allocator(prepare_operation
-  cpp-malloc-tcmalloc
-  libs-tcmalloc-no_percpu_cache
+target_proto_outs(prepare_operation
+  --cpp_out=${PROJECT_BINARY_DIR}/
 )
 
 target_proto_addincls(prepare_operation
@@ -67,9 +73,4 @@ target_proto_addincls(prepare_operation
   ${protobuf_INCLUDE_DIRS}
 )
 
-target_proto_outs(prepare_operation
-  --cpp_out=${PROJECT_BINARY_DIR}/
-)
-
 vcs_info(prepare_operation)
-

@@ -16,6 +16,7 @@ find_package(linux-headers-generic REQUIRED)
 
 add_library(yt-core-http)
 
+
 target_compile_options(yt-core-http PRIVATE
   -Wdeprecated-this-capture
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR

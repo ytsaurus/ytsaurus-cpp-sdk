@@ -12,10 +12,11 @@
 # Please refer to the build instructions in the repository for more information about manual
 # changes in this file.
 
-find_package(Protobuf REQUIRED)
 find_package(linux-headers-generic REQUIRED)
+find_package(Protobuf REQUIRED)
 
 add_executable(mapreduce_lambda)
+
 
 target_compile_options(mapreduce_lambda PRIVATE
   -Wdeprecated-this-capture
@@ -31,6 +32,11 @@ target_link_libraries(mapreduce_lambda PUBLIC
   mapreduce-library-lambda
   protobuf::libprotobuf
   protobuf::libprotoc
+)
+
+target_allocator(mapreduce_lambda
+  cpp-malloc-tcmalloc
+  libs-tcmalloc-no_percpu_cache
 )
 
 target_link_options(mapreduce_lambda PRIVATE
@@ -49,13 +55,13 @@ target_proto_messages(mapreduce_lambda PRIVATE
 )
 
 target_sources(mapreduce_lambda PRIVATE
-  ${PROJECT_BINARY_DIR}/yt/cpp/mapreduce/examples/tutorial/mapreduce_lambda/data.pb.h
   ${PROJECT_SOURCE_DIR}/yt/cpp/mapreduce/examples/tutorial/mapreduce_lambda/main.cpp
+  ${PROJECT_BINARY_DIR}/yt/cpp/mapreduce/examples/tutorial/mapreduce_lambda/data.pb.h
 )
 
-target_allocator(mapreduce_lambda
-  cpp-malloc-tcmalloc
-  libs-tcmalloc-no_percpu_cache
+
+target_proto_outs(mapreduce_lambda
+  --cpp_out=${PROJECT_BINARY_DIR}/
 )
 
 target_proto_addincls(mapreduce_lambda
@@ -68,9 +74,4 @@ target_proto_addincls(mapreduce_lambda
   ${protobuf_INCLUDE_DIRS}
 )
 
-target_proto_outs(mapreduce_lambda
-  --cpp_out=${PROJECT_BINARY_DIR}/
-)
-
 vcs_info(mapreduce_lambda)
-

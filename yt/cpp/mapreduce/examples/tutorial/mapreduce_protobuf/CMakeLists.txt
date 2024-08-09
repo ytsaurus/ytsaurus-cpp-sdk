@@ -12,10 +12,11 @@
 # Please refer to the build instructions in the repository for more information about manual
 # changes in this file.
 
-find_package(Protobuf REQUIRED)
 find_package(linux-headers-generic REQUIRED)
+find_package(Protobuf REQUIRED)
 
 add_executable(mapreduce_protobuf)
+
 
 target_compile_options(mapreduce_protobuf PRIVATE
   -Wdeprecated-this-capture
@@ -30,6 +31,11 @@ target_link_libraries(mapreduce_protobuf PUBLIC
   cpp-mapreduce-client
   protobuf::libprotobuf
   protobuf::libprotoc
+)
+
+target_allocator(mapreduce_protobuf
+  cpp-malloc-tcmalloc
+  libs-tcmalloc-no_percpu_cache
 )
 
 target_link_options(mapreduce_protobuf PRIVATE
@@ -48,13 +54,13 @@ target_proto_messages(mapreduce_protobuf PRIVATE
 )
 
 target_sources(mapreduce_protobuf PRIVATE
-  ${PROJECT_BINARY_DIR}/yt/cpp/mapreduce/examples/tutorial/mapreduce_protobuf/data.pb.h
   ${PROJECT_SOURCE_DIR}/yt/cpp/mapreduce/examples/tutorial/mapreduce_protobuf/main.cpp
+  ${PROJECT_BINARY_DIR}/yt/cpp/mapreduce/examples/tutorial/mapreduce_protobuf/data.pb.h
 )
 
-target_allocator(mapreduce_protobuf
-  cpp-malloc-tcmalloc
-  libs-tcmalloc-no_percpu_cache
+
+target_proto_outs(mapreduce_protobuf
+  --cpp_out=${PROJECT_BINARY_DIR}/
 )
 
 target_proto_addincls(mapreduce_protobuf
@@ -67,9 +73,4 @@ target_proto_addincls(mapreduce_protobuf
   ${protobuf_INCLUDE_DIRS}
 )
 
-target_proto_outs(mapreduce_protobuf
-  --cpp_out=${PROJECT_BINARY_DIR}/
-)
-
 vcs_info(mapreduce_protobuf)
-

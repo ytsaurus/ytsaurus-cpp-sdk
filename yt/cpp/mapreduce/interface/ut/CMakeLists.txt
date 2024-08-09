@@ -12,10 +12,11 @@
 # Please refer to the build instructions in the repository for more information about manual
 # changes in this file.
 
-find_package(Protobuf REQUIRED)
 find_package(linux-headers-generic REQUIRED)
+find_package(Protobuf REQUIRED)
 
 add_executable(yt-cpp-mapreduce-interface-ut)
+
 
 target_compile_options(yt-cpp-mapreduce-interface-ut PRIVATE
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
@@ -34,6 +35,11 @@ target_link_libraries(yt-cpp-mapreduce-interface-ut PUBLIC
   protobuf::libprotoc
 )
 
+target_allocator(yt-cpp-mapreduce-interface-ut
+  cpp-malloc-tcmalloc
+  libs-tcmalloc-no_percpu_cache
+)
+
 target_link_options(yt-cpp-mapreduce-interface-ut PRIVATE
   -ldl
   -lrt
@@ -45,16 +51,7 @@ target_link_options(yt-cpp-mapreduce-interface-ut PRIVATE
   -lutil
 )
 
-target_proto_messages(yt-cpp-mapreduce-interface-ut PRIVATE
-  ${PROJECT_SOURCE_DIR}/yt/cpp/mapreduce/interface/ut/proto3_ut.proto
-  ${PROJECT_SOURCE_DIR}/yt/cpp/mapreduce/interface/ut/protobuf_table_schema_ut.proto
-  ${PROJECT_SOURCE_DIR}/yt/cpp/mapreduce/interface/ut/protobuf_file_options_ut.proto
-)
-
 target_sources(yt-cpp-mapreduce-interface-ut PRIVATE
-  ${PROJECT_BINARY_DIR}/yt/cpp/mapreduce/interface/ut/proto3_ut.pb.h
-  ${PROJECT_BINARY_DIR}/yt/cpp/mapreduce/interface/ut/protobuf_table_schema_ut.pb.h
-  ${PROJECT_BINARY_DIR}/yt/cpp/mapreduce/interface/ut/protobuf_file_options_ut.pb.h
   ${PROJECT_SOURCE_DIR}/yt/cpp/mapreduce/interface/ut/common_ut.cpp
   ${PROJECT_SOURCE_DIR}/yt/cpp/mapreduce/interface/ut/config_ut.cpp
   ${PROJECT_SOURCE_DIR}/yt/cpp/mapreduce/interface/ut/error_ut.cpp
@@ -65,7 +62,17 @@ target_sources(yt-cpp-mapreduce-interface-ut PRIVATE
   ${PROJECT_SOURCE_DIR}/yt/cpp/mapreduce/interface/ut/protobuf_table_schema_ut.cpp
   ${PROJECT_SOURCE_DIR}/yt/cpp/mapreduce/interface/ut/protobuf_file_options_ut.cpp
   ${PROJECT_SOURCE_DIR}/yt/cpp/mapreduce/interface/ut/serialize_ut.cpp
+  ${PROJECT_BINARY_DIR}/yt/cpp/mapreduce/interface/ut/proto3_ut.pb.h
+  ${PROJECT_BINARY_DIR}/yt/cpp/mapreduce/interface/ut/protobuf_table_schema_ut.pb.h
+  ${PROJECT_BINARY_DIR}/yt/cpp/mapreduce/interface/ut/protobuf_file_options_ut.pb.h
 )
+
+target_proto_messages(yt-cpp-mapreduce-interface-ut PRIVATE
+  ${PROJECT_SOURCE_DIR}/yt/cpp/mapreduce/interface/ut/proto3_ut.proto
+  ${PROJECT_SOURCE_DIR}/yt/cpp/mapreduce/interface/ut/protobuf_table_schema_ut.proto
+  ${PROJECT_SOURCE_DIR}/yt/cpp/mapreduce/interface/ut/protobuf_file_options_ut.proto
+)
+
 
 add_test(
   NAME
@@ -86,20 +93,11 @@ set_property(
   TEST
   yt-cpp-mapreduce-interface-ut
   PROPERTY
-  PROCESSORS
-  1
-)
-
-set_property(
-  TEST
-  yt-cpp-mapreduce-interface-ut
-  PROPERTY
   ENVIRONMENT
 )
 
-target_allocator(yt-cpp-mapreduce-interface-ut
-  cpp-malloc-tcmalloc
-  libs-tcmalloc-no_percpu_cache
+target_proto_outs(yt-cpp-mapreduce-interface-ut
+  --cpp_out=${PROJECT_BINARY_DIR}/
 )
 
 target_proto_addincls(yt-cpp-mapreduce-interface-ut
@@ -112,9 +110,12 @@ target_proto_addincls(yt-cpp-mapreduce-interface-ut
   ${protobuf_INCLUDE_DIRS}
 )
 
-target_proto_outs(yt-cpp-mapreduce-interface-ut
-  --cpp_out=${PROJECT_BINARY_DIR}/
-)
-
 vcs_info(yt-cpp-mapreduce-interface-ut)
 
+set_property(
+  TEST
+  yt-cpp-mapreduce-interface-ut
+  PROPERTY
+  PROCESSORS
+  1
+)

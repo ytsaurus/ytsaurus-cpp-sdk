@@ -16,6 +16,7 @@ find_package(linux-headers-generic REQUIRED)
 
 add_executable(table_read_write_tnode)
 
+
 target_compile_options(table_read_write_tnode PRIVATE
   -Wdeprecated-this-capture
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
@@ -27,6 +28,11 @@ target_link_libraries(table_read_write_tnode PUBLIC
   yutil
   library-cpp-cpuid_check
   cpp-mapreduce-client
+)
+
+target_allocator(table_read_write_tnode
+  cpp-malloc-tcmalloc
+  libs-tcmalloc-no_percpu_cache
 )
 
 target_link_options(table_read_write_tnode PRIVATE
@@ -44,10 +50,5 @@ target_sources(table_read_write_tnode PRIVATE
   ${PROJECT_SOURCE_DIR}/yt/cpp/mapreduce/examples/tutorial/table_read_write_tnode/main.cpp
 )
 
-target_allocator(table_read_write_tnode
-  cpp-malloc-tcmalloc
-  libs-tcmalloc-no_percpu_cache
-)
 
 vcs_info(table_read_write_tnode)
-

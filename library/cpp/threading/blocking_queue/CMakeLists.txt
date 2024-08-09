@@ -16,6 +16,7 @@ find_package(linux-headers-generic REQUIRED)
 
 add_library(cpp-threading-blocking_queue)
 
+
 target_compile_options(cpp-threading-blocking_queue PRIVATE
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )

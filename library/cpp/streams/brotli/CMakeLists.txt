@@ -16,6 +16,7 @@ find_package(linux-headers-generic REQUIRED)
 
 add_library(cpp-streams-brotli)
 
+
 target_compile_options(cpp-streams-brotli PRIVATE
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )

@@ -14,6 +14,6 @@ class App(ConanFile):
 
     def imports(self):
         self.copy(pattern="*yasm*", src="bin", dst="./bin")
+        self.copy(pattern="protoc*", src="bin", dst="./bin")
         self.copy(pattern="ragel*", src="bin", dst="./bin")
         self.copy(pattern="ytasm*", src="bin", dst="./bin")
-        self.copy(pattern="protoc*", src="bin", dst="./bin")

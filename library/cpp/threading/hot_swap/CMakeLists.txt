@@ -16,6 +16,7 @@ find_package(linux-headers-generic REQUIRED)
 
 add_library(cpp-threading-hot_swap)
 
+
 target_compile_options(cpp-threading-hot_swap PRIVATE
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )

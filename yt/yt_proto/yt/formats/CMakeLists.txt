@@ -12,10 +12,11 @@
 # Please refer to the build instructions in the repository for more information about manual
 # changes in this file.
 
-find_package(Protobuf REQUIRED)
 find_package(linux-headers-generic REQUIRED)
+find_package(Protobuf REQUIRED)
 
 add_library(yt_proto-yt-formats)
+
 
 target_compile_options(yt_proto-yt-formats PRIVATE
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
@@ -39,6 +40,11 @@ target_sources(yt_proto-yt-formats PRIVATE
   ${PROJECT_BINARY_DIR}/yt/yt_proto/yt/formats/yamr.pb.h
 )
 
+
+target_proto_outs(yt_proto-yt-formats
+  --cpp_out=${PROJECT_BINARY_DIR}/
+)
+
 target_proto_addincls(yt_proto-yt-formats
   ./
   ${PROJECT_SOURCE_DIR}/
@@ -47,8 +53,3 @@ target_proto_addincls(yt_proto-yt-formats
   ${PROJECT_BINARY_DIR}
   ${protobuf_INCLUDE_DIRS}
 )
-
-target_proto_outs(yt_proto-yt-formats
-  --cpp_out=${PROJECT_BINARY_DIR}/
-)
-

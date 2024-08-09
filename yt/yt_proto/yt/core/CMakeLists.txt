@@ -12,10 +12,11 @@
 # Please refer to the build instructions in the repository for more information about manual
 # changes in this file.
 
-find_package(Protobuf REQUIRED)
 find_package(linux-headers-generic REQUIRED)
+find_package(Protobuf REQUIRED)
 
 add_library(yt_proto-yt-core)
+
 
 target_compile_options(yt_proto-yt-core PRIVATE
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
@@ -65,6 +66,11 @@ target_sources(yt_proto-yt-core PRIVATE
   ${PROJECT_BINARY_DIR}/yt/yt_proto/yt/core/ytree/proto/ypath.pb.h
 )
 
+
+target_proto_outs(yt_proto-yt-core
+  --cpp_out=${PROJECT_BINARY_DIR}/yt
+)
+
 target_proto_addincls(yt_proto-yt-core
   ./yt
   ${PROJECT_SOURCE_DIR}/yt
@@ -74,8 +80,3 @@ target_proto_addincls(yt_proto-yt-core
   ${PROJECT_BINARY_DIR}
   ${protobuf_INCLUDE_DIRS}
 )
-
-target_proto_outs(yt_proto-yt-core
-  --cpp_out=${PROJECT_BINARY_DIR}/yt
-)
-

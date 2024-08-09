@@ -12,8 +12,9 @@
 # Please refer to the build instructions in the repository for more information about manual
 # changes in this file.
 
-add_subdirectory(common)
+
 add_subdirectory(gtest)
+add_subdirectory(common)
 add_subdirectory(gtest_extensions)
-add_subdirectory(gtest_main)
 add_subdirectory(hook)
+add_subdirectory(gtest_main)

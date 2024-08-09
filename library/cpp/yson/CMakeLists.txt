@@ -13,10 +13,12 @@
 # changes in this file.
 
 find_package(linux-headers-generic REQUIRED)
+
 add_subdirectory(json)
 add_subdirectory(node)
 
 add_library(library-cpp-yson)
+
 
 target_compile_options(library-cpp-yson PRIVATE
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR

@@ -23,6 +23,7 @@ get_built_tool_path(
 
 add_library(cpp-threading-thread_local)
 
+
 target_compile_options(cpp-threading-thread_local PRIVATE
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
@@ -40,9 +41,9 @@ target_sources(cpp-threading-thread_local PRIVATE
   ${PROJECT_SOURCE_DIR}/library/cpp/threading/thread_local/thread_local.cpp
 )
 
+
 generate_enum_serilization(cpp-threading-thread_local
   ${PROJECT_SOURCE_DIR}/library/cpp/threading/thread_local/thread_local.h
   INCLUDE_HEADERS
   library/cpp/threading/thread_local/thread_local.h
 )
-

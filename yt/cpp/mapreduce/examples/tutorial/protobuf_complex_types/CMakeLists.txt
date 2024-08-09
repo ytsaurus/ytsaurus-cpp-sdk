@@ -12,10 +12,11 @@
 # Please refer to the build instructions in the repository for more information about manual
 # changes in this file.
 
-find_package(Protobuf REQUIRED)
 find_package(linux-headers-generic REQUIRED)
+find_package(Protobuf REQUIRED)
 
 add_executable(protobuf_complex_types)
+
 
 target_compile_options(protobuf_complex_types PRIVATE
   -Wdeprecated-this-capture
@@ -32,6 +33,11 @@ target_link_libraries(protobuf_complex_types PUBLIC
   protobuf::libprotoc
 )
 
+target_allocator(protobuf_complex_types
+  cpp-malloc-tcmalloc
+  libs-tcmalloc-no_percpu_cache
+)
+
 target_link_options(protobuf_complex_types PRIVATE
   -ldl
   -lrt
@@ -43,18 +49,18 @@ target_link_options(protobuf_complex_types PRIVATE
   -lutil
 )
 
+target_sources(protobuf_complex_types PRIVATE
+  ${PROJECT_SOURCE_DIR}/yt/cpp/mapreduce/examples/tutorial/protobuf_complex_types/main.cpp
+  ${PROJECT_BINARY_DIR}/yt/cpp/mapreduce/examples/tutorial/protobuf_complex_types/data.pb.h
+)
+
 target_proto_messages(protobuf_complex_types PRIVATE
   ${PROJECT_SOURCE_DIR}/yt/cpp/mapreduce/examples/tutorial/protobuf_complex_types/data.proto
 )
 
-target_sources(protobuf_complex_types PRIVATE
-  ${PROJECT_BINARY_DIR}/yt/cpp/mapreduce/examples/tutorial/protobuf_complex_types/data.pb.h
-  ${PROJECT_SOURCE_DIR}/yt/cpp/mapreduce/examples/tutorial/protobuf_complex_types/main.cpp
-)
 
-target_allocator(protobuf_complex_types
-  cpp-malloc-tcmalloc
-  libs-tcmalloc-no_percpu_cache
+target_proto_outs(protobuf_complex_types
+  --cpp_out=${PROJECT_BINARY_DIR}/
 )
 
 target_proto_addincls(protobuf_complex_types
@@ -67,9 +73,4 @@ target_proto_addincls(protobuf_complex_types
   ${protobuf_INCLUDE_DIRS}
 )
 
-target_proto_outs(protobuf_complex_types
-  --cpp_out=${PROJECT_BINARY_DIR}/
-)
-
 vcs_info(protobuf_complex_types)
-

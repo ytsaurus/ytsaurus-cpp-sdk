@@ -21,14 +21,8 @@ get_built_tool_path(
   enum_parser
 )
 
-get_built_tool_path(
-  TOOL_enum_parser_bin
-  TOOL_enum_parser_dependency
-  tools/enum_parser/enum_parser
-  enum_parser
-)
-
 add_library(yson_pull)
+
 
 target_compile_options(yson_pull PRIVATE
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
@@ -53,6 +47,7 @@ target_sources(yson_pull PRIVATE
   ${PROJECT_SOURCE_DIR}/library/cpp/yson_pull/writer.cpp
 )
 
+
 generate_enum_serilization(yson_pull
   ${PROJECT_SOURCE_DIR}/library/cpp/yson_pull/event.h
   INCLUDE_HEADERS
@@ -64,4 +59,3 @@ generate_enum_serilization(yson_pull
   INCLUDE_HEADERS
   library/cpp/yson_pull/scalar.h
 )
-

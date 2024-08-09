@@ -16,6 +16,7 @@ find_package(linux-headers-generic REQUIRED)
 
 add_library(library-cpp-svnversion)
 
+
 target_compile_options(library-cpp-svnversion PRIVATE
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )

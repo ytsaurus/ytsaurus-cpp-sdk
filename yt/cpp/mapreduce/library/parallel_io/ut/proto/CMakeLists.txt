@@ -12,10 +12,11 @@
 # Please refer to the build instructions in the repository for more information about manual
 # changes in this file.
 
-find_package(Protobuf REQUIRED)
 find_package(linux-headers-generic REQUIRED)
+find_package(Protobuf REQUIRED)
 
 add_library(parallel_io-ut-proto)
+
 
 target_compile_options(parallel_io-ut-proto PRIVATE
   -Wdeprecated-this-capture
@@ -41,6 +42,11 @@ target_sources(parallel_io-ut-proto PRIVATE
   ${PROJECT_BINARY_DIR}/yt/cpp/mapreduce/library/parallel_io/ut/proto/test_message.pb.h
 )
 
+
+target_proto_outs(parallel_io-ut-proto
+  --cpp_out=${PROJECT_BINARY_DIR}/
+)
+
 target_proto_addincls(parallel_io-ut-proto
   ./
   ${PROJECT_SOURCE_DIR}/
@@ -49,8 +55,3 @@ target_proto_addincls(parallel_io-ut-proto
   ${PROJECT_BINARY_DIR}
   ${protobuf_INCLUDE_DIRS}
 )
-
-target_proto_outs(parallel_io-ut-proto
-  --cpp_out=${PROJECT_BINARY_DIR}/
-)
-

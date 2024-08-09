@@ -13,9 +13,11 @@
 # changes in this file.
 
 find_package(linux-headers-generic REQUIRED)
+
 add_subdirectory(resource_tracker)
 
 add_library(yt-library-profiling)
+
 
 target_compile_options(yt-library-profiling PRIVATE
   -Wdeprecated-this-capture

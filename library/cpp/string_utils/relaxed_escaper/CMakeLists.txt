@@ -16,6 +16,7 @@ find_package(linux-headers-generic REQUIRED)
 
 add_library(cpp-string_utils-relaxed_escaper)
 
+
 target_compile_options(cpp-string_utils-relaxed_escaper PRIVATE
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )

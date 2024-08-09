@@ -16,6 +16,7 @@ find_package(linux-headers-generic REQUIRED)
 
 add_library(mapreduce-library-user_job_statistics)
 
+
 target_compile_options(mapreduce-library-user_job_statistics PRIVATE
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )

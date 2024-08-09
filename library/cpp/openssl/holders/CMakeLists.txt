@@ -16,6 +16,7 @@ find_package(linux-headers-generic REQUIRED)
 
 add_library(cpp-openssl-holders)
 
+
 target_compile_options(cpp-openssl-holders PRIVATE
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )

@@ -16,6 +16,7 @@ find_package(linux-headers-generic REQUIRED)
 
 add_library(cpp-yson-json)
 
+
 target_compile_options(cpp-yson-json PRIVATE
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )

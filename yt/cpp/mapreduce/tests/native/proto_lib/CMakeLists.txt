@@ -12,10 +12,11 @@
 # Please refer to the build instructions in the repository for more information about manual
 # changes in this file.
 
-find_package(Protobuf REQUIRED)
 find_package(linux-headers-generic REQUIRED)
+find_package(Protobuf REQUIRED)
 
 add_library(tests-native-proto_lib)
+
 
 target_compile_options(tests-native-proto_lib PRIVATE
   -Wdeprecated-this-capture
@@ -45,6 +46,11 @@ target_sources(tests-native-proto_lib PRIVATE
   ${PROJECT_BINARY_DIR}/yt/cpp/mapreduce/tests/native/proto_lib/row.pb.h
 )
 
+
+target_proto_outs(tests-native-proto_lib
+  --cpp_out=${PROJECT_BINARY_DIR}/
+)
+
 target_proto_addincls(tests-native-proto_lib
   ./
   ${PROJECT_SOURCE_DIR}/
@@ -53,8 +59,3 @@ target_proto_addincls(tests-native-proto_lib
   ${PROJECT_BINARY_DIR}
   ${protobuf_INCLUDE_DIRS}
 )
-
-target_proto_outs(tests-native-proto_lib
-  --cpp_out=${PROJECT_BINARY_DIR}/
-)
-

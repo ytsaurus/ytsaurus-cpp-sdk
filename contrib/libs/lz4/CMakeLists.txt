@@ -16,6 +16,7 @@ find_package(linux-headers-generic REQUIRED)
 
 add_library(contrib-libs-lz4)
 
+
 target_compile_options(contrib-libs-lz4 PRIVATE
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )

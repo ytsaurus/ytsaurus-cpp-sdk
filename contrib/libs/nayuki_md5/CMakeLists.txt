@@ -16,6 +16,7 @@ find_package(linux-headers-generic REQUIRED)
 
 add_library(contrib-libs-nayuki_md5)
 
+
 target_compile_options(contrib-libs-nayuki_md5 PRIVATE
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )

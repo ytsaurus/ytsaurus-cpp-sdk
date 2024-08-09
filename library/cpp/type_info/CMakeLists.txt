@@ -23,6 +23,7 @@ get_built_tool_path(
 
 add_library(library-cpp-type_info)
 
+
 target_compile_options(library-cpp-type_info PRIVATE
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
@@ -47,9 +48,9 @@ target_sources(library-cpp-type_info PRIVATE
   ${PROJECT_SOURCE_DIR}/library/cpp/type_info/type_list.cpp
 )
 
+
 generate_enum_serilization(library-cpp-type_info
   ${PROJECT_SOURCE_DIR}/library/cpp/type_info/type_list.h
   INCLUDE_HEADERS
   library/cpp/type_info/type_list.h
 )
-
