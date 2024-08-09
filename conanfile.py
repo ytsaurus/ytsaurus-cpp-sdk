@@ -10,6 +10,7 @@ class App(ConanFile):
     requires = "linux-headers-generic/6.5.9", "protobuf/3.19.4"
 
     tool_requires = "protobuf/3.19.4", "ragel/6.10", "yasm/1.3.0"
+
     generators = "cmake_find_package", "cmake_paths"
 
     def imports(self):
