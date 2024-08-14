@@ -8,8 +8,9 @@ class App(ConanFile):
     options = {}
 
     def requirements(self):
-        self.requires("linux-headers-generic/6.5.9")
         self.requires("protobuf/3.19.4")
+        if self.settings.os == "Linux":
+            self.requires("linux-headers-generic/6.5.9")
 
     def build_requirements(self):
         self.tool_requires("protobuf/3.19.4")
