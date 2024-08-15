@@ -12,22 +12,29 @@
 # Please refer to the build instructions in the repository for more information about manual
 # changes in this file.
 
+find_package(linux-headers-generic REQUIRED)
 
-add_subdirectory(misc)
-add_subdirectory(exception)
-add_subdirectory(assert)
-add_subdirectory(yson)
-add_subdirectory(yson_string)
-add_subdirectory(coding)
-add_subdirectory(string)
-add_subdirectory(small_containers)
-add_subdirectory(malloc)
-add_subdirectory(memory)
-add_subdirectory(system)
-add_subdirectory(logging)
-add_subdirectory(containers)
-add_subdirectory(global)
-add_subdirectory(threading)
-add_subdirectory(cpu_clock)
-add_subdirectory(error)
-add_subdirectory(backtrace)
+add_library(cpp-yt-error)
+
+
+target_compile_options(cpp-yt-error PRIVATE
+  -Wdeprecated-this-capture
+  -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
+)
+
+target_link_libraries(cpp-yt-error PUBLIC
+  linux-headers-generic::linux-headers-generic
+  contrib-libs-cxxsupp
+  yutil
+  cpp-yt-assert
+  cpp-yt-global
+  cpp-yt-memory
+  cpp-yt-misc
+  cpp-yt-threading
+  cpp-yt-string
+)
+
+target_sources(cpp-yt-error PRIVATE
+  ${PROJECT_SOURCE_DIR}/library/cpp/yt/error/origin_attributes.cpp
+)
+
