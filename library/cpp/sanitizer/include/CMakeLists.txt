@@ -17,6 +17,10 @@ find_package(linux-headers-generic REQUIRED)
 add_library(cpp-sanitizer-include INTERFACE)
 
 
+target_compile_options(cpp-sanitizer-include INTERFACE
+  -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
+)
+
 target_include_directories(cpp-sanitizer-include INTERFACE
   ${PROJECT_SOURCE_DIR}/contrib/libs/clang16-rt/include
 )

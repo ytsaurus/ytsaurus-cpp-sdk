@@ -17,6 +17,14 @@ find_package(linux-headers-generic REQUIRED)
 add_library(contrib-libs-rapidjson INTERFACE)
 
 
+target_compile_options(contrib-libs-rapidjson INTERFACE
+  -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
+)
+
+target_include_directories(contrib-libs-rapidjson INTERFACE
+  ${PROJECT_SOURCE_DIR}/contrib/libs/rapidjson/include
+)
+
 target_link_libraries(contrib-libs-rapidjson INTERFACE
   linux-headers-generic::linux-headers-generic
   contrib-libs-cxxsupp

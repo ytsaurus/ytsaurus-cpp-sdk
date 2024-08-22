@@ -17,6 +17,10 @@ find_package(linux-headers-generic REQUIRED)
 add_library(cpp-deprecated-atomic INTERFACE)
 
 
+target_compile_options(cpp-deprecated-atomic INTERFACE
+  -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
+)
+
 target_link_libraries(cpp-deprecated-atomic INTERFACE
   linux-headers-generic::linux-headers-generic
   contrib-libs-cxxsupp

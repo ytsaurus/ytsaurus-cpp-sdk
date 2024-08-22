@@ -17,6 +17,10 @@ find_package(linux-headers-generic REQUIRED)
 add_library(abseil-cpp-absl-utility INTERFACE)
 
 
+target_compile_options(abseil-cpp-absl-utility INTERFACE
+  -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
+)
+
 target_link_libraries(abseil-cpp-absl-utility INTERFACE
   linux-headers-generic::linux-headers-generic
 )

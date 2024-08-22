@@ -17,6 +17,10 @@ find_package(linux-headers-generic REQUIRED)
 add_library(blockcodecs-codecs-legacy_zstd06 INTERFACE)
 
 
+target_compile_options(blockcodecs-codecs-legacy_zstd06 INTERFACE
+  -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
+)
+
 target_link_libraries(blockcodecs-codecs-legacy_zstd06 INTERFACE
   linux-headers-generic::linux-headers-generic
   contrib-libs-cxxsupp

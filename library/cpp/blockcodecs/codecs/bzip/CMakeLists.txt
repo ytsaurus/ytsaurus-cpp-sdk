@@ -17,6 +17,10 @@ find_package(linux-headers-generic REQUIRED)
 add_library(blockcodecs-codecs-bzip INTERFACE)
 
 
+target_compile_options(blockcodecs-codecs-bzip INTERFACE
+  -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
+)
+
 target_link_libraries(blockcodecs-codecs-bzip INTERFACE
   linux-headers-generic::linux-headers-generic
   contrib-libs-cxxsupp

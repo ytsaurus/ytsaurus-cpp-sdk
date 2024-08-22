@@ -24,6 +24,10 @@ get_built_tool_path(
 add_library(certs INTERFACE)
 
 
+target_compile_options(certs INTERFACE
+  -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
+)
+
 target_link_libraries(certs INTERFACE
   linux-headers-generic::linux-headers-generic
   contrib-libs-cxxsupp

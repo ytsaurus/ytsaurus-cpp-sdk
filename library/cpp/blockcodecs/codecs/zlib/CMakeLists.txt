@@ -17,6 +17,10 @@ find_package(linux-headers-generic REQUIRED)
 add_library(blockcodecs-codecs-zlib INTERFACE)
 
 
+target_compile_options(blockcodecs-codecs-zlib INTERFACE
+  -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
+)
+
 target_link_libraries(blockcodecs-codecs-zlib INTERFACE
   linux-headers-generic::linux-headers-generic
   contrib-libs-cxxsupp

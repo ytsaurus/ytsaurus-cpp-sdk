@@ -17,6 +17,10 @@ find_package(linux-headers-generic REQUIRED)
 add_library(library-cpp-cpuid_check INTERFACE)
 
 
+target_compile_options(library-cpp-cpuid_check INTERFACE
+  -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
+)
+
 target_link_libraries(library-cpp-cpuid_check INTERFACE
   linux-headers-generic::linux-headers-generic
   contrib-libs-cxxsupp

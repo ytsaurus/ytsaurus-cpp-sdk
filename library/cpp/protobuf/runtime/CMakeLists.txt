@@ -19,6 +19,10 @@ find_package(Protobuf REQUIRED)
 add_library(cpp-protobuf-runtime INTERFACE)
 
 
+target_compile_options(cpp-protobuf-runtime INTERFACE
+  -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
+)
+
 target_link_libraries(cpp-protobuf-runtime INTERFACE
   linux-headers-generic::linux-headers-generic
   contrib-libs-cxxsupp

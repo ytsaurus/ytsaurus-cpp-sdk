@@ -17,6 +17,11 @@ find_package(linux-headers-generic REQUIRED)
 add_library(cpp-yt-containers INTERFACE)
 
 
+target_compile_options(cpp-yt-containers INTERFACE
+  -Wdeprecated-this-capture
+  -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
+)
+
 target_link_libraries(cpp-yt-containers INTERFACE
   linux-headers-generic::linux-headers-generic
   contrib-libs-cxxsupp

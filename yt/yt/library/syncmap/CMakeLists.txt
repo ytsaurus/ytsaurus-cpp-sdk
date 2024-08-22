@@ -17,6 +17,11 @@ find_package(linux-headers-generic REQUIRED)
 add_library(yt-library-syncmap INTERFACE)
 
 
+target_compile_options(yt-library-syncmap INTERFACE
+  -Wdeprecated-this-capture
+  -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
+)
+
 target_link_libraries(yt-library-syncmap INTERFACE
   linux-headers-generic::linux-headers-generic
   contrib-libs-cxxsupp

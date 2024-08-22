@@ -19,6 +19,10 @@ add_subdirectory(absl)
 add_library(contrib-restricted-abseil-cpp INTERFACE)
 
 
+target_compile_options(contrib-restricted-abseil-cpp INTERFACE
+  -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
+)
+
 target_link_libraries(contrib-restricted-abseil-cpp INTERFACE
   linux-headers-generic::linux-headers-generic
   abseil-cpp-absl-algorithm

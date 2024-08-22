@@ -21,6 +21,10 @@ target_compile_options(libs-cxxsupp-system_stl INTERFACE
   -DLIBCXX_BUILDING_LIBGCC
 )
 
+target_compile_options(libs-cxxsupp-system_stl INTERFACE
+  -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
+)
+
 target_include_directories(libs-cxxsupp-system_stl INTERFACE
   ${PROJECT_SOURCE_DIR}/contrib/libs/cxxsupp/system_stl/include
 )

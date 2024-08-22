@@ -17,6 +17,10 @@ find_package(linux-headers-generic REQUIRED)
 add_library(blockcodecs-codecs-fastlz INTERFACE)
 
 
+target_compile_options(blockcodecs-codecs-fastlz INTERFACE
+  -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
+)
+
 target_link_libraries(blockcodecs-codecs-fastlz INTERFACE
   linux-headers-generic::linux-headers-generic
   contrib-libs-cxxsupp

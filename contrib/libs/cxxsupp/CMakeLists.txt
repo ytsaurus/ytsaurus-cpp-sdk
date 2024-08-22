@@ -19,6 +19,10 @@ add_subdirectory(system_stl)
 add_library(contrib-libs-cxxsupp INTERFACE)
 
 
+target_compile_options(contrib-libs-cxxsupp INTERFACE
+  -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
+)
+
 target_link_libraries(contrib-libs-cxxsupp INTERFACE
   linux-headers-generic::linux-headers-generic
   libs-cxxsupp-system_stl

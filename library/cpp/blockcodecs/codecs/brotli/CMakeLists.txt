@@ -17,6 +17,10 @@ find_package(linux-headers-generic REQUIRED)
 add_library(blockcodecs-codecs-brotli INTERFACE)
 
 
+target_compile_options(blockcodecs-codecs-brotli INTERFACE
+  -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
+)
+
 target_link_libraries(blockcodecs-codecs-brotli INTERFACE
   linux-headers-generic::linux-headers-generic
   contrib-libs-cxxsupp
