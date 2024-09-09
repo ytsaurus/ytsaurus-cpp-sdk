@@ -1,0 +1,6 @@
+#!/usr/bin/env python3
+
+from yt.cli.yt_binary import main
+
+if __name__ == "__main__":
+    main()

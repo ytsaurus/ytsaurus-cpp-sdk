@@ -1,0 +1,122 @@
+#!/usr/bin/env python
+
+from yt.common import which, set_pdeathsig
+try:
+    from yt.logger import set_log_level_from_config
+except ImportError:
+    from yt.logger_config import LOG_LEVEL
+    set_log_level_from_config = None
+from yt.logger_config import LOG_PATTERN
+
+import argparse
+import fcntl
+import logging
+import datetime
+import subprocess
+import signal
+import sys
+import time
+import os
+from logging.handlers import WatchedFileHandler
+
+logger = logging.getLogger("YtLocal")
+
+
+LOCK_ITER_COUNT = 3
+
+
+def configure_logging(log_path):
+    if set_log_level_from_config is not None:
+        set_log_level_from_config(logger)
+    else:
+        logger.setLevel(logging.__dict__[LOG_LEVEL.upper()])
+
+    handler = WatchedFileHandler(filename=log_path, mode="a")
+    handler.setFormatter(logging.Formatter(LOG_PATTERN))
+    logger.addHandler(handler)
+
+
+def sigterm_handler(signum, frame):
+    logger.info("SIGTERM caught, exiting")
+    sys.exit(0)
+
+
+def main():
+    parser = argparse.ArgumentParser(add_help=False, description="YT watcher")
+    parser.add_argument("--disable-logrotate", action="store_true", default=False,
+                        help="disable log rotation")
+    parser.add_argument("--lock-file-path", required=True,
+                        help="path of file which will be used to take a file lock")
+    parser.add_argument("--logrotate-config-path", required=True, help="path with config for logrotate")
+    parser.add_argument("--logrotate-state-file", required=True, help="path of logrotate state file")
+    parser.add_argument("--logrotate-interval", required=True, type=int,
+                        help="interval (seconds) before a next running of logrotate")
+    parser.add_argument("--log-path", required=True, help="path for watcher's logs")
+    parser.add_argument("--pdeathsig", type=int, help="deathsig")
+    parser.add_argument("--setsid", action="store_true", help="call setsid() after start")
+    options = parser.parse_args()
+
+    configure_logging(options.log_path)
+    logger.info("YT watcher started (logrotate_config_path: %s)", options.logrotate_config_path)
+
+    signal.signal(signal.SIGTERM, sigterm_handler)
+
+    if options.pdeathsig is not None:
+        set_pdeathsig(options.pdeathsig)
+
+    if options.setsid:
+        try:
+            os.setsid()
+        except OSError as e:
+            logger.error(
+                "os.setsid failed: errno = {}({}). pid = {}, pgid = {}"
+                .format(e.errno, e.strerror, os.getpid(), os.getpgid(0)))
+
+    if options.lock_file_path:
+        lock_file_descriptor = open(options.lock_file_path, "w+")
+        # Lock attempts may fail since outer process may take lock for checks.
+        for iter in range(LOCK_ITER_COUNT):
+            try:
+                fcntl.lockf(lock_file_descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except (IOError, OSError):
+                logger.exception("YT watcher failed. Cannot take a file lock")
+                if iter + 1 == LOCK_ITER_COUNT:
+                    raise
+                else:
+                    time.sleep(0.042)
+        logger.info("Lock acquired: %s", options.lock_file_path)
+
+    logrotate_enabled = not options.disable_logrotate
+    if not which("logrotate"):
+        logrotate_enabled = False
+        logger.warning("Logrotate is disabled since logrotate binary is missing")
+
+    logrotate_interval = datetime.timedelta(seconds=options.logrotate_interval)
+
+    last_logrotate_time = datetime.datetime.now()
+    while True:
+        should_logrotate = logrotate_enabled and (last_logrotate_time + logrotate_interval < datetime.datetime.now())
+        if should_logrotate:
+            logger.info("Calling logrotate process...")
+            p = subprocess.Popen(["logrotate", options.logrotate_config_path, "--state", options.logrotate_state_file],
+                                 stdout=subprocess.PIPE,
+                                 stderr=subprocess.PIPE)
+            stdout, stderr = p.communicate()
+            if p.returncode:
+                logger.error('logrotate process failed with exit code %d, '
+                             'stderr: "%s", stdout: "%s"', p.returncode, stderr, stdout)
+            else:
+                logger.info("Logrotate executed successfully")
+
+            last_logrotate_time = datetime.datetime.now()
+
+            logger.info("Wait %d seconds before next logrotate call", options.logrotate_interval)
+
+        logger.info("Watcher process is alive")
+
+        time.sleep(1)
+
+
+if __name__ == "__main__":
+    main()
