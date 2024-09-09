@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - members/nadya73/llvm-16
 
 env:
   ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
