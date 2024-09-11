@@ -14,22 +14,18 @@
 
 find_package(linux-headers-generic REQUIRED)
 
-add_library(library-cpp-svnversion)
+add_library(dummy-vcs)
 
 
-target_compile_options(library-cpp-svnversion PRIVATE
+target_compile_options(dummy-vcs PRIVATE
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 
-target_link_libraries(library-cpp-svnversion PUBLIC
+target_link_libraries(dummy-vcs PUBLIC
   linux-headers-generic::linux-headers-generic
-  contrib-libs-cxxsupp
-  yutil
-  dummy-vcs
 )
 
-target_sources(library-cpp-svnversion PRIVATE
-  ${PROJECT_SOURCE_DIR}/library/cpp/svnversion/svnversion.cpp
-  ${PROJECT_SOURCE_DIR}/library/cpp/svnversion/svn_interface.c
+target_sources(dummy-vcs PRIVATE
+  ${PROJECT_SOURCE_DIR}/build/scripts/c_templates/svn_interface.c
 )
 
