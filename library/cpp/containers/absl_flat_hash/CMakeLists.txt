@@ -12,31 +12,28 @@
 # Please refer to the build instructions in the repository for more information about manual
 # changes in this file.
 
-add_subdirectory(malloc)
-add_subdirectory(sanitizer)
-add_subdirectory(cpuid_check)
-add_subdirectory(resource)
-add_subdirectory(containers)
-add_subdirectory(blockcodecs)
-add_subdirectory(json)
-add_subdirectory(getopt)
-add_subdirectory(colorizer)
-add_subdirectory(cppparser)
-add_subdirectory(string_utils)
-add_subdirectory(svnversion)
-add_subdirectory(threading)
-add_subdirectory(yson)
-add_subdirectory(yt)
-add_subdirectory(protobuf)
-add_subdirectory(type_info)
-add_subdirectory(yson_pull)
-add_subdirectory(openssl)
-add_subdirectory(deprecated)
-add_subdirectory(streams)
-add_subdirectory(ytalloc)
-add_subdirectory(digest)
-add_subdirectory(sighandler)
-add_subdirectory(http)
-add_subdirectory(skiff)
-add_subdirectory(regex)
-add_subdirectory(testing)
+find_package(linux-headers-generic REQUIRED)
+
+add_library(cpp-containers-absl_flat_hash)
+
+
+target_compile_options(cpp-containers-absl_flat_hash PRIVATE
+  -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
+)
+
+target_include_directories(cpp-containers-absl_flat_hash PRIVATE
+  ${PROJECT_SOURCE_DIR}/contrib/restricted/abseil-cpp
+)
+
+target_link_libraries(cpp-containers-absl_flat_hash PUBLIC
+  linux-headers-generic::linux-headers-generic
+  contrib-libs-cxxsupp
+  yutil
+  abseil-cpp-absl-container
+)
+
+target_sources(cpp-containers-absl_flat_hash PRIVATE
+  ${PROJECT_SOURCE_DIR}/library/cpp/containers/absl_flat_hash/flat_hash_map.cpp
+  ${PROJECT_SOURCE_DIR}/library/cpp/containers/absl_flat_hash/flat_hash_set.cpp
+)
+
