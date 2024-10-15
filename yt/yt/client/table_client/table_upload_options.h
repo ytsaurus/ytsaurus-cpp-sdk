@@ -2,7 +2,7 @@
 
 #include "public.h"
 
-#include <yt/yt/ytlib/chunk_client/public.h>
+#include <yt/yt/client/chunk_client/public.h>
 
 #include <yt/yt/client/table_client/schema.h>
 #include <yt/yt/client/table_client/versioned_io_options.h>
