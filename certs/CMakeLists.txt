@@ -62,4 +62,5 @@ resources(certs.global
   ${PROJECT_SOURCE_DIR}/certs/cacert.pem
   KEYS
   /builtin/cacert
+  OPTS
 )
