@@ -22,7 +22,7 @@ target_compile_options(cpp-sanitizer-include INTERFACE
 )
 
 target_include_directories(cpp-sanitizer-include INTERFACE
-  ${PROJECT_SOURCE_DIR}/contrib/libs/clang16-rt/include
+  ${PROJECT_SOURCE_DIR}/contrib/libs/clang18-rt/include
 )
 
 target_link_libraries(cpp-sanitizer-include INTERFACE
