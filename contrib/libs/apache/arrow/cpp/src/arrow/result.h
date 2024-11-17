@@ -19,6 +19,7 @@
 #pragma once
 
 #include <cstddef>
+#include <functional>
 #include <new>
 #include <string>
 #include <type_traits>
