@@ -386,7 +386,7 @@ class ARROW_MUST_USE_TYPE Result : public util::EqualityComparable<Result<T>> {
   /// Apply a function to the internally stored value to produce a new result or propagate
   /// the stored error.
   template <typename M>
-  typename EnsureResult<typename std::result_of<M && (T)>::type>::type Map(M&& m) && {
+  typename EnsureResult<decltype(std::declval<M&&>()(std::declval<T&&>()))>::type Map(M&& m) && {
     if (!ok()) {
       return status();
     }
@@ -396,7 +396,7 @@ class ARROW_MUST_USE_TYPE Result : public util::EqualityComparable<Result<T>> {
   /// Apply a function to the internally stored value to produce a new result or propagate
   /// the stored error.
   template <typename M>
-  typename EnsureResult<typename std::result_of<M && (const T&)>::type>::type Map(
+  typename EnsureResult<decltype(std::declval<M&&>()(std::declval<const T&>()))>::type Map(
       M&& m) const& {
     if (!ok()) {
       return status();
