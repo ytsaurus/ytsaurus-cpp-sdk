@@ -17,6 +17,7 @@ find_package(linux-headers-generic REQUIRED)
 add_subdirectory(misc)
 add_subdirectory(http)
 add_subdirectory(https)
+add_subdirectory(test_framework)
 
 add_library(yt-yt-core)
 

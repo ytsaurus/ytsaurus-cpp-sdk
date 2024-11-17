@@ -743,14 +743,14 @@ void Deserialize(TRichYPath& richPath, TYsonPullParserCursor* cursor)
     Deserialize(richPath, ExtractTo<INodePtr>(cursor));
 }
 
-void ToProto(TString* protoPath, const TRichYPath& path)
+void ToProto(TProtobufString* protoPath, const TRichYPath& path)
 {
     *protoPath = ConvertToString(path, EYsonFormat::Binary);
 }
 
-void FromProto(TRichYPath* path, const TString& protoPath)
+void FromProto(TRichYPath* path, const TProtobufString& protoPath)
 {
-    *path = TRichYPath::Parse(protoPath);
+    *path = TRichYPath::Parse(TString(protoPath));
 }
 
 ////////////////////////////////////////////////////////////////////////////////

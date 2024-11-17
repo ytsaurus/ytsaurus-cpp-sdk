@@ -190,8 +190,8 @@ void Serialize(const TRichYPath& richPath, NYson::IYsonConsumer* consumer);
 void Deserialize(TRichYPath& richPath, NYTree::INodePtr node);
 void Deserialize(TRichYPath& richPath, NYson::TYsonPullParserCursor* cursor);
 
-void ToProto(TString* protoPath, const TRichYPath& path);
-void FromProto(TRichYPath* path, const TString& protoPath);
+void ToProto(TProtobufString* protoPath, const TRichYPath& path);
+void FromProto(TRichYPath* path, const TProtobufString& protoPath);
 
 ////////////////////////////////////////////////////////////////////////////////
 
