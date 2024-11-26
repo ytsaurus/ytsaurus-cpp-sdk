@@ -15,6 +15,7 @@
 find_package(linux-headers-generic REQUIRED)
 
 add_subdirectory(resource_tracker)
+add_subdirectory(solomon)
 
 add_library(yt-library-profiling)
 

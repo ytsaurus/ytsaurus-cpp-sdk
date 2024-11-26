@@ -12,9 +12,8 @@
 # Please refer to the build instructions in the repository for more information about manual
 # changes in this file.
 
-add_subdirectory(algorithm)
-add_subdirectory(base)
 add_subdirectory(container)
+add_subdirectory(base)
 add_subdirectory(debugging)
 add_subdirectory(hash)
 add_subdirectory(numeric)
@@ -25,6 +24,7 @@ add_subdirectory(meta)
 add_subdirectory(profiling)
 add_subdirectory(synchronization)
 add_subdirectory(time)
+add_subdirectory(algorithm)
 add_subdirectory(flags)
 add_subdirectory(functional)
 add_subdirectory(log)
