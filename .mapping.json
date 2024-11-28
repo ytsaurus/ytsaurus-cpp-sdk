@@ -94,6 +94,7 @@
   "contrib/libs/utf8proc/CMakeLists.txt":"",
   "contrib/libs/xxhash/CMakeLists.txt":"",
   "contrib/libs/yajl/CMakeLists.txt":"",
+  "contrib/libs/yaml/CMakeLists.txt":"",
   "contrib/libs/zlib/CMakeLists.txt":"",
   "contrib/libs/zstd/CMakeLists.txt":"",
   "contrib/libs/zstd06/CMakeLists.txt":"",
