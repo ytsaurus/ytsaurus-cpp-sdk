@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - members/nadya73/check-protobuf-string
 
 env:
   ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
