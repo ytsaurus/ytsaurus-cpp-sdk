@@ -21,6 +21,7 @@ add_library(yt-library-quantile_digest)
 
 target_compile_options(yt-library-quantile_digest PRIVATE
   -Wdeprecated-this-capture
+  -Wimplicit-fallthrough
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 

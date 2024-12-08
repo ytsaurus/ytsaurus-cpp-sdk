@@ -25,6 +25,7 @@ add_library(yt-yt-core)
 target_compile_options(yt-yt-core PRIVATE
   -mpclmul
   -Wdeprecated-this-capture
+  -Wimplicit-fallthrough
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 
@@ -353,6 +354,7 @@ add_global_library_for(yt-yt-core.global
 target_compile_options(yt-yt-core.global PRIVATE
   -mpclmul
   -Wdeprecated-this-capture
+  -Wimplicit-fallthrough
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 

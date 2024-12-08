@@ -21,6 +21,7 @@ add_executable(unittester-client-table-client)
 
 target_compile_options(unittester-client-table-client PRIVATE
   -Wdeprecated-this-capture
+  -Wimplicit-fallthrough
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 

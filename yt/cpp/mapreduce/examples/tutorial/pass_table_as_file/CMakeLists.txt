@@ -19,6 +19,7 @@ add_executable(pass_table_as_file)
 
 target_compile_options(pass_table_as_file PRIVATE
   -Wdeprecated-this-capture
+  -Wimplicit-fallthrough
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 

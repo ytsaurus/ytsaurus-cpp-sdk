@@ -19,6 +19,7 @@ add_library(library-ytprof-api)
 
 target_compile_options(library-ytprof-api PRIVATE
   -Wdeprecated-this-capture
+  -Wimplicit-fallthrough
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 

@@ -19,6 +19,7 @@ add_executable(yt-yt-client-api-unittests)
 
 target_compile_options(yt-yt-client-api-unittests PRIVATE
   -Wdeprecated-this-capture
+  -Wimplicit-fallthrough
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 

@@ -19,6 +19,7 @@ add_library(yt-library-auth)
 
 target_compile_options(yt-library-auth PRIVATE
   -Wdeprecated-this-capture
+  -Wimplicit-fallthrough
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 

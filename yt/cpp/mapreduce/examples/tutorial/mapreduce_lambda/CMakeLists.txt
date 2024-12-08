@@ -21,6 +21,7 @@ add_executable(mapreduce_lambda)
 
 target_compile_options(mapreduce_lambda PRIVATE
   -Wdeprecated-this-capture
+  -Wimplicit-fallthrough
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 

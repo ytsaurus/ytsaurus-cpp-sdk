@@ -21,6 +21,7 @@ add_executable(prepare_operation)
 
 target_compile_options(prepare_operation PRIVATE
   -Wdeprecated-this-capture
+  -Wimplicit-fallthrough
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 

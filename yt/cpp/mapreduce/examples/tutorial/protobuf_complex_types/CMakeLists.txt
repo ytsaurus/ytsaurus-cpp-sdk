@@ -21,6 +21,7 @@ add_executable(protobuf_complex_types)
 
 target_compile_options(protobuf_complex_types PRIVATE
   -Wdeprecated-this-capture
+  -Wimplicit-fallthrough
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 

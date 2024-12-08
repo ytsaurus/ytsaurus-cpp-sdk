@@ -19,6 +19,7 @@ add_library(yt-client-driver)
 
 target_compile_options(yt-client-driver PRIVATE
   -Wdeprecated-this-capture
+  -Wimplicit-fallthrough
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 

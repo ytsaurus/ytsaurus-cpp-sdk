@@ -19,6 +19,7 @@ add_library(mapreduce-library-lazy_sort)
 
 target_compile_options(mapreduce-library-lazy_sort PRIVATE
   -Wdeprecated-this-capture
+  -Wimplicit-fallthrough
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 

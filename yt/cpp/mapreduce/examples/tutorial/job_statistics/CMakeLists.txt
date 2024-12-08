@@ -19,6 +19,7 @@ add_executable(job_statistics)
 
 target_compile_options(job_statistics PRIVATE
   -Wdeprecated-this-capture
+  -Wimplicit-fallthrough
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 

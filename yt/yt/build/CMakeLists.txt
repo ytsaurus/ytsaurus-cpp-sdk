@@ -51,6 +51,7 @@ add_library(yt-yt-build)
 
 target_compile_options(yt-yt-build PRIVATE
   -Wdeprecated-this-capture
+  -Wimplicit-fallthrough
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 

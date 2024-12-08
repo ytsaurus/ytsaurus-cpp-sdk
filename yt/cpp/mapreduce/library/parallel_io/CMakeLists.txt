@@ -22,6 +22,7 @@ add_library(mapreduce-library-parallel_io)
 
 target_compile_options(mapreduce-library-parallel_io PRIVATE
   -Wdeprecated-this-capture
+  -Wimplicit-fallthrough
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 

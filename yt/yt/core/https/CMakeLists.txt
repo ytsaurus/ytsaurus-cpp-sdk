@@ -19,6 +19,7 @@ add_library(yt-core-https)
 
 target_compile_options(yt-core-https PRIVATE
   -Wdeprecated-this-capture
+  -Wimplicit-fallthrough
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 

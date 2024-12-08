@@ -19,6 +19,7 @@ add_library(yt-library-re2)
 
 target_compile_options(yt-library-re2 PRIVATE
   -Wdeprecated-this-capture
+  -Wimplicit-fallthrough
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 

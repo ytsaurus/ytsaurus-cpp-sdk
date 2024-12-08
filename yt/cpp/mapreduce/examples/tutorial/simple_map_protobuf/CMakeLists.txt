@@ -21,6 +21,7 @@ add_executable(simple_map_protobuf)
 
 target_compile_options(simple_map_protobuf PRIVATE
   -Wdeprecated-this-capture
+  -Wimplicit-fallthrough
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 

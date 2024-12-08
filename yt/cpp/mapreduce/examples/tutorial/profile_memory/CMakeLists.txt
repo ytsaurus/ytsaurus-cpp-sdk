@@ -19,6 +19,7 @@ add_executable(profile_memory)
 
 target_compile_options(profile_memory PRIVATE
   -Wdeprecated-this-capture
+  -Wimplicit-fallthrough
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 

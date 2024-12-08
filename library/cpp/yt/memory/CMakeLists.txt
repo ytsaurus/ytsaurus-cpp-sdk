@@ -19,6 +19,7 @@ add_library(cpp-yt-memory)
 
 target_compile_options(cpp-yt-memory PRIVATE
   -Wdeprecated-this-capture
+  -Wimplicit-fallthrough
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 

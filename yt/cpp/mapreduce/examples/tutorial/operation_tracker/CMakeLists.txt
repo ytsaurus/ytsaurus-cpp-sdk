@@ -19,6 +19,7 @@ add_executable(operation_tracker)
 
 target_compile_options(operation_tracker PRIVATE
   -Wdeprecated-this-capture
+  -Wimplicit-fallthrough
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 

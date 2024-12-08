@@ -19,6 +19,7 @@ add_executable(cpp-mapreduce-tests-native-operations_core_http)
 
 target_compile_options(cpp-mapreduce-tests-native-operations_core_http PRIVATE
   -Wdeprecated-this-capture
+  -Wimplicit-fallthrough
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 

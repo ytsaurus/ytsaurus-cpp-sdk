@@ -19,6 +19,7 @@ add_library(cpp-yt-assert)
 
 target_compile_options(cpp-yt-assert PRIVATE
   -Wdeprecated-this-capture
+  -Wimplicit-fallthrough
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 

@@ -19,6 +19,7 @@ add_library(backtrace-cursors-libunwind)
 
 target_compile_options(backtrace-cursors-libunwind PRIVATE
   -Wdeprecated-this-capture
+  -Wimplicit-fallthrough
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 

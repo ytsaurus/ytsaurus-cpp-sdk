@@ -19,6 +19,7 @@ add_library(yt-library-column_converters)
 
 target_compile_options(yt-library-column_converters PRIVATE
   -Wdeprecated-this-capture
+  -Wimplicit-fallthrough
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 

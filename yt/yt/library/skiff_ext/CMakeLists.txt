@@ -19,6 +19,7 @@ add_library(yt-library-skiff_ext)
 
 target_compile_options(yt-library-skiff_ext PRIVATE
   -Wdeprecated-this-capture
+  -Wimplicit-fallthrough
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 

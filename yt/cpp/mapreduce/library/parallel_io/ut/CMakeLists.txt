@@ -21,6 +21,7 @@ add_executable(yt-cpp-mapreduce-library-parallel_io-ut)
 
 target_compile_options(yt-cpp-mapreduce-library-parallel_io-ut PRIVATE
   -Wdeprecated-this-capture
+  -Wimplicit-fallthrough
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 

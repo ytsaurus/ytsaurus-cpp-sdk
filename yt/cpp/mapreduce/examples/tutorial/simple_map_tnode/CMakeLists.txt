@@ -19,6 +19,7 @@ add_executable(simple_map_tnode)
 
 target_compile_options(simple_map_tnode PRIVATE
   -Wdeprecated-this-capture
+  -Wimplicit-fallthrough
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 

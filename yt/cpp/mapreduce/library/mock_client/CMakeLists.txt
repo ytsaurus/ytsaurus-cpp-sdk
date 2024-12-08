@@ -19,6 +19,7 @@ add_library(mapreduce-library-mock_client)
 
 target_compile_options(mapreduce-library-mock_client PRIVATE
   -Wdeprecated-this-capture
+  -Wimplicit-fallthrough
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 

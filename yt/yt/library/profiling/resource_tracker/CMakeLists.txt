@@ -19,6 +19,7 @@ add_library(library-profiling-resource_tracker)
 
 target_compile_options(library-profiling-resource_tracker PRIVATE
   -Wdeprecated-this-capture
+  -Wimplicit-fallthrough
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 

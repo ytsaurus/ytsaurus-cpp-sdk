@@ -21,6 +21,7 @@ add_library(cpp-mapreduce-raw_client)
 
 target_compile_options(cpp-mapreduce-raw_client PRIVATE
   -Wdeprecated-this-capture
+  -Wimplicit-fallthrough
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 

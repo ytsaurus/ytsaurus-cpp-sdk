@@ -21,6 +21,7 @@ add_library(library-profiling-solomon)
 
 target_compile_options(library-profiling-solomon PRIVATE
   -Wdeprecated-this-capture
+  -Wimplicit-fallthrough
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 

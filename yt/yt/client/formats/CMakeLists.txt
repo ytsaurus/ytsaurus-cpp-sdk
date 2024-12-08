@@ -19,6 +19,7 @@ add_library(yt-client-formats)
 
 target_compile_options(yt-client-formats PRIVATE
   -Wdeprecated-this-capture
+  -Wimplicit-fallthrough
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 

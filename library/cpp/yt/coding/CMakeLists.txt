@@ -19,6 +19,7 @@ add_library(cpp-yt-coding INTERFACE)
 
 target_compile_options(cpp-yt-coding INTERFACE
   -Wdeprecated-this-capture
+  -Wimplicit-fallthrough
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 

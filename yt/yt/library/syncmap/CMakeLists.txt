@@ -19,6 +19,7 @@ add_library(yt-library-syncmap INTERFACE)
 
 target_compile_options(yt-library-syncmap INTERFACE
   -Wdeprecated-this-capture
+  -Wimplicit-fallthrough
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 

@@ -21,6 +21,7 @@ add_executable(multiple_input_multiple_output_reduce_protobuf)
 
 target_compile_options(multiple_input_multiple_output_reduce_protobuf PRIVATE
   -Wdeprecated-this-capture
+  -Wimplicit-fallthrough
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 

@@ -19,6 +19,7 @@ add_executable(yt-yt-client-cache-unittests)
 
 target_compile_options(yt-yt-client-cache-unittests PRIVATE
   -Wdeprecated-this-capture
+  -Wimplicit-fallthrough
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 

@@ -19,6 +19,7 @@ add_executable(dyntable_get_insert)
 
 target_compile_options(dyntable_get_insert PRIVATE
   -Wdeprecated-this-capture
+  -Wimplicit-fallthrough
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 

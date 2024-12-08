@@ -19,6 +19,7 @@ add_library(mapreduce-library-lambda)
 
 target_compile_options(mapreduce-library-lambda PRIVATE
   -Wdeprecated-this-capture
+  -Wimplicit-fallthrough
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 

@@ -21,6 +21,7 @@ add_library(tests-native-proto_lib)
 
 target_compile_options(tests-native-proto_lib PRIVATE
   -Wdeprecated-this-capture
+  -Wimplicit-fallthrough
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 

@@ -19,6 +19,7 @@ add_library(yt-library-tvm)
 
 target_compile_options(yt-library-tvm PRIVATE
   -Wdeprecated-this-capture
+  -Wimplicit-fallthrough
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 

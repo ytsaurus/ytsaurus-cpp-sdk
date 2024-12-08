@@ -21,6 +21,7 @@ add_library(parallel_io-ut-proto)
 
 target_compile_options(parallel_io-ut-proto PRIVATE
   -Wdeprecated-this-capture
+  -Wimplicit-fallthrough
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 

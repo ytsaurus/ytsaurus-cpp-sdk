@@ -28,6 +28,7 @@ add_library(mapreduce-interface-logging)
 
 target_compile_options(mapreduce-interface-logging PRIVATE
   -Wdeprecated-this-capture
+  -Wimplicit-fallthrough
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 

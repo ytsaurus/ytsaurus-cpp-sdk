@@ -21,6 +21,7 @@ add_library(yt-client-hedging)
 
 target_compile_options(yt-client-hedging PRIVATE
   -Wdeprecated-this-capture
+  -Wimplicit-fallthrough
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 
