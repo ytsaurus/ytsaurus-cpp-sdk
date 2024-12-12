@@ -1,9 +1,21 @@
 name: Check
 
 on:
-  push:
-    branches:
-      - main
+  workflow_call:
+    inputs:
+      commit-sha:
+        required: false
+        type: string
+    secrets:
+      YC_SA_JSON_CREDENTIALS:
+        required: true
+      GH_PERSONAL_ACCESS_TOKEN:
+        required: true
+      YC_VM_USERNAME:
+        required: true
+      YC_VM_SSH_PUBLIC_KEY:
+        required: true
+
 
 env:
   ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
@@ -44,6 +56,12 @@ jobs:
     steps:
       - name: Checkout ytsaurus-cpp-sdk
         uses: actions/checkout@v3
+
+      - name: Checkout PR
+        if: ${{ inputs.commit-sha }}
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ inputs.commit-sha }}
 
   build:
     name: Build
@@ -106,25 +124,3 @@ jobs:
           github-token: ${{ secrets.GH_PERSONAL_ACCESS_TOKEN }}
           label: ${{ needs.start-vm.outputs.label }}
           instance-id: ${{ needs.start-vm.outputs.instance-id }}
-
-  send-notifications:
-    name: Send notifications
-    needs:
-      - stop-vm
-    runs-on: ubuntu-latest
-    if: ${{ failure() }}
-    steps:
-      - name: Send telegram message
-        uses: appleboy/telegram-action@master
-        with:
-          to: ${{ secrets.TELEGRAM_CHAT_ID }}
-          token: ${{ secrets.TELEGRAM_TOKEN }}
-          disable_web_page_preview: true
-          format: markdown
-          message: |
-            Workflow *${{github.workflow}}* failed: ${{github.server_url}}/${{github.repository}}/actions/runs/${{github.run_id}}.
-            Git ${{github.ref_type}}: *${{github.ref_name}}*.
-            Commit:
-            ```
-            ${{github.event.head_commit.message}}
-            ```

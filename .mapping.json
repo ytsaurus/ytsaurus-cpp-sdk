@@ -1,7 +1,9 @@
 {
   ".":"yt/opensource/repos/ytsaurus-cpp-sdk/github_toplevel",
   ".github/pull_request_template.md":"yt/opensource/repos/ytsaurus-cpp-sdk/github_toplevel/.github/pull_request_template.md",
-  ".github/workflows/check.yaml":"yt/opensource/repos/ytsaurus-cpp-sdk/github_toplevel/.github/workflows/check.yaml",
+  ".github/workflows/on-push.yaml":"yt/opensource/repos/ytsaurus-cpp-sdk/github_toplevel/.github/workflows/on-push.yaml",
+  ".github/workflows/pr-check-is-allowed.yaml":"yt/opensource/repos/ytsaurus-cpp-sdk/github_toplevel/.github/workflows/pr-check-is-allowed.yaml",
+  ".github/workflows/run-check.yaml":"yt/opensource/repos/ytsaurus-cpp-sdk/github_toplevel/.github/workflows/run-check.yaml",
   "AUTHORS":"yt/opensource/repos/ytsaurus-cpp-sdk/github_toplevel/AUTHORS",
   "CMakeLists.linux-x86_64.txt":"",
   "CMakeLists.txt":"",
