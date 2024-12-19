@@ -389,6 +389,8 @@
   "yt/yt/client/hedging/unittests/CMakeLists.txt":"",
   "yt/yt/client/logging/CMakeLists.txt":"",
   "yt/yt/client/query_tracker_client/CMakeLists.txt":"",
+  "yt/yt/client/signature/CMakeLists.txt":"",
+  "yt/yt/client/signature/unittests/CMakeLists.txt":"",
   "yt/yt/client/table_client/CMakeLists.txt":"",
   "yt/yt/client/table_client/unittests/CMakeLists.txt":"",
   "yt/yt/client/table_client/unittests/helpers/CMakeLists.txt":"",

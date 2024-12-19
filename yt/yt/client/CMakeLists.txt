@@ -16,6 +16,7 @@ find_package(linux-headers-generic REQUIRED)
 
 add_subdirectory(query_tracker_client)
 add_subdirectory(api)
+add_subdirectory(signature)
 add_subdirectory(table_client)
 add_subdirectory(formats)
 add_subdirectory(arrow)
@@ -148,6 +149,7 @@ target_sources(yt-yt-client PRIVATE
   ${PROJECT_SOURCE_DIR}/yt/yt/client/security_client/access_control.cpp
   ${PROJECT_SOURCE_DIR}/yt/yt/client/security_client/public.cpp
   ${PROJECT_SOURCE_DIR}/yt/yt/client/security_client/helpers.cpp
+  ${PROJECT_SOURCE_DIR}/yt/yt/client/signature/signature.cpp
   ${PROJECT_SOURCE_DIR}/yt/yt/client/table_client/public.cpp
   ${PROJECT_SOURCE_DIR}/yt/yt/client/table_client/adapters.cpp
   ${PROJECT_SOURCE_DIR}/yt/yt/client/table_client/table_output.cpp
