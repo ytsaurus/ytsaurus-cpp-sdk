@@ -36,3 +36,26 @@ target_sources(library-profiling-resource_tracker PRIVATE
   ${PROJECT_SOURCE_DIR}/yt/yt/library/profiling/resource_tracker/resource_tracker.cpp
 )
 
+
+add_global_library_for(library-profiling-resource_tracker.global
+  library-profiling-resource_tracker)
+
+
+target_compile_options(library-profiling-resource_tracker.global PRIVATE
+  -Wdeprecated-this-capture
+  -Wimplicit-fallthrough
+  -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
+)
+
+target_link_libraries(library-profiling-resource_tracker.global PUBLIC
+  linux-headers-generic::linux-headers-generic
+  contrib-libs-cxxsupp
+  yutil
+  yt-library-profiling
+  yt_proto-yt-core
+)
+
+target_sources(library-profiling-resource_tracker.global PRIVATE
+  ${PROJECT_SOURCE_DIR}/yt/yt/library/profiling/resource_tracker/configure_resource_tracker.cpp
+)
+
