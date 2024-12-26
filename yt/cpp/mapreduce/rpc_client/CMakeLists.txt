@@ -12,15 +12,28 @@
 # Please refer to the build instructions in the repository for more information about manual
 # changes in this file.
 
-add_subdirectory(common)
-add_subdirectory(interface)
-add_subdirectory(client)
-add_subdirectory(http)
-add_subdirectory(io)
-add_subdirectory(skiff)
-add_subdirectory(raw_client)
-add_subdirectory(rpc_client)
-add_subdirectory(util)
-add_subdirectory(examples)
-add_subdirectory(library)
-add_subdirectory(tests)
+find_package(linux-headers-generic REQUIRED)
+
+add_library(cpp-mapreduce-rpc_client)
+
+
+target_compile_options(cpp-mapreduce-rpc_client PRIVATE
+  -Wdeprecated-this-capture
+  -Wimplicit-fallthrough
+  -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
+)
+
+target_link_libraries(cpp-mapreduce-rpc_client PUBLIC
+  linux-headers-generic::linux-headers-generic
+  contrib-libs-cxxsupp
+  yutil
+  cpp-yson-node
+  cpp-mapreduce-interface
+  yt-yt-client
+)
+
+target_sources(cpp-mapreduce-rpc_client PRIVATE
+  ${PROJECT_SOURCE_DIR}/yt/cpp/mapreduce/rpc_client/raw_client.cpp
+  ${PROJECT_SOURCE_DIR}/yt/cpp/mapreduce/rpc_client/rpc_parameters_serialization.cpp
+)
+

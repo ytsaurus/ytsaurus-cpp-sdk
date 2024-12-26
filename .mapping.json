@@ -359,6 +359,7 @@
   "yt/cpp/mapreduce/library/user_job_statistics/CMakeLists.txt":"",
   "yt/cpp/mapreduce/raw_client/CMakeLists.txt":"",
   "yt/cpp/mapreduce/raw_client/ut/CMakeLists.txt":"",
+  "yt/cpp/mapreduce/rpc_client/CMakeLists.txt":"",
   "yt/cpp/mapreduce/skiff/CMakeLists.txt":"",
   "yt/cpp/mapreduce/tests/CMakeLists.txt":"",
   "yt/cpp/mapreduce/tests/gtest_main/CMakeLists.txt":"",
