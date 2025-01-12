@@ -65,7 +65,7 @@ target_link_libraries(yt-yt-core PUBLIC
   cpp-yt-backtrace
   cpp-yt-coding
   cpp-yt-malloc
-  cpp-yt-small_containers
+  cpp-yt-compact_containers
   cpp-yt-system
   cpp-yt-threading
   yt-library-syncmap
@@ -390,7 +390,7 @@ target_link_libraries(yt-yt-core.global PUBLIC
   cpp-yt-backtrace
   cpp-yt-coding
   cpp-yt-malloc
-  cpp-yt-small_containers
+  cpp-yt-compact_containers
   cpp-yt-system
   cpp-yt-threading
   yt-library-syncmap

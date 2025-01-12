@@ -14,16 +14,16 @@
 
 find_package(linux-headers-generic REQUIRED)
 
-add_library(cpp-yt-small_containers INTERFACE)
+add_library(cpp-yt-compact_containers INTERFACE)
 
 
-target_compile_options(cpp-yt-small_containers INTERFACE
+target_compile_options(cpp-yt-compact_containers INTERFACE
   -Wdeprecated-this-capture
   -Wimplicit-fallthrough
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 
-target_link_libraries(cpp-yt-small_containers INTERFACE
+target_link_libraries(cpp-yt-compact_containers INTERFACE
   linux-headers-generic::linux-headers-generic
   contrib-libs-cxxsupp
   yutil
