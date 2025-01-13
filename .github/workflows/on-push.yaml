@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - members/ilyaibraev/update-ci-ubuntu20
 
 env:
   ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
