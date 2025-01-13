@@ -82,7 +82,7 @@ jobs:
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DREQUIRED_LLVM_TOOLING_VERSION=16 \
             -DCMAKE_CXX_FLAGS_INIT="-stdlib=libc++" \
-            -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=../ytsaurus-cpp-sdk/cmake/conan_provider.cmake ../ytsaurus-cpp-sdk \
+            -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=../ytsaurus-cpp-sdk/cmake/conan_provider.cmake \
             ../ytsaurus-cpp-sdk
           export CCACHE_BASEDIR="$(realpath ..)"
           export CCACHE_REMOTE_ONLY=true
