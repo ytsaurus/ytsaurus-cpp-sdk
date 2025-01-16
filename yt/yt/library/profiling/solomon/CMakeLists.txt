@@ -50,7 +50,6 @@ target_sources(library-profiling-solomon PRIVATE
   ${PROJECT_SOURCE_DIR}/yt/yt/library/profiling/solomon/percpu.cpp
   ${PROJECT_SOURCE_DIR}/yt/yt/library/profiling/solomon/producer.cpp
   ${PROJECT_SOURCE_DIR}/yt/yt/library/profiling/solomon/proxy.cpp
-  ${PROJECT_SOURCE_DIR}/yt/yt/library/profiling/solomon/registry.cpp
   ${PROJECT_SOURCE_DIR}/yt/yt/library/profiling/solomon/remote.cpp
   ${PROJECT_SOURCE_DIR}/yt/yt/library/profiling/solomon/sensor.cpp
   ${PROJECT_SOURCE_DIR}/yt/yt/library/profiling/solomon/sensor_service.cpp
@@ -77,3 +76,35 @@ target_proto_addincls(library-profiling-solomon
   ${PROJECT_BINARY_DIR}
   ${protobuf_INCLUDE_DIRS}
 )
+
+add_global_library_for(library-profiling-solomon.global
+  library-profiling-solomon)
+
+
+target_compile_options(library-profiling-solomon.global PRIVATE
+  -Wdeprecated-this-capture
+  -Wimplicit-fallthrough
+  -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
+)
+
+target_link_libraries(library-profiling-solomon.global PUBLIC
+  linux-headers-generic::linux-headers-generic
+  contrib-libs-cxxsupp
+  yutil
+  yt-library-profiling
+  yt-yt-core
+  yt-core-http
+  library-cpp-cgiparam
+  cpp-monlib-metrics
+  monlib-encode-prometheus
+  monlib-encode-spack
+  monlib-encode-json
+  cpp-yt-threading
+  protobuf::libprotobuf
+  protobuf::libprotoc
+)
+
+target_sources(library-profiling-solomon.global PRIVATE
+  ${PROJECT_SOURCE_DIR}/yt/yt/library/profiling/solomon/registry.cpp
+)
+
