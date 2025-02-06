@@ -81,7 +81,6 @@
   "contrib/libs/lzmasdk/CMakeLists.txt":"",
   "contrib/libs/nayuki_md5/CMakeLists.txt":"",
   "contrib/libs/openssl/CMakeLists.txt":"",
-  "contrib/libs/openssl/crypto/CMakeLists.txt":"",
   "contrib/libs/pcre/CMakeLists.txt":"",
   "contrib/libs/pcre/pcre16/CMakeLists.txt":"",
   "contrib/libs/pcre/pcre32/CMakeLists.txt":"",
