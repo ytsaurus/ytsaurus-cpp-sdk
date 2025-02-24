@@ -82,6 +82,7 @@ jobs:
             -DCMAKE_TOOLCHAIN_FILE=../ytsaurus-cpp-sdk/clang.toolchain \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=../ytsaurus-cpp-sdk/cmake/conan_provider.cmake \
             -DREQUIRED_LLVM_TOOLING_VERSION=16 \
             -DCMAKE_CXX_FLAGS_INIT="-stdlib=libc++" \
             ../ytsaurus-cpp-sdk
@@ -101,6 +102,7 @@ jobs:
             -DCMAKE_TOOLCHAIN_FILE=../ytsaurus-cpp-sdk/clang.toolchain \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=../ytsaurus-cpp-sdk/cmake/conan_provider.cmake \
             -DREQUIRED_LLVM_TOOLING_VERSION=16 \
             -DCMAKE_CXX_FLAGS_INIT="-stdlib=libstdc++ -std=c++20" \
             ../ytsaurus-cpp-sdk
