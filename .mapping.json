@@ -5,6 +5,7 @@
   ".github/workflows/pr-check-is-allowed.yaml":"yt/opensource/repos/ytsaurus-cpp-sdk/github_toplevel/.github/workflows/pr-check-is-allowed.yaml",
   ".github/workflows/run-check.yaml":"yt/opensource/repos/ytsaurus-cpp-sdk/github_toplevel/.github/workflows/run-check.yaml",
   "AUTHORS":"yt/opensource/repos/ytsaurus-cpp-sdk/github_toplevel/AUTHORS",
+  "BUILD.md":"yt/opensource/repos/ytsaurus-cpp-sdk/github_toplevel/BUILD.md",
   "CMakeLists.linux-x86_64.txt":"",
   "CMakeLists.txt":"",
   "CODE_OF_CONDUCT.md":"yt/opensource/repos/ytsaurus-cpp-sdk/github_toplevel/CODE_OF_CONDUCT.md",
