@@ -371,6 +371,7 @@
   "yt/cpp/mapreduce/tests/native/misc/CMakeLists.txt":"",
   "yt/cpp/mapreduce/tests/native/misc_core_http/CMakeLists.txt":"",
   "yt/cpp/mapreduce/tests/native/operations/CMakeLists.txt":"",
+  "yt/cpp/mapreduce/tests/native/operations/remote/CMakeLists.txt":"",
   "yt/cpp/mapreduce/tests/native/operations_core_http/CMakeLists.txt":"",
   "yt/cpp/mapreduce/tests/native/proto_lib/CMakeLists.txt":"",
   "yt/cpp/mapreduce/tests/yt_unittest_lib/CMakeLists.txt":"",
