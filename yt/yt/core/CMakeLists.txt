@@ -74,6 +74,7 @@ target_link_libraries(yt-yt-core PUBLIC
   yt-library-profiling
   library-profiling-resource_tracker
   yt-library-tracing
+  yt-library-numeric
   backtrace-cursors-libunwind
 )
 
@@ -400,6 +401,7 @@ target_link_libraries(yt-yt-core.global PUBLIC
   yt-library-profiling
   library-profiling-resource_tracker
   yt-library-tracing
+  yt-library-numeric
   backtrace-cursors-libunwind
 )
 
