@@ -12,21 +12,30 @@
 # Please refer to the build instructions in the repository for more information about manual
 # changes in this file.
 
-add_subdirectory(syncmap)
-add_subdirectory(undumpable)
-add_subdirectory(profiling)
-add_subdirectory(ytprof)
-add_subdirectory(signals)
-add_subdirectory(procfs)
-add_subdirectory(tracing)
-add_subdirectory(numeric)
-add_subdirectory(auth)
-add_subdirectory(tvm)
-add_subdirectory(decimal)
-add_subdirectory(re2)
-add_subdirectory(erasure)
-add_subdirectory(quantile_digest)
-add_subdirectory(formats)
-add_subdirectory(skiff_ext)
-add_subdirectory(column_converters)
-add_subdirectory(named_value)
+find_package(linux-headers-generic REQUIRED)
+
+add_library(yt-library-signals)
+
+
+target_compile_options(yt-library-signals PRIVATE
+  -Wdeprecated-this-capture
+  -Wimplicit-fallthrough
+  -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
+)
+
+target_link_libraries(yt-library-signals PUBLIC
+  linux-headers-generic::linux-headers-generic
+  contrib-libs-cxxsupp
+  yutil
+  cpp-yt-assert
+  cpp-yt-error
+  cpp-yt-misc
+  cpp-yt-system
+  yt-library-procfs
+)
+
+target_sources(yt-library-signals PRIVATE
+  ${PROJECT_SOURCE_DIR}/yt/yt/library/signals/signal_registry.cpp
+  ${PROJECT_SOURCE_DIR}/yt/yt/library/signals/signal_blocking.cpp
+)
+
