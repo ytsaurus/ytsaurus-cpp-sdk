@@ -20,6 +20,9 @@ add_library(client-unittests-mock)
 target_compile_options(client-unittests-mock PRIVATE
   -Wdeprecated-this-capture
   -Wimplicit-fallthrough
+  -Wparentheses
+  -Wno-logical-op-parentheses
+  -Wno-bitwise-op-parentheses
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 

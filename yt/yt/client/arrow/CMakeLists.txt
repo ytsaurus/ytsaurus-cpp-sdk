@@ -22,6 +22,9 @@ add_library(yt-client-arrow)
 target_compile_options(yt-client-arrow PRIVATE
   -Wdeprecated-this-capture
   -Wimplicit-fallthrough
+  -Wparentheses
+  -Wno-logical-op-parentheses
+  -Wno-bitwise-op-parentheses
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 

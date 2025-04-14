@@ -20,6 +20,9 @@ add_executable(map_tnode_with_file)
 target_compile_options(map_tnode_with_file PRIVATE
   -Wdeprecated-this-capture
   -Wimplicit-fallthrough
+  -Wparentheses
+  -Wno-logical-op-parentheses
+  -Wno-bitwise-op-parentheses
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 

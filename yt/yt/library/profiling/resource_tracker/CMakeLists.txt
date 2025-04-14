@@ -20,6 +20,9 @@ add_library(library-profiling-resource_tracker)
 target_compile_options(library-profiling-resource_tracker PRIVATE
   -Wdeprecated-this-capture
   -Wimplicit-fallthrough
+  -Wparentheses
+  -Wno-logical-op-parentheses
+  -Wno-bitwise-op-parentheses
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 
@@ -44,6 +47,9 @@ add_global_library_for(library-profiling-resource_tracker.global
 target_compile_options(library-profiling-resource_tracker.global PRIVATE
   -Wdeprecated-this-capture
   -Wimplicit-fallthrough
+  -Wparentheses
+  -Wno-logical-op-parentheses
+  -Wno-bitwise-op-parentheses
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 

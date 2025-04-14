@@ -20,6 +20,9 @@ add_library(yt-core-test_framework)
 target_compile_options(yt-core-test_framework PRIVATE
   -Wdeprecated-this-capture
   -Wimplicit-fallthrough
+  -Wparentheses
+  -Wno-logical-op-parentheses
+  -Wno-bitwise-op-parentheses
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 
@@ -50,6 +53,9 @@ add_global_library_for(yt-core-test_framework.global
 target_compile_options(yt-core-test_framework.global PRIVATE
   -Wdeprecated-this-capture
   -Wimplicit-fallthrough
+  -Wparentheses
+  -Wno-logical-op-parentheses
+  -Wno-bitwise-op-parentheses
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 

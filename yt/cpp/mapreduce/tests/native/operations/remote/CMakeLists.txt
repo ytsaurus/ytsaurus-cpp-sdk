@@ -20,6 +20,9 @@ add_executable(yt-cpp-mapreduce-tests-native-operations-remote)
 target_compile_options(yt-cpp-mapreduce-tests-native-operations-remote PRIVATE
   -Wdeprecated-this-capture
   -Wimplicit-fallthrough
+  -Wparentheses
+  -Wno-logical-op-parentheses
+  -Wno-bitwise-op-parentheses
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 

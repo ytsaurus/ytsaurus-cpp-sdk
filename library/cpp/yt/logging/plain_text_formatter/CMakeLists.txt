@@ -20,6 +20,9 @@ add_library(yt-logging-plain_text_formatter)
 target_compile_options(yt-logging-plain_text_formatter PRIVATE
   -Wdeprecated-this-capture
   -Wimplicit-fallthrough
+  -Wparentheses
+  -Wno-logical-op-parentheses
+  -Wno-bitwise-op-parentheses
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 

@@ -20,6 +20,9 @@ add_library(mapreduce-library-lambda)
 target_compile_options(mapreduce-library-lambda PRIVATE
   -Wdeprecated-this-capture
   -Wimplicit-fallthrough
+  -Wparentheses
+  -Wno-logical-op-parentheses
+  -Wno-bitwise-op-parentheses
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 

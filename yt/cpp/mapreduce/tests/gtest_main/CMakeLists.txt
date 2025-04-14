@@ -20,6 +20,9 @@ add_library(mapreduce-tests-gtest_main)
 target_compile_options(mapreduce-tests-gtest_main PRIVATE
   -Wdeprecated-this-capture
   -Wimplicit-fallthrough
+  -Wparentheses
+  -Wno-logical-op-parentheses
+  -Wno-bitwise-op-parentheses
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 

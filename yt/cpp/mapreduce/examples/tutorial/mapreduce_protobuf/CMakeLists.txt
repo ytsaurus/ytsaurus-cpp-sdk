@@ -22,6 +22,9 @@ add_executable(mapreduce_protobuf)
 target_compile_options(mapreduce_protobuf PRIVATE
   -Wdeprecated-this-capture
   -Wimplicit-fallthrough
+  -Wparentheses
+  -Wno-logical-op-parentheses
+  -Wno-bitwise-op-parentheses
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 

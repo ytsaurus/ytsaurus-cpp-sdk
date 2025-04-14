@@ -22,6 +22,9 @@ add_library(library-profiling-solomon)
 target_compile_options(library-profiling-solomon PRIVATE
   -Wdeprecated-this-capture
   -Wimplicit-fallthrough
+  -Wparentheses
+  -Wno-logical-op-parentheses
+  -Wno-bitwise-op-parentheses
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 
@@ -84,6 +87,9 @@ add_global_library_for(library-profiling-solomon.global
 target_compile_options(library-profiling-solomon.global PRIVATE
   -Wdeprecated-this-capture
   -Wimplicit-fallthrough
+  -Wparentheses
+  -Wno-logical-op-parentheses
+  -Wno-bitwise-op-parentheses
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 

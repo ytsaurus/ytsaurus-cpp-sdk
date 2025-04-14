@@ -30,6 +30,9 @@ add_library(cpp-mapreduce-interface)
 target_compile_options(cpp-mapreduce-interface PRIVATE
   -Wdeprecated-this-capture
   -Wimplicit-fallthrough
+  -Wparentheses
+  -Wno-logical-op-parentheses
+  -Wno-bitwise-op-parentheses
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 

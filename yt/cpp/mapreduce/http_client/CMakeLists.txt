@@ -22,6 +22,9 @@ add_library(cpp-mapreduce-http_client)
 target_compile_options(cpp-mapreduce-http_client PRIVATE
   -Wdeprecated-this-capture
   -Wimplicit-fallthrough
+  -Wparentheses
+  -Wno-logical-op-parentheses
+  -Wno-bitwise-op-parentheses
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 
