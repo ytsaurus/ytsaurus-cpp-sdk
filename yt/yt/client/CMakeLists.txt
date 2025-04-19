@@ -16,6 +16,7 @@ find_package(linux-headers-generic REQUIRED)
 
 add_subdirectory(query_tracker_client)
 add_subdirectory(api)
+add_subdirectory(query_client)
 add_subdirectory(signature)
 add_subdirectory(table_client)
 add_subdirectory(formats)
