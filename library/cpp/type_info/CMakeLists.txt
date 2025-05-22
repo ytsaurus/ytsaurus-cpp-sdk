@@ -21,6 +21,8 @@ get_built_tool_path(
   enum_parser
 )
 
+add_subdirectory(tz)
+
 add_library(library-cpp-type_info)
 
 

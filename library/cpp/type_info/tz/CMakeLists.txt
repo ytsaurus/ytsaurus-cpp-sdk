@@ -12,22 +12,22 @@
 # Please refer to the build instructions in the repository for more information about manual
 # changes in this file.
 
-add_subdirectory(syncmap)
-add_subdirectory(undumpable)
-add_subdirectory(profiling)
-add_subdirectory(ytprof)
-add_subdirectory(signals)
-add_subdirectory(procfs)
-add_subdirectory(tracing)
-add_subdirectory(numeric)
-add_subdirectory(auth)
-add_subdirectory(tvm)
-add_subdirectory(decimal)
-add_subdirectory(erasure)
-add_subdirectory(quantile_digest)
-add_subdirectory(re2)
-add_subdirectory(tz_types)
-add_subdirectory(formats)
-add_subdirectory(skiff_ext)
-add_subdirectory(column_converters)
-add_subdirectory(named_value)
+find_package(linux-headers-generic REQUIRED)
+
+add_library(cpp-type_info-tz)
+
+
+target_compile_options(cpp-type_info-tz PRIVATE
+  -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
+)
+
+target_link_libraries(cpp-type_info-tz PUBLIC
+  linux-headers-generic::linux-headers-generic
+  contrib-libs-cxxsupp
+  yutil
+)
+
+target_sources(cpp-type_info-tz PRIVATE
+  ${PROJECT_SOURCE_DIR}/library/cpp/type_info/tz/tz.cpp
+)
+
