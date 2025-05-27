@@ -14,21 +14,37 @@
 
 find_package(linux-headers-generic REQUIRED)
 
-add_library(cpp-openssl-init)
+add_library(cpp-openssl-init INTERFACE)
 
 
-target_compile_options(cpp-openssl-init PRIVATE
+target_compile_options(cpp-openssl-init INTERFACE
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 
-target_link_libraries(cpp-openssl-init PUBLIC
+target_link_libraries(cpp-openssl-init INTERFACE
   linux-headers-generic::linux-headers-generic
   contrib-libs-cxxsupp
   yutil
   contrib-libs-openssl
 )
 
-target_sources(cpp-openssl-init PRIVATE
+
+add_global_library_for(cpp-openssl-init.global
+  cpp-openssl-init)
+
+
+target_compile_options(cpp-openssl-init.global PRIVATE
+  -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
+)
+
+target_link_libraries(cpp-openssl-init.global PUBLIC
+  linux-headers-generic::linux-headers-generic
+  contrib-libs-cxxsupp
+  yutil
+  contrib-libs-openssl
+)
+
+target_sources(cpp-openssl-init.global PRIVATE
   ${PROJECT_SOURCE_DIR}/library/cpp/openssl/init/init.cpp
 )
 
