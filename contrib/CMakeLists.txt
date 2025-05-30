@@ -13,4 +13,5 @@
 # changes in this file.
 
 add_subdirectory(libs)
+add_subdirectory(deprecated)
 add_subdirectory(restricted)

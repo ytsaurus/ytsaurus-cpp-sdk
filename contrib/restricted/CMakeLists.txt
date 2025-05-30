@@ -13,7 +13,6 @@
 # changes in this file.
 
 add_subdirectory(abseil-cpp)
-add_subdirectory(http-parser)
 add_subdirectory(googletest)
 add_subdirectory(fast_float)
 add_subdirectory(thrift)
