@@ -25,8 +25,8 @@ target_link_libraries(blockcodecs-codecs-brotli INTERFACE
   linux-headers-generic::linux-headers-generic
   contrib-libs-cxxsupp
   yutil
-  libs-brotli-enc
-  libs-brotli-dec
+  brotli-c-enc
+  brotli-c-dec
   cpp-blockcodecs-core
 )
 
@@ -43,8 +43,8 @@ target_link_libraries(blockcodecs-codecs-brotli.global PUBLIC
   linux-headers-generic::linux-headers-generic
   contrib-libs-cxxsupp
   yutil
-  libs-brotli-enc
-  libs-brotli-dec
+  brotli-c-enc
+  brotli-c-dec
   cpp-blockcodecs-core
 )
 

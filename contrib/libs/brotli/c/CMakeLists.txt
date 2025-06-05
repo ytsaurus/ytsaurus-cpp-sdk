@@ -12,24 +12,6 @@
 # Please refer to the build instructions in the repository for more information about manual
 # changes in this file.
 
-find_package(linux-headers-generic REQUIRED)
-
-add_library(cpp-streams-brotli)
-
-
-target_compile_options(cpp-streams-brotli PRIVATE
-  -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
-)
-
-target_link_libraries(cpp-streams-brotli PUBLIC
-  linux-headers-generic::linux-headers-generic
-  contrib-libs-cxxsupp
-  yutil
-  brotli-c-enc
-  brotli-c-dec
-)
-
-target_sources(cpp-streams-brotli PRIVATE
-  ${PROJECT_SOURCE_DIR}/library/cpp/streams/brotli/brotli.cpp
-)
-
+add_subdirectory(enc)
+add_subdirectory(common)
+add_subdirectory(dec)
