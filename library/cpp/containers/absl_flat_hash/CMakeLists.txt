@@ -21,15 +21,11 @@ target_compile_options(cpp-containers-absl_flat_hash PRIVATE
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 
-target_include_directories(cpp-containers-absl_flat_hash PRIVATE
-  ${PROJECT_SOURCE_DIR}/contrib/restricted/abseil-cpp
-)
-
 target_link_libraries(cpp-containers-absl_flat_hash PUBLIC
   linux-headers-generic::linux-headers-generic
   contrib-libs-cxxsupp
   yutil
-  abseil-cpp-absl-container
+  contrib-restricted-abseil-cpp
 )
 
 target_sources(cpp-containers-absl_flat_hash PRIVATE
