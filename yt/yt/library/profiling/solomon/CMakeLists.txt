@@ -76,7 +76,7 @@ target_proto_addincls(library-profiling-solomon
   ${PROJECT_SOURCE_DIR}
   ${PROJECT_SOURCE_DIR}/yt
   ${PROJECT_BINARY_DIR}
-  ${protobuf_INCLUDE_DIRS}
+  
 )
 
 add_global_library_for(library-profiling-solomon.global

@@ -108,7 +108,7 @@ target_proto_addincls(yt-cpp-mapreduce-interface-ut
   ${PROJECT_SOURCE_DIR}
   ${PROJECT_SOURCE_DIR}/yt
   ${PROJECT_BINARY_DIR}
-  ${protobuf_INCLUDE_DIRS}
+  
 )
 
 vcs_info(yt-cpp-mapreduce-interface-ut)

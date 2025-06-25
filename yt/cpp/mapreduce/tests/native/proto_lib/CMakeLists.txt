@@ -62,5 +62,5 @@ target_proto_addincls(tests-native-proto_lib
   ${PROJECT_BINARY_DIR}
   ${PROJECT_SOURCE_DIR}
   ${PROJECT_BINARY_DIR}
-  ${protobuf_INCLUDE_DIRS}
+  
 )

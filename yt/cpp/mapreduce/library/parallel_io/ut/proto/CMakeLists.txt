@@ -58,5 +58,5 @@ target_proto_addincls(parallel_io-ut-proto
   ${PROJECT_BINARY_DIR}
   ${PROJECT_SOURCE_DIR}
   ${PROJECT_BINARY_DIR}
-  ${protobuf_INCLUDE_DIRS}
+  
 )

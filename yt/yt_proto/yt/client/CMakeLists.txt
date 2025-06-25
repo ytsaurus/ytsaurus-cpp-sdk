@@ -105,5 +105,5 @@ target_proto_addincls(yt_proto-yt-client
   ${PROJECT_SOURCE_DIR}/yt
   ${PROJECT_SOURCE_DIR}/yt
   ${PROJECT_BINARY_DIR}
-  ${protobuf_INCLUDE_DIRS}
+  
 )
