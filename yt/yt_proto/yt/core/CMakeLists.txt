@@ -81,5 +81,5 @@ target_proto_addincls(yt_proto-yt-core
   ${PROJECT_SOURCE_DIR}
   ${PROJECT_SOURCE_DIR}/yt
   ${PROJECT_BINARY_DIR}
-  
+  ${protobuf_INCLUDE_DIRS}
 )

@@ -52,5 +52,5 @@ target_proto_addincls(library-cpp-tdigest
   ${PROJECT_BINARY_DIR}
   ${PROJECT_SOURCE_DIR}
   ${PROJECT_BINARY_DIR}
-  
+  ${protobuf_INCLUDE_DIRS}
 )

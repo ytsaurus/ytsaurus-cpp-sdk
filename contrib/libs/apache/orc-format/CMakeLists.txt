@@ -55,5 +55,5 @@ target_proto_addincls(libs-apache-orc-format
   ${PROJECT_SOURCE_DIR}
   ${PROJECT_SOURCE_DIR}/contrib/libs/apache/orc-format/src/main/proto/orc/proto
   ${PROJECT_BINARY_DIR}
-  
+  ${protobuf_INCLUDE_DIRS}
 )

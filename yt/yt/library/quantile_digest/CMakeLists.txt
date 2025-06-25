@@ -61,5 +61,5 @@ target_proto_addincls(yt-library-quantile_digest
   ${PROJECT_SOURCE_DIR}
   ${PROJECT_SOURCE_DIR}/yt
   ${PROJECT_BINARY_DIR}
-  
+  ${protobuf_INCLUDE_DIRS}
 )
