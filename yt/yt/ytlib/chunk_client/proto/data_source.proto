@@ -1,0 +1,48 @@
+package NYT.NChunkClient.NProto;
+
+import "yt_proto/yt/client/table_chunk_format/proto/chunk_meta.proto";
+import "yt_proto/yt/client/table_client/proto/versioned_io_options.proto";
+import "yt/ytlib/table_client/proto/virtual_value_directory.proto";
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TDataSource
+{
+    required int32 type = 1; // EDataSourceType
+    //! This field is used when the data source is a part of the user job spec files.
+    optional NTableClient.NProto.TTableSchemaExt table_schema = 2;
+    optional uint64 timestamp = 3;
+    optional uint64 retention_timestamp = 13;
+    optional string path = 4;
+
+    //! This field is used when the data source is a part of the data source directory.
+    optional int32 table_schema_id = 7;
+    repeated NTableClient.NProto.TColumnRenameDescriptor column_rename_descriptors = 8;
+    optional bool foreign = 9;
+
+    repeated string omitted_inaccessible_columns = 10;
+
+    //! This field is used when the data source is a part of the user job spec files.
+    optional NTableClient.NProto.TColumnNameFilter column_filter = 11;
+    //! This field is used when the data source is a part of the data source directory.
+    optional int32 column_filter_id = 12;
+
+    optional int32 virtual_key_prefix_length = 14;
+    optional NTableClient.NProto.TVirtualValueDirectory virtual_value_directory = 15;
+
+    optional string object_id = 16;
+    optional string account = 17;
+
+    optional string cluster_name = 18;
+
+    reserved 5, 6, 19, 20;
+}
+
+message TDataSourceDirectoryExt
+{
+    repeated TDataSource data_sources = 1;
+    optional NTableClient.NProto.TSchemaDictionary schema_dictionary = 2;
+    optional NTableClient.NProto.TColumnFilterDictionary column_filter_dictionary = 3;
+}
+
+////////////////////////////////////////////////////////////////////////////////

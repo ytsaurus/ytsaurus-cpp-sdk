@@ -1,0 +1,15 @@
+#pragma once
+
+#include <library/cpp/yt/memory/intrusive_ptr.h>
+
+namespace NYT::NUserJob {
+
+////////////////////////////////////////////////////////////////////////////////
+
+DECLARE_REFCOUNTED_STRUCT(TUserJobExecutorConfig)
+
+DECLARE_REFCOUNTED_STRUCT(TUserJobSynchronizerConnectionConfig)
+
+////////////////////////////////////////////////////////////////////////////////
+
+} // namespace NYT::NUserJob

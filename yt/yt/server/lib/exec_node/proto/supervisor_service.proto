@@ -1,0 +1,221 @@
+package NYT.NExecNode.NProto;
+
+import "yt/ytlib/controller_agent/proto/job.proto";
+
+import "yt_proto/yt/client/misc/proto/signature.proto";
+import "yt_proto/yt/client/misc/proto/workload.proto";
+
+import "yt_proto/yt/client/chunk_client/proto/data_statistics.proto";
+
+import "yt_proto/yt/core/misc/proto/error.proto";
+import "yt_proto/yt/core/misc/proto/guid.proto";
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TReqGetJobSpec
+{
+    required NYT.NProto.TGuid job_id = 1;
+}
+
+message TRspGetJobSpec
+{
+    required NControllerAgent.NProto.TJobSpec job_spec = 1;
+    required TJobProxyResources resource_usage = 2;
+    repeated int32 ports = 3;
+    optional int32 job_proxy_rpc_server_port = 4;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TReqOnJobProxySpawned
+{
+    required NYT.NProto.TGuid job_id = 1;
+}
+
+message TRspOnJobProxySpawned
+{ }
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TReqPrepareArtifact
+{
+    required NYT.NProto.TGuid job_id = 1;
+    required string artifact_name = 2;
+
+    // Artifact will be streamed into this pipe.
+    required string pipe_path = 3;
+}
+
+message TRspPrepareArtifact
+{ }
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TReqOnArtifactPreparationFailed
+{
+    required NYT.NProto.TGuid job_id = 1;
+
+    required string artifact_name = 2;
+    required string artifact_path = 3;
+    required NYT.NProto.TError error = 4;
+}
+
+message TRspOnArtifactPreparationFailed
+{ }
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TReqOnArtifactsPrepared
+{
+    required NYT.NProto.TGuid job_id = 1;
+}
+
+message TRspOnArtifactsPrepared
+{ }
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TReqOnJobPrepared
+{
+    required NYT.NProto.TGuid job_id = 1;
+}
+
+message TRspOnJobPrepared
+{ }
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TReqOnJobFinished
+{
+    required NYT.NProto.TGuid job_id = 1;
+    required NControllerAgent.NProto.TJobResult result = 2;
+    required bytes statistics = 3; // YSON
+    required NYT.NChunkClient.NProto.TDataStatistics total_input_data_statistics = 13;
+    repeated NYT.NChunkClient.NProto.TDataStatistics output_data_statistics = 14;
+    optional uint64 start_time = 4;
+    optional uint64 finish_time = 5;
+    optional bytes job_stderr = 6;
+    optional bytes fail_context = 7;
+
+    message TProfile
+    {
+        required string type = 1;
+        required bytes blob = 2;
+        required double profiling_probability = 3;
+    }
+    repeated TProfile profiles = 12;
+
+    repeated NYT.NControllerAgent.NProto.TCoreInfo core_infos = 10;
+
+    reserved 8, 9, 11;
+}
+
+message TRspOnJobFinished
+{ }
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TReqOnJobProgress
+{
+    required NYT.NProto.TGuid job_id = 1;
+    required double progress = 2;
+    required bytes statistics = 3; // YSON
+    required NYT.NChunkClient.NProto.TDataStatistics total_input_data_statistics = 5;
+    repeated NYT.NChunkClient.NProto.TDataStatistics output_data_statistics = 6;
+    optional uint64 stderr_size = 4;
+    optional bool has_job_trace = 7;
+    required int64 epoch = 8;
+}
+
+message TRspOnJobProgress
+{ }
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TReqUpdateResourceUsage
+{
+    required NYT.NProto.TGuid job_id = 1;
+    required TJobProxyResources resource_usage = 2;
+}
+
+message TRspUpdateResourceUsage
+{ }
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TReqThrottleJob
+{
+    required int32 throttler_type = 1; //EJobThrottlerType
+    required int64 amount = 2;
+    required NYT.NProto.TWorkloadDescriptor workload_descriptor = 3;
+    required NYT.NProto.TGuid job_id = 4;
+    optional string remote_cluster_name = 5;
+}
+
+message TRspThrottleJob
+{
+    // If request_id is not returned, then request is fulfilled immediately.
+    optional NYT.NProto.TGuid throttling_request_id = 1;
+}
+////////////////////////////////////////////////////////////////////////////////
+
+message TReqPollThrottlingRequest
+{
+    optional NYT.NProto.TGuid throttling_request_id = 1;
+}
+
+message TRspPollThrottlingRequest
+{
+    required bool completed = 1;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TReqOnJobMemoryThrashing
+{
+    optional NYT.NProto.TGuid job_id = 1;
+}
+
+message TRspOnJobMemoryThrashing
+{
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+// Describes the resource usage of job proxy (possibly, combined with user job resource usage).
+message TJobProxyResources
+{
+    required int64 memory = 1;
+    required double cpu = 2;
+    required int32 network = 3;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TReqGenerateSignature
+{
+    required NYT.NProto.TGuid job_id = 1;
+    required bytes payload = 2;
+}
+
+message TRspGenerateSignature
+{
+    // NB(pavook): if needed, we can minimize this to just raw signature bytes,
+    // but this will suffice for now.
+    required NSignature.NProto.TSignature signature = 2;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TReqValidateSignature
+{
+    required NYT.NProto.TGuid job_id = 1;
+    required NSignature.NProto.TSignature signature = 2;
+}
+
+message TRspValidateSignature
+{
+    required bool valid = 1;
+}
+
+////////////////////////////////////////////////////////////////////////////////

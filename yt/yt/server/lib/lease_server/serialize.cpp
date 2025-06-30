@@ -1,0 +1,16 @@
+#include "serialize.h"
+
+namespace NYT::NLeaseServer {
+
+using namespace NHydra;
+
+////////////////////////////////////////////////////////////////////////////////
+
+TReign GetCurrentReign()
+{
+    return ToUnderlying(TEnumTraits<ELeaseManagerReign>::GetMaxValue());
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+} // namespace NYT::NLeaseServer

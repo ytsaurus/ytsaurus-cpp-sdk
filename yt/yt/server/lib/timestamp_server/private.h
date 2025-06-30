@@ -1,0 +1,15 @@
+#pragma once
+
+#include "public.h"
+
+#include <yt/yt/core/logging/log.h>
+
+namespace NYT::NTimestampServer {
+
+////////////////////////////////////////////////////////////////////////////////
+
+YT_DEFINE_GLOBAL(const NLogging::TLogger, TimestampServerLogger, "TimestampServer");
+
+////////////////////////////////////////////////////////////////////////////////
+
+} // namespace NYT::NTransactionServer

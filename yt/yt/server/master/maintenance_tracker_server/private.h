@@ -1,0 +1,13 @@
+#pragma once
+
+#include <yt/yt/core/logging/log.h>
+
+namespace NYT::NMaintenanceTrackerServer {
+
+////////////////////////////////////////////////////////////////////////////////
+
+YT_DEFINE_GLOBAL(const NLogging::TLogger, MaintenanceTrackerLogger, "MaintenanceTracker");
+
+////////////////////////////////////////////////////////////////////////////////
+
+} // namespace NYT::NMaintenanceTrackerServer

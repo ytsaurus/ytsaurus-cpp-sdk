@@ -1,0 +1,270 @@
+#include "error_manager.h"
+
+#include "bootstrap.h"
+#include "config.h"
+#include "tablet.h"
+#include "tablet_snapshot_store.h"
+
+#include <yt/yt/server/node/cluster_node/config.h>
+#include <yt/yt/server/node/cluster_node/dynamic_config_manager.h>
+
+#include <yt/yt/core/concurrency/fls.h>
+#include <yt/yt/core/concurrency/periodic_executor.h>
+
+#include <yt/yt/core/logging/fluent_log.h>
+
+#include <yt/yt/core/misc/sync_expiring_cache.h>
+
+#include <library/cpp/yt/threading/atomic_object.h>
+
+namespace NYT::NTabletNode {
+
+using namespace NYTree;
+using namespace NYPath;
+using namespace NConcurrency;
+using namespace NClusterNode;
+using namespace NLogging;
+using namespace NTableClient;
+using namespace NTabletClient;
+using namespace NObjectClient;
+
+////////////////////////////////////////////////////////////////////////////////
+
+constinit const auto Logger = TabletNodeLogger;
+
+////////////////////////////////////////////////////////////////////////////////
+
+namespace {
+
+////////////////////////////////////////////////////////////////////////////////
+
+NConcurrency::TFlsSlot<TErrorManagerContext> Context;
+
+struct TDeduplicationKey
+{
+    std::string TabletCellBundle;
+    NTableClient::TTableId TableId;
+    NTabletClient::TTabletId TabletId;
+    std::string Method;
+    std::string ErrorMessage;
+
+    TDeduplicationKey(
+        const TErrorManagerContext& context,
+        const std::string& method,
+        const std::string& errorMessage)
+        : TabletCellBundle(*context.TabletCellBundle)
+        , TableId(context.TableId)
+        , TabletId(context.TabletId)
+        , Method(method)
+        , ErrorMessage(errorMessage)
+    { }
+
+    operator size_t() const
+    {
+        return MultiHash(TabletCellBundle, TableId, TabletId, Method, ErrorMessage);
+    }
+
+    bool operator==(const TDeduplicationKey& other) const = default;
+};
+
+using TDeduplicationCache = TSyncExpiringCache<TDeduplicationKey, std::monostate>;
+
+////////////////////////////////////////////////////////////////////////////////
+
+} // namespace
+
+////////////////////////////////////////////////////////////////////////////////
+
+
+TErrorManagerContext::TErrorManagerContext(const TTabletSnapshotPtr& tabletSnapshot)
+    : TabletCellBundle(tabletSnapshot->TabletCellBundle)
+    , TablePath(tabletSnapshot->TablePath)
+    , TableId(tabletSnapshot->TableId)
+    , TabletId(tabletSnapshot->TabletId)
+{ }
+
+TErrorManagerContext::operator bool() const
+{
+    return TabletCellBundle && TablePath && TableId && TabletId;
+}
+
+void TErrorManagerContext::Reset()
+{
+    TabletCellBundle.reset();
+    TablePath.reset();
+    TableId = {};
+    TabletId = {};
+}
+
+void SetErrorManagerContext(TErrorManagerContext context)
+{
+    YT_ASSERT(context);
+    *Context = std::move(context);
+}
+
+void ResetErrorManagerContext()
+{
+    Context->Reset();
+}
+
+TError EnrichErrorForErrorManager(TError&& error, const TTabletSnapshotPtr& tabletSnapshot)
+{
+    return std::move(error)
+        << TErrorAttribute("tablet_cell_bundle", tabletSnapshot->TabletCellBundle)
+        << TErrorAttribute("table_path", tabletSnapshot->TablePath)
+        << TErrorAttribute("table_id", tabletSnapshot->TableId)
+        << TErrorAttribute("tablet_id", tabletSnapshot->TabletId);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+class TErrorManager
+    : public IErrorManager
+{
+public:
+    explicit TErrorManager(IBootstrap* bootstrap)
+        : Bootstrap_(bootstrap)
+        , ActionQueue_(New<TActionQueue>("ErrorManager"))
+        , ExpiredErrorsCleanerExecutor_(New<TPeriodicExecutor>(
+            ActionQueue_->GetInvoker(),
+            BIND(&TErrorManager::RemoveExpiredErrors, MakeWeak(this))))
+        , DeduplicationCache_(New<TDeduplicationCache>(
+            BIND([] (const TDeduplicationKey& /*key*/) -> std::monostate {
+                return {};
+            }),
+            std::nullopt,
+            ActionQueue_->GetInvoker()))
+    {
+        Reconfigure(Bootstrap_->GetDynamicConfigManager()->GetConfig());
+    }
+
+    void Start() override
+    {
+        ExpiredErrorsCleanerExecutor_->Start();
+    }
+
+    void Reconfigure(const NClusterNode::TClusterNodeDynamicConfigPtr& newConfig) override
+    {
+        const auto& config = newConfig->TabletNode->ErrorManager;
+
+        ErrorExpirationTimeout_.store(config->ErrorExpirationTimeout, std::memory_order::relaxed);
+        ExpiredErrorsCleanerExecutor_->SetPeriod(config->ErrorExpirationTimeout);
+
+        DeduplicationCache_->SetExpirationTimeout(config->DeduplicationCacheTimeout);
+
+        LogNoContextInterval_.store(config->LogNoContextInterval, std::memory_order::relaxed);
+    }
+
+    void HandleError(const TError& error, const std::string& method, TErrorManagerContext context) override
+    {
+        auto now = Now();
+
+        if (!context) {
+            context = *Context;
+        }
+
+        if (!context) {
+            ExtractContext(error, &context);
+        }
+
+        if (!context) {
+            auto logNoContextInterval = LogNoContextInterval_.load(std::memory_order::relaxed);
+            auto logNoContextLastTime = LogNoContextLastTime_.load(std::memory_order::relaxed);
+
+            if (now - logNoContextLastTime >= logNoContextInterval &&
+                LogNoContextLastTime_.compare_exchange_strong(logNoContextLastTime, now, std::memory_order::relaxed))
+            {
+                YT_LOG_WARNING("No error manager context for error handling (Error: %Qv, Method: %v)",
+                    error.GetMessage(),
+                    method);
+            }
+
+            return;
+        }
+
+        TDeduplicationKey deduplicationKey(context, method, error.GetMessage());
+        if (!DeduplicationCache_->Find(deduplicationKey)) {
+            DeduplicationCache_->Set(std::move(deduplicationKey), {});
+
+            LogStructuredEventFluently(TabletErrorsLogger(), ELogLevel::Info)
+                .Item("tablet_cell_bundle").Value(*context.TabletCellBundle)
+                .Item("table_path").Value(*context.TablePath)
+                .Item("table_id").Value(context.TableId)
+                .Item("tablet_id").Value(context.TabletId)
+                .Item("timestamp").Value(now.MicroSeconds())
+                .Item("method").Value(method)
+                .Item("error").Value(error)
+            .Finish();
+        }
+    }
+
+private:
+    IBootstrap* const Bootstrap_;
+
+    NConcurrency::TActionQueuePtr ActionQueue_;
+    NConcurrency::TPeriodicExecutorPtr ExpiredErrorsCleanerExecutor_;
+    TIntrusivePtr<TDeduplicationCache> DeduplicationCache_;
+    std::atomic<TDuration> ErrorExpirationTimeout_;
+
+    std::atomic<TInstant> LogNoContextLastTime_ = TInstant::Zero();
+    std::atomic<TDuration> LogNoContextInterval_;
+
+    static void MaybeDropError(NThreading::TAtomicObject<TError>* atomicError, TInstant expirationTime)
+    {
+        atomicError->Transform([expirationTime] (TError& error) {
+            if (error.HasDatetime() && error.GetDatetime() <= expirationTime) {
+                error = {};
+            }
+        });
+    }
+
+    void RemoveExpiredErrors()
+    {
+        auto expirationTime = Now() - ErrorExpirationTimeout_.load(std::memory_order::relaxed);
+        for (const auto& tabletSnapshot : Bootstrap_->GetTabletSnapshotStore()->GetTabletSnapshots()) {
+            auto& errors = tabletSnapshot->TabletRuntimeData->Errors;
+
+            for (auto key : TEnumTraits<ETabletBackgroundActivity>::GetDomainValues()) {
+                MaybeDropError(&errors.BackgroundErrors[key], expirationTime);
+            }
+            MaybeDropError(&errors.ConfigError, expirationTime);
+        }
+    }
+
+    void ExtractContext(const TError& error, TErrorManagerContext* context)
+    {
+        const auto& attributes = error.Attributes();
+
+        if (!context->TabletCellBundle) {
+            context->TabletCellBundle = attributes.Find<std::string>("tablet_cell_bundle");
+        }
+        if (!context->TablePath) {
+            context->TablePath = attributes.Find<TYPath>("table_path");
+        }
+        if (!context->TableId) {
+            context->TableId = attributes.Find<TTableId>("table_id").value_or(TTableId());
+        }
+        if (!context->TabletId) {
+            context->TabletId = attributes.Find<TTabletId>("tablet_id").value_or(TTabletId());
+        }
+
+        if (*context) {
+            return;
+        }
+
+        for (const auto& innerError : error.InnerErrors()) {
+            ExtractContext(innerError, context);
+        }
+    }
+};
+
+DEFINE_REFCOUNTED_TYPE(TErrorManager)
+
+IErrorManagerPtr CreateErrorManager(IBootstrap* bootstrap)
+{
+    return New<TErrorManager>(bootstrap);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+} // namespace NYT::NTabletNode

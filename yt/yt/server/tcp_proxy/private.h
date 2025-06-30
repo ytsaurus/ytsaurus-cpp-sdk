@@ -1,0 +1,15 @@
+#pragma once
+
+#include "public.h"
+
+#include <yt/yt/core/logging/log_manager.h>
+
+namespace NYT::NTcpProxy {
+
+////////////////////////////////////////////////////////////////////////////////
+
+YT_DEFINE_GLOBAL(const NLogging::TLogger, TcpProxyLogger, "TcpProxy");
+
+////////////////////////////////////////////////////////////////////////////////
+
+} // namespace NYT::NTcpProxy

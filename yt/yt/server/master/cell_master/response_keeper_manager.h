@@ -1,0 +1,23 @@
+#pragma once
+
+#include "public.h"
+
+#include <yt/yt/server/lib/hydra/public.h>
+
+namespace NYT::NCellMaster {
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct IResponseKeeperManager
+    : public virtual TRefCounted
+{ };
+
+DEFINE_REFCOUNTED_TYPE(IResponseKeeperManager)
+
+////////////////////////////////////////////////////////////////////////////////
+
+IResponseKeeperManagerPtr CreateResponseKeeperManager(TBootstrap* bootstrap);
+
+////////////////////////////////////////////////////////////////////////////////
+
+} // namespace NYT::NCellMaster

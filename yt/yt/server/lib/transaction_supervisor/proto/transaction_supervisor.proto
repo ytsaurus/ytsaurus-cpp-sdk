@@ -1,0 +1,121 @@
+package NYT.NTransactionSupervisor.NProto;
+
+import "yt_proto/yt/core/misc/proto/guid.proto";
+import "yt_proto/yt/core/misc/proto/error.proto";
+
+import "yt_proto/yt/client/hive/proto/timestamp_map.proto";
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TReqCoordinatorCommitSimpleTransaction
+{
+    required NYT.NProto.TGuid transaction_id = 1;
+    optional NYT.NProto.TGuid mutation_id = 2;
+    required NYT.NHiveClient.NProto.TTimestampMap commit_timestamps = 3;
+    required string user = 4;
+    optional string user_tag = 5;
+}
+
+message TReqCoordinatorCommitDistributedTransactionPhaseOne
+{
+    required NYT.NProto.TGuid transaction_id = 1;
+    optional NYT.NProto.TGuid mutation_id = 2;
+    repeated NYT.NProto.TGuid participant_cell_ids = 3;
+    repeated NYT.NProto.TGuid prepare_only_participant_cell_ids = 9;
+    repeated NYT.NProto.TGuid cell_ids_to_sync_with_before_prepare = 11;
+    optional bool generate_prepare_timestamp = 7 [default = true];
+    required bool inherit_commit_timestamp = 5;
+    optional int32 coordinator_prepare_mode = 14; // ETransactionCoordinatorPrepareMode
+    optional int32 coordinator_commit_mode = 6; // ETransactionCoordinatorCommitMode
+    optional bool strongly_ordered = 15 [default = false];
+    required uint64 prepare_timestamp = 4;
+    optional uint32 prepare_timestamp_cluster_tag = 12 [default = 0xf004]; // COMPAT(savrus): Use InvalidCellTag by default
+    optional uint64 max_allowed_commit_timestamp = 13;
+    required string user = 8;
+    optional string user_tag = 10;
+}
+
+message TReqCoordinatorCommitDistributedTransactionPhaseTwo
+{
+    required NYT.NProto.TGuid transaction_id = 1;
+    required NYT.NHiveClient.NProto.TTimestampMap commit_timestamps = 2;
+}
+
+message TReqCoordinatorAbortDistributedTransactionPhaseTwo
+{
+    required NYT.NProto.TGuid transaction_id = 1;
+    required NYT.NProto.TError error = 2;
+}
+
+message TReqCoordinatorFinishDistributedTransaction
+{
+    required NYT.NProto.TGuid transaction_id = 1;
+}
+
+message TReqCoordinatorAbortTransaction
+{
+    optional NYT.NProto.TGuid mutation_id = 1;
+    required NYT.NProto.TGuid transaction_id = 2;
+    optional bool force = 3;
+    required string user = 4;
+    optional string user_tag = 5;
+}
+
+message TReqParticipantPrepareTransaction
+{
+    required NYT.NProto.TGuid transaction_id = 1;
+    required uint64 prepare_timestamp = 2;
+    optional uint32 prepare_timestamp_cluster_tag = 5 [default = 0xf004]; // COMPAT(savrus): Use InvalidCellTag by default
+    required string user = 3;
+    required string user_tag = 4;
+    optional bool strongly_ordered = 6 [default = false];
+}
+
+message TReqParticipantMakeTransactionReadyToCommit
+{
+    required NYT.NProto.TGuid transaction_id = 1;
+    required uint64 commit_timestamp = 2;
+    optional uint32 commit_timestamp_cluster_tag = 3 [default = 0xf004]; // COMPAT(savrus): Use InvalidCellTag by default
+    required string user = 4;
+    optional string user_tag = 5;
+}
+
+message TReqParticipantCommitTransaction
+{
+    required NYT.NProto.TGuid transaction_id = 1;
+    required uint64 commit_timestamp = 2;
+    optional uint32 commit_timestamp_cluster_tag = 5 [default = 0xf004]; // COMPAT(savrus): Use InvalidCellTag by default
+    required string user = 3;
+    optional string user_tag = 4;
+    optional bool strongly_ordered = 6 [default = false];
+}
+
+message TReqParticipantAbortTransaction
+{
+    required NYT.NProto.TGuid transaction_id = 1;
+    required string user = 2;
+    optional string user_tag = 3;
+    optional bool strongly_ordered = 4 [default = false];
+}
+
+message TTransactionPrepareOptions
+{
+    required bool persistent = 1;
+    required bool late_prepare = 2;
+    required uint64 prepare_timestamp = 3;
+    required uint32 prepare_timestamp_cluster_tag = 4;
+    repeated NYT.NProto.TGuid prerequisite_transaction_ids = 5;
+}
+
+message TTransactionCommitOptions
+{
+    required uint64 commit_timestamp = 1;
+    required uint32 commit_timestamp_cluster_tag = 2;
+}
+
+message TTransactionAbortOptions
+{
+    required bool force = 1;
+}
+
+////////////////////////////////////////////////////////////////////////////////

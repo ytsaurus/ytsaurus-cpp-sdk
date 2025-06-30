@@ -1,0 +1,56 @@
+#pragma once
+
+#include "public.h"
+
+namespace NYT::NDataNode {
+
+////////////////////////////////////////////////////////////////////////////////
+
+//! Mediates connection between a data node and its master.
+/*!
+ *  \note
+ *  Thread affinity: Control
+ */
+struct IMasterConnector
+    : public virtual TRefCounted
+{
+    //! Initialize master connector.
+    virtual void Initialize() = 0;
+
+    //! Schedules out-of-order data node heartbeat to all the master cells.
+    /*!
+     *  \note
+     *  Thread affinity: any
+     */
+    virtual void ScheduleHeartbeat() = 0;
+
+    //! Schedules out-of-order job heartbeate to a given job tracker.
+    /*!
+     *  \note
+     *  Thread affinity: any
+     */
+    virtual void ScheduleJobHeartbeat(const std::string& jobTrackerAddress) = 0;
+
+    //! Returns |true| if this node has received full heartbeat responses from all cells.
+    /*!
+     *  \note
+     *  Thread affinity: any
+     */
+    virtual bool IsOnline() const = 0;
+
+    // COMPAT(kvk1920): Remove after 23.2.
+    virtual void SetLocationUuidsRequired(bool value) = 0;
+
+    // COMPAT(danilalexeev): YT-23781.
+    virtual void SetPerLocationFullHeartbeatsEnabled(bool value) = 0;
+};
+
+DEFINE_REFCOUNTED_TYPE(IMasterConnector)
+
+////////////////////////////////////////////////////////////////////////////////
+
+IMasterConnectorPtr CreateMasterConnector(IBootstrap* bootstrap);
+
+////////////////////////////////////////////////////////////////////////////////
+
+} // namespace NYT::NDataNode

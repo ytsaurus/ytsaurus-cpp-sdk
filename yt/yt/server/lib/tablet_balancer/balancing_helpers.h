@@ -1,0 +1,84 @@
+#pragma once
+
+#include "public.h"
+#include "tablet.h"
+
+#include <yt/yt/client/table_client/public.h>
+
+#include <yt/yt/core/logging/log.h>
+
+#include <library/cpp/yt/memory/range.h>
+
+namespace NYT::NTabletBalancer {
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct TReshardDescriptor
+{
+    std::vector<TTabletId> Tablets;
+    int TabletCount;
+    i64 DataSize;
+    TGuid CorrelationId;
+    std::vector<NTableClient::TLegacyOwningKey> PivotKeys;
+
+    // IsSplit, TabletCountDiff, Deviation.
+    std::tuple<bool, int, double> Priority;
+
+    bool operator<(const TReshardDescriptor& descriptor) const;
+};
+
+struct TMoveDescriptor
+{
+    TTabletId TabletId;
+    TTabletCellId TabletCellId;
+    TGuid CorrelationId;
+};
+
+////////////////////////////////////////////////////////////////////////////////
+
+bool IsTabletReshardable(const TTabletPtr& tablet, bool ignoreConfig);
+
+i64 GetTabletBalancingSize(const TTabletPtr& tablet);
+
+////////////////////////////////////////////////////////////////////////////////
+
+std::vector<TReshardDescriptor> MergeSplitTabletsOfTable(
+    std::vector<TTabletPtr> tablets,
+    i64 minDesiredTabletSize,
+    bool pickPivotKeys = true,
+    const NLogging::TLogger& logger = {});
+
+std::vector<TMoveDescriptor> ReassignInMemoryTablets(
+    const TTabletCellBundlePtr& bundle,
+    const std::optional<THashSet<TTableId>>& movableTables,
+    bool ignoreTableWiseConfig,
+    const NLogging::TLogger& logger = {});
+
+std::vector<TMoveDescriptor> ReassignOrdinaryTablets(
+    const TTabletCellBundlePtr& bundle,
+    const std::optional<THashSet<TTableId>>& movableTables,
+    const NLogging::TLogger& logger = {});
+
+std::vector<TMoveDescriptor> ReassignTabletsParameterized(
+    const TTabletCellBundlePtr& bundle,
+    const std::vector<std::string>& performanceCountersKeys,
+    const TParameterizedReassignSolverConfig& config,
+    const TGroupName& groupName,
+    const TTableParameterizedMetricTrackerPtr& metricTracker,
+    const NLogging::TLogger& logger = {});
+
+std::vector<TMoveDescriptor> ReassignTabletsReplica(
+    const TTabletCellBundlePtr& bundle,
+    const std::vector<std::string>& performanceCountersKeys,
+    const TParameterizedReassignSolverConfig& config,
+    const TGroupName& groupName,
+    const TTableParameterizedMetricTrackerPtr& metricTracker,
+    const NLogging::TLogger& logger = {});
+
+////////////////////////////////////////////////////////////////////////////////
+
+void ApplyMoveTabletAction(const TTabletPtr& tablet, const TTabletCellId& cell);
+
+////////////////////////////////////////////////////////////////////////////////
+
+} // namespace NYT::NTabletBalancer

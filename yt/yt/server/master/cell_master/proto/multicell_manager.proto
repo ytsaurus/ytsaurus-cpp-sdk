@@ -1,0 +1,39 @@
+package NYT.NCellMaster.NProto;
+
+import "yt_proto/yt/core/misc/proto/error.proto";
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TReqRegisterSecondaryMasterAtPrimary
+{
+    required uint32 cell_tag = 1;
+}
+
+message TRspRegisterSecondaryMasterAtPrimary
+{
+    optional NYT.NProto.TError error = 1;
+}
+
+message TReqRegisterSecondaryMasterAtSecondary
+{
+    required uint32 cell_tag = 1;
+}
+
+message TReqStartSecondaryMasterRegistration
+{ }
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TReqReplicateDynamicallyPropagatedMasterCellTags
+{
+    repeated uint32 dynamically_propagated_masters_cell_tags = 1;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TReqSyncHiveClocksAtMasters
+{
+    required bool is_reply_from_secondary = 1 [default = false];
+}
+
+////////////////////////////////////////////////////////////////////////////////

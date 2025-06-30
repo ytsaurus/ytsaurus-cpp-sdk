@@ -1,0 +1,341 @@
+#!/usr/bin/env python3
+
+from yt.local import start, stop, delete, get_proxy, list_instances
+from yt.local.helpers import YTCheckingThread
+from yt.local.commands import get_main_process_pid_file_path
+
+from yt.wrapper.cli_helpers import run_main, ParseStructuredArgument, ParseStructuredArguments
+from yt.wrapper.exceptions_catcher import KeyboardInterruptsCatcher
+import yt.yson as yson
+
+import argparse
+import logging
+import time
+import sys
+import os
+import errno
+
+DESCRIPTION = """Command-line utility to work with local YT instances."""
+
+SERVICE_LIST = ("master", "node", "scheduler", "controller-agent", "proxy", "rpc-proxy", "watcher", "queue-agent", "kafka-proxy", "driver")
+
+logger = logging.getLogger("YtLocal")
+
+
+def start_func(**kwargs):
+    sync = kwargs.pop("sync", False)
+    quiet = kwargs.pop("quiet", False)
+    timeout = kwargs.pop("timeout", None)
+    forbid_chunk_storage_in_tmpfs = kwargs.pop("forbid_chunk_storage_in_tmpfs", None)
+
+    if not sync and timeout is not None:
+        print("Warning! --timeout option has no effect when --sync flag is not specified", file=sys.stderr)
+
+    kwargs["allow_chunk_storage_in_tmpfs"] = not forbid_chunk_storage_in_tmpfs
+
+    if quiet:
+        logger.setLevel(logging.WARNING)
+    else:
+        logger.setLevel(logging.INFO)
+
+    DEPRECATION_MAPPING = {
+        "masters_count": "master_count",
+        "nodes_count": "node_count",
+        "schedulers_count": "scheduler_count",
+        "ports_range_start": "port_range_start",
+        "operations_memory_limit": "jobs_memory_limit",
+        "no_proxy": "http_proxy_count",
+        "rpc_proxy": "rpc_proxy_count"
+    }
+
+    for old_param, new_param in DEPRECATION_MAPPING.items():
+        if kwargs[old_param]:
+            deprecation_warning = "Command-line option --{} is deprecated and will be eventually removed; "\
+                                  .format(old_param.replace("_", "-"))
+            if new_param is not None:
+                deprecation_warning += "use --{} instead".format(new_param.replace("_", "-"))
+            else:
+                deprecation_warning += "do not use it"
+            logger.warning(deprecation_warning)
+
+    # Compatibility options
+    if kwargs["masters_count"] is not None:
+        kwargs["master_count"] = kwargs["masters_count"]
+    if kwargs["nodes_count"] is not None:
+        kwargs["node_count"] = kwargs["nodes_count"]
+    if kwargs["schedulers_count"] is not None:
+        kwargs["scheduler_count"] = kwargs["schedulers_count"]
+    if kwargs["ports_range_start"] is not None:
+        kwargs["port_range_start"] = kwargs["ports_range_start"]
+    if kwargs["operations_memory_limit"] is not None:
+        kwargs["jobs_memory_limit"] = kwargs["operations_memory_limit"]
+    if kwargs["no_proxy"]:
+        kwargs["http_proxy_count"] = 0
+    if kwargs["rpc_proxy"] and kwargs["rpc_proxy_count"] is None:
+        kwargs["rpc_proxy_count"] = 1
+
+    for opt in ("masters_count", "nodes_count", "schedulers_count",
+                "ports_range_start", "operations_memory_limit", "no_proxy", "rpc_proxy"):
+        del kwargs[opt]
+    # Tests options
+    sync_mode_sleep_timeout = kwargs.pop("sync_mode_sleep_timeout")
+
+    if sync:
+        kwargs["set_pdeath_sig"] = True
+
+    for service in SERVICE_LIST:
+        service_underscore = service.replace("-", "_")
+        path_arg_key = service_underscore + "_config_path"
+        arg_key = service_underscore + "_config"
+        if arg_key in kwargs and kwargs[arg_key] is not None:
+            ok = True
+            try:
+                config = yson._loads_from_native_str(kwargs[arg_key])
+                if not isinstance(config, dict):
+                    ok = False
+            except yson.YsonError:
+                ok = False
+            if ok:
+                kwargs[arg_key] = config
+        if path_arg_key in kwargs:
+            if kwargs[path_arg_key] is not None:
+                kwargs[arg_key] = kwargs[path_arg_key]
+            del kwargs[path_arg_key]
+
+    if kwargs.get("master_cache_count", 0) > 0:
+        kwargs["enable_master_cache"] = True
+
+    environment = start(**kwargs)
+
+    if sync:
+        main_process_pid_file = get_main_process_pid_file_path(environment.path)
+
+        try:
+            os.setpgid(0, 0)
+        except OSError as err:
+            # NOTE: If process is a session leader (e.g. started as entrypoint process in Docker)
+            # then setpgid will fail with EPERM (see man setpgid(2)). This is OK and let's ignore it.
+            if err.errno != errno.EPERM:
+                raise
+
+        with open(main_process_pid_file, "w") as f:
+            f.write(str(os.getpid()))
+
+        if quiet:
+            print(environment.id)
+
+        checking_thread = YTCheckingThread(environment, delay=sync_mode_sleep_timeout, timeout=timeout)
+        checking_thread.start()
+
+        def interrupt_action():
+            logger.info("Stopping local YT instance")
+            checking_thread.stop()
+            environment.stop()
+            os.remove(main_process_pid_file)
+            sys.exit(0)
+
+        with KeyboardInterruptsCatcher(interrupt_action):
+            while True:
+                time.sleep(sync_mode_sleep_timeout)
+    else:
+        print(environment.id)
+        environment.exit()
+
+
+def add_start_subparser(subparsers):
+    parser = subparsers.add_parser("start", help="Start local YT environment with specified options")
+    parser.set_defaults(func=start_func)
+    parser.add_argument("--master-count", type=int, default=1, help="number of masters (default: %(default)s)")
+    parser.add_argument("--node-count", type=int, default=1, help="number of nodes (default: %(default)s)")
+    parser.add_argument("--scheduler-count", type=int, default=1, help="number of schedulers (default: %(default)s)")
+    parser.add_argument("--http-proxy-count", type=int, default=1, help="number of http proxies (default: %(default)s)")
+    parser.add_argument("--rpc-proxy-count", type=int, default=0, help="number of rpc proxies (default: %(default)s)")
+    parser.add_argument("--secondary-master-cell-count", type=int, default=0,
+                        help="number of secondary cells. Do not use it if you are not sure what you are doing. (default: %(default)s)")
+    parser.add_argument("--tablet-balancer-count", type=int, default=0, help="number of tablet balancers (default: %(default)s)")
+    parser.add_argument("--master-cache-count", type=int, default=0, help="number of master caches (default: %(default)s)")
+    parser.add_argument("--queue-agent-count", type=int, default=0, help="number of queue agents (default: %(default)s)")
+    parser.add_argument("--kafka-proxy-count", type=int, default=0, help="number of kafka proxies (default: %(default)s)")
+    parser.add_argument("--discovery-server-count", type=int, default=0, help="number of discovery servers (default: %(default)s)")
+    parser.add_argument("--enable-bundle-controller", action="store_true", default=False, help="use bundle controller instead of cell balancer")
+    parser.add_argument("--cell-balancer-count", type=int, default=0, help="number of cell balancers (bundle controllers if enabled) (default: %(default)s)")
+
+    parser.add_argument("-c", "--component", action=ParseStructuredArguments, help="additional components", required=False, dest="components")
+
+    for service in SERVICE_LIST:
+        config_parser = parser.add_mutually_exclusive_group(required=False)
+        config_parser.add_argument(f"--{service}-config", help=f"{service} config")
+        config_parser.add_argument(f"--{service}-config-path", help=f"{service} config path")
+
+    parser.add_argument("--sync", action="store_true", default=False,
+                        help="start in synchronized mode (hangs up console and prints info there)")
+    parser.add_argument("--id", help="local YT id (guid will be generated if not specified)")
+    parser.add_argument("--local-cypress-dir", help="local Cypress directory (map_nodes and tables will be created in "
+                                                    "Cypress according to this directory layout)")
+
+    parser.add_argument("-q", "--quiet", action="store_true", default=False,
+                        help="decrease verbosity (leave only warnings and errors)")
+
+    parser.add_argument("--proxy-port", type=int, nargs="+", dest="http_proxy_ports",
+                        help="proxy ports for http proxy; number of values should be equal to http-proxy-count.")
+    parser.add_argument("--http-proxy-port", type=int, nargs="+", dest="http_proxy_ports",
+                        help="proxy ports for http proxy; number of values should be equal to http-proxy-count.")
+    parser.add_argument("--https-proxy-port", type=int, nargs="+", dest="https_proxy_ports",
+                        help="proxy ports for https proxy; number of values should be equal to http-proxy-count.")
+    parser.add_argument("--rpc-proxy-port", type=int, nargs="+", dest="rpc_proxy_ports",
+                        help="ports for rpc proxies; number of values should be equal to rpc-proxy-count.")
+    parser.add_argument("--discovery-server-port", type=int, nargs="+", dest="discovery_server_ports",
+                        help="ports for discovery servers; number of values should be equal to discovery-server-count.")
+    parser.add_argument("--enable-debug-logging", action="store_true", default=False,
+                        help="set logging level threshold to DEBUG")
+    parser.add_argument("--enable-structured-logging", action="store_true", default=False,
+                        help="enables structured logs for services")
+    parser.add_argument("--enable-logging-compression", action="store_true", default=False,
+                        help="enables logging compression by server")
+    parser.add_argument("--log-compression-method", default="gzip", choices=["gzip", "zstd"],
+                        help="compression algorithm to use for logs (default: %(default)s)")
+    parser.add_argument("--tmpfs-path", help="path to mounted tmpfs. "
+                                             "Will be used to store performance critical parts.")
+    parser.add_argument("--port-range-start", type=int,
+                        help="assign ports from continuous range starting from this port number.")
+    parser.add_argument("--node-port-set-size", type=int, help="assign node port set size")
+    parser.add_argument("--listen-port-pool", nargs="+", type=int,
+                        help="assign ports from the list of ports specified by this argument")
+    parser.add_argument("--fqdn", help="FQDN to use in all addresses. Detected automatically if not specified.")
+    parser.add_argument("--prepare-only", action="store_true", default=False,
+                        help="Only prepare environment, but don't start.")
+
+    parser.add_argument("--enable-tls", action="store_true", default=False,
+                        help="Enable TLS for all components")
+    parser.add_argument("--mock-tvm-id", type=int, default=None,
+                        help="cluster native TVM id used for authentication mock.")
+
+    parser.add_argument("--jobs-environment-type", type=str,
+                        help="container environment for jobs: simple, porto, cri")
+    parser.add_argument("--cri-endpoint", type=str,
+                        help="CRI endpoint (default: unix:///run/containerd/containerd.sock) [$CONTAINER_RUNTIME_ENDPOINT]")
+    parser.add_argument("--jobs-memory-limit", type=int,
+                        help="memory limit for jobs in bytes")
+    parser.add_argument("--jobs-cpu-limit", type=int,
+                        help="cpu limit for jobs")
+    parser.add_argument("--jobs-user-slot-count", type=int,
+                        help="slot count for user jobs")
+    parser.add_argument("--jobs-resource-limits", type=yson._loads_from_native_str, default=None)
+
+    parser.add_argument("--forbid-chunk-storage-in-tmpfs", action="store_true", default=False,
+                        help="disables chunk storage in tmpfs")
+    parser.add_argument("--node-chunk-store-quota", type=int,
+                        help="size for node chunk storage in bytes")
+
+    parser.add_argument("--wait-tablet-cell-initialization", action="store_true", default=False,
+                        help="wait until tablet cell (created during world initialization) health is good")
+    parser.add_argument("--init-operations-archive", action="store_true", default=False,
+                        help="init operations archive")
+    parser.add_argument("--timeout", type=int,
+                        help="time in seconds after which local YT will be stopped automatically "
+                             "(applies only to sync mode)")
+    parser.add_argument("--cell-tag", type=int, default=1,
+                        help="cluster cell tag (default: %(default)s)")
+
+    parser.add_argument("--job-proxy-logging-mode", choices=["simple", "per_job_directory"], default="simple",
+                        help="job proxy logging mode (default: %(default)s)")
+
+    parser.add_argument("--ytserver-all-path",
+                        help="Use specified ytserver_all binary instead of per-service binaries in PATH")
+
+    parser.add_argument("--enable-auth", action="store_true", default=False,
+                        help="Enable authentication")
+
+    parser.add_argument("--create-admin-user", action="store_true", default=False,
+                        help="Create admin user")
+
+    parser.add_argument("--native-client-supported", "--use-native-client", action="store_true", default=False,
+                        dest="native_client_supported", help="Use native client")
+
+    parser.add_argument("--address-resolver-config", action=ParseStructuredArgument, help="Config of address resolver which will be used in all configs")
+
+    parser.add_argument("--enable-multidaemon", action="store_true", default=False,
+                        help="Run all components as multidaemon")
+
+    # Compatibility options
+    parser.add_argument("--masters-count", type=int, help=argparse.SUPPRESS)
+    parser.add_argument("--nodes-count", type=int, help=argparse.SUPPRESS)
+    parser.add_argument("--schedulers-count", type=int, help=argparse.SUPPRESS)
+    parser.add_argument("--ports-range-start", type=int, help=argparse.SUPPRESS)
+    parser.add_argument("--operations-memory-limit", type=int, help=argparse.SUPPRESS)
+    parser.add_argument("--no-proxy", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--rpc-proxy", action="store_true", help=argparse.SUPPRESS)
+
+    # Options for tests
+    parser.add_argument("--sync-mode-sleep-timeout", type=int, default=2, help=argparse.SUPPRESS)
+
+
+def add_stop_subparser(subparsers):
+    parser = subparsers.add_parser("stop", help="Stop local YT with given id")
+    parser.set_defaults(func=stop)
+    parser.add_argument("id", help="local YT id")
+    parser.add_argument("--delete", help="remove working directory after stopping", action="store_true",
+                        dest="remove_working_dir")
+
+
+def add_delete_subparser(subparsers):
+    parser = subparsers.add_parser("delete", help="Delete stopped local YT working directory.")
+    parser.set_defaults(func=delete)
+    parser.add_argument("id", help="local YT id")
+
+
+def get_proxy_func(**kwargs):
+    print(get_proxy(**kwargs))
+
+
+def add_get_proxy_subparser(subparsers):
+    parser = subparsers.add_parser("get_proxy", help="Get proxy address for local YT with given id")
+    parser.set_defaults(func=get_proxy_func)
+    parser.add_argument("id", help="local YT id")
+
+
+def print_instances(**kwargs):
+    for instance_id, status, proxy_address in list_instances(**kwargs):
+        if status == "running":
+            if proxy_address is None:
+                print("{0}\tstatus: {1}\tproxy: not started".format(instance_id, status))
+            else:
+                print("{0}\tstatus: {1}\tproxy: {2}".format(instance_id, status, proxy_address))
+        else:
+            print("{0}\tstatus: {1}".format(instance_id, status))
+
+
+def add_list_subparser(subparsers):
+    parser = subparsers.add_parser("list", help="List local YT instances")
+    parser.set_defaults(func=print_instances)
+
+
+def main():
+    options_parser = argparse.ArgumentParser(add_help=False)
+    options_parser.add_argument("--path", help="local YTs root path, can be specified "
+                                               "with YT_LOCAL_ROOT_PATH variable")
+
+    parser = argparse.ArgumentParser(parents=[options_parser],
+                                     description=DESCRIPTION)
+
+    subparsers = parser.add_subparsers(metavar="command")
+    subparsers.required = True
+
+    add_start_subparser(subparsers)
+    add_stop_subparser(subparsers)
+    add_delete_subparser(subparsers)
+    add_get_proxy_subparser(subparsers)
+    add_list_subparser(subparsers)
+
+    options, remaining_args = options_parser.parse_known_args()
+    args = parser.parse_args(remaining_args)
+
+    func_args = dict(vars(args))
+    func_args.update(vars(options))
+
+    func_args.pop("func")
+    args.func(**func_args)
+
+
+if __name__ == "__main__":
+    run_main(main)

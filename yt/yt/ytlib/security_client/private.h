@@ -1,0 +1,16 @@
+#pragma once
+
+#include "public.h"
+
+#include <yt/yt/core/logging/log.h>
+
+namespace NYT::NSecurityClient {
+
+////////////////////////////////////////////////////////////////////////////////
+
+YT_DEFINE_GLOBAL(const NLogging::TLogger, SecurityClientLogger, "SecurityClient");
+
+////////////////////////////////////////////////////////////////////////////////
+
+} // namespace NYT::NSecurityClient
+

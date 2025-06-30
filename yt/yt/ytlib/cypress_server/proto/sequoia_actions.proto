@@ -1,0 +1,189 @@
+package NYT.NCypressServer.NProto;
+
+import "yt_proto/yt/core/misc/proto/guid.proto";
+
+import "yt_proto/yt/core/ytree/proto/attributes.proto";
+import "yt_proto/yt/core/ytree/proto/ypath.proto";
+
+import "yt/ytlib/cypress_client/proto/cypress_ypath.proto";
+
+// COMPAT(kvk1920): make |transaction_id| required in all these actions (in 25.2).
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TAccessTrackingOptions
+{
+    required bool suppress_access_tracking = 1;
+    required bool suppress_modification_tracking = 2;
+    required bool suppress_expiration_timeout_renewal = 3;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TReqCreateNode
+{
+    required int32 type = 1;
+    required NYT.NProto.TGuid node_id = 2;
+    required string path = 3;
+    optional NYT.NYTree.NProto.TAttributeDictionary node_attributes = 4;
+    optional NYT.NProto.TGuid transaction_id = 5;
+    optional NYT.NProto.TGuid parent_id = 6;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TReqCloneNode
+{
+    message TCloneOptions
+    {
+        required int32 mode = 4; // ENodeCloneMode
+        optional bool preserve_acl = 5 [default = false];
+        optional bool preserve_account = 6 [default = false];
+        optional bool preserve_owner = 7 [default = false];
+        optional bool preserve_creation_time = 8 [default = false];
+        optional bool preserve_modification_time = 9 [default = false];
+        optional bool preserve_expiration_time = 10 [default = false];
+        optional bool preserve_expiration_timeout = 11 [default = false];
+        optional bool pessimistic_quota_check = 12 [default = true];
+        optional bool allow_secondary_index_abandonment = 13 [default = false];
+    }
+
+    required NYT.NProto.TGuid src_id = 1;
+    required NYT.NProto.TGuid dst_id = 2;
+    required string dst_path = 3;
+    required TCloneOptions options = 4;
+    optional NYT.NProto.TGuid transaction_id = 5;
+    optional NYT.NProto.TGuid dst_parent_id = 6;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TReqAttachChild
+{
+    required NYT.NProto.TGuid parent_id = 1;
+    required NYT.NProto.TGuid child_id = 2;
+    required string key = 3;
+    optional NYT.NProto.TGuid transaction_id = 4;
+    optional TAccessTrackingOptions access_tracking_options = 100;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TReqRemoveNode
+{
+    required NYT.NProto.TGuid node_id = 1;
+    optional NYT.NProto.TGuid transaction_id = 2;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TReqDetachChild
+{
+    required NYT.NProto.TGuid parent_id = 1;
+    required string key = 2;
+    optional NYT.NProto.TGuid transaction_id = 3;
+    optional TAccessTrackingOptions access_tracking_options = 100;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TReqSetNode
+{
+    required NYT.NProto.TGuid node_id = 1;
+    optional string path = 4;
+    optional bytes value = 2;
+    optional bool force = 5;
+    optional NYT.NProto.TGuid transaction_id = 3;
+    optional TAccessTrackingOptions access_tracking_options = 100;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TReqMultisetAttributes
+{
+    required NYT.NProto.TGuid node_id = 1;
+    required string path = 2;
+    repeated NYT.NYTree.NProto.TReqMultisetAttributes.TSubrequest subrequests = 3;
+    required bool force = 4;
+    required NYT.NProto.TGuid transaction_id = 5;
+    optional TAccessTrackingOptions access_tracking_options = 100;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TReqRemoveNodeAttribute
+{
+    required NYT.NProto.TGuid node_id = 1;
+    required string path = 2;
+    required bool force = 3;
+    optional NYT.NProto.TGuid transaction_id = 4;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TReqExplicitlyLockNode
+{
+    required NYT.NProto.TGuid transaction_id = 1;
+    required NYT.NProto.TGuid node_id = 2;
+    required int32 mode = 3; // ELockMode
+    optional string child_key = 4;
+    optional string attribute_key = 5;
+    optional uint64 timestamp = 6;
+    required bool waitable = 7;
+    required NYT.NProto.TGuid lock_id = 8;
+}
+
+message TReqImplicitlyLockNode
+{
+    required NYT.NProto.TGuid transaction_id = 1;
+    required NYT.NProto.TGuid node_id = 2;
+    required int32 mode = 3; // ELockMode
+    optional string child_key = 4;
+    optional string attribute_key = 5;
+}
+
+message TReqUnlockNode
+{
+    required NYT.NProto.TGuid transaction_id = 1;
+    required NYT.NProto.TGuid node_id = 2;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TReqMaterializeNode
+{
+    required NYT.NCypressClient.NProto.TSerializedNode serialized_node = 1;
+
+    required int32 mode = 2; // ENodeCloneMode
+    required int32 version = 3; // EMasterReign
+
+    // Used when turning map_node -> scion / portal or vice versa.
+    optional NYT.NProto.TGuid existing_node_id = 4;
+
+    optional NYT.NYTree.NProto.TAttributeDictionary inherited_attributes_override = 5;
+
+    // If empty - preserve account of the source node.
+    optional NYT.NProto.TGuid new_account_id = 6;
+
+    optional bool preserve_creation_time = 7 [default = false];
+    optional bool preserve_expiration_time = 8 [default = false];
+    optional bool preserve_expiration_timeout = 9 [default = false];
+    optional bool preserve_owner = 10 [default = false];
+
+    optional NYT.NProto.TGuid transaction_id = 11;
+    required NYT.NProto.TGuid node_id = 12;
+}
+
+message TReqFinishNodeMaterialization
+{
+    required NYT.NProto.TGuid node_id = 1;
+    required NYT.NProto.TGuid parent_id = 2;
+    required string path = 3;
+
+    optional bool preserve_modification_time = 4 [default = false];
+    optional bool preserve_acl = 5 [default = false];
+
+    optional NYT.NProto.TGuid transaction_id = 6;
+}
+
+////////////////////////////////////////////////////////////////////////////////

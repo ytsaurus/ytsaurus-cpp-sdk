@@ -1,0 +1,17 @@
+#include "type_handler.h"
+
+namespace NYT::NObjectServer {
+
+////////////////////////////////////////////////////////////////////////////////
+
+TObject* IObjectTypeHandler::GetObject(TObjectId id)
+{
+    auto* object = FindObject(id);
+    YT_VERIFY(object);
+    return object;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+} // namespace NYT::NObjectServer
+

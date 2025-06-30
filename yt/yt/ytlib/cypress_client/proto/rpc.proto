@@ -1,0 +1,74 @@
+package NYT.NCypressClient.NProto;
+
+import "yt_proto/yt/core/misc/proto/guid.proto";
+import "yt_proto/yt/core/rpc/proto/rpc.proto";
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TTransactionalExt
+{
+    extend NRpc.NProto.TRequestHeader
+    {
+        optional NYT.NProto.TGuid transaction_id = 100;
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TAccessTrackingExt
+{
+    extend NRpc.NProto.TRequestHeader
+    {
+        optional bool suppress_access_tracking = 103;
+        optional bool suppress_modification_tracking = 108;
+        optional bool suppress_expiration_timeout_renewal = 113;
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TSequoiaExt
+{
+    extend NRpc.NProto.TRequestHeader
+    {
+        optional bool allow_resolve_from_sequoia_object = 118;
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TResolveDepthExt
+{
+    extend NRpc.NProto.TRequestHeader
+    {
+        optional int32 resolve_depth = 119;
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TExpirationExt
+{
+    extend NRpc.NProto.TRequestHeader
+    {
+        optional bool caused_by_node_expiration = 124;
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+// When Cypress Proxy is used, requests to different cells and peer kinds
+// are sent to the same proxies. These fields are used by Cypress Proxy to
+// redirect request properly. Master ignores these fields.
+message TTargetMasterPeerExt
+{
+    extend NRpc.NProto.TRequestHeader
+    {
+        optional TTargetMasterPeerExt target_master_peer_ext = 126;
+    }
+
+    required uint32 cell_tag = 1;
+    required int32 master_channel_kind = 2; // EMasterChannelKind
+}
+
+////////////////////////////////////////////////////////////////////////////////

@@ -1,0 +1,103 @@
+package NYT.NChunkServer.NProto;
+
+import "yt_proto/yt/core/misc/proto/guid.proto";
+import "yt_proto/yt/client/chunk_client/proto/confirm_chunk_replica_info.proto";
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TReqUpdateChunkRequisition
+{
+    message TUpdate
+    {
+        required NYT.NProto.TGuid chunk_id = 1;
+        required uint32 chunk_requisition_index = 2;
+    }
+    message TChunkRequisition
+    {
+        message TAccountingEntry
+        {
+            required NYT.NProto.TGuid account_id = 4;
+            required int32 medium_index = 1;
+            required int32 replication_factor = 2;
+            required bool data_parts_only = 3;
+            required bool committed = 5;
+        }
+        required bool vital = 3;
+        repeated TAccountingEntry entries = 4;
+    }
+    message TChunkRequisitionDictItem
+    {
+        required uint32 index = 1;
+        required TChunkRequisition requisition = 2;
+    }
+
+    required uint32 cell_tag = 1;
+    repeated TUpdate updates = 3;
+    repeated TChunkRequisitionDictItem chunk_requisition_dict = 4;
+}
+
+message TReqConfirmChunkListsRequisitionTraverseFinished
+{
+    repeated NYT.NProto.TGuid chunk_list_ids = 1;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TSequoiaReplicaInfo
+{
+    required NYT.NProto.TGuid chunk_id = 1;
+    required uint32 node_id = 3;
+    required int32 replica_index = 4;
+    required uint32 location_index = 5;
+
+    reserved 2;
+}
+
+message TReqRemoveDeadSequoiaChunkReplicas
+{
+    repeated TSequoiaReplicaInfo replicas = 1;
+    repeated NYT.NProto.TGuid chunk_ids = 2;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TReqUnstageExpiredChunks
+{
+    repeated NYT.NProto.TGuid chunk_ids = 1;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TReqRegisterChunkEndorsements
+{
+    repeated NYT.NProto.TGuid chunk_ids = 1;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TReqRedistributeConsistentReplicaPlacementTokens
+{ }
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TReqAddConfirmReplicas
+{
+    required NYT.NProto.TGuid chunk_id = 1;
+    repeated NYT.NChunkClient.NProto.TConfirmChunkReplicaInfo replicas = 2;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TReqScheduleChunkRequisitionUpdates
+{
+    repeated NYT.NProto.TGuid chunk_ids = 1;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TReqRescheduleChunkListRequisitionTraversals
+{
+    repeated NYT.NProto.TGuid chunk_list_ids = 1;
+}
+
+////////////////////////////////////////////////////////////////////////////////

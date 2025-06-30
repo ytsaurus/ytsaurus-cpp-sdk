@@ -1,0 +1,59 @@
+namespace: NYT::NQueueClient::NRecords
+
+types:
+  - type_name: TConsumerObject
+    descriptor_verbatim: static constexpr TStringBuf Name = "consumers";
+    fields:
+      - cpp_name: Cluster
+        cpp_type: std::string
+        column_name: cluster
+        column_type: String
+        sort_order: Ascending
+        required: True
+
+      - cpp_name: Path
+        cpp_type: NYPath::TYPath
+        column_name: path
+        column_type: String
+        sort_order: Ascending
+        required: True
+
+      - cpp_name: RowRevision
+        cpp_type: std::optional<TRowRevision>
+        column_name: row_revision
+        column_type: Uint64
+
+      - cpp_name: Revision
+        cpp_type: std::optional<TRowRevision>
+        column_name: revision
+        column_type: Uint64
+
+      - cpp_name: ObjectType
+        cpp_type: std::optional<std::string>
+        column_name: object_type
+        column_type: String
+
+      - cpp_name: TreatAsQueueConsumer
+        cpp_type: std::optional<bool>
+        column_name: treat_as_queue_consumer
+        column_type: Boolean
+
+      - cpp_name: Schema
+        cpp_type: std::optional<NYson::TYsonString>
+        column_name: schema
+        column_type: Any
+
+      - cpp_name: QueueAgentStage
+        cpp_type: std::optional<std::string>
+        column_name: queue_agent_stage
+        column_type: String
+
+      - cpp_name: SynchronizationError
+        cpp_type: std::optional<NYson::TYsonString>
+        column_name: synchronization_error
+        column_type: Any
+
+      - cpp_name: QueueAgentBanned
+        cpp_type: std::optional<bool>
+        column_name: queue_agent_banned
+        column_type: Boolean

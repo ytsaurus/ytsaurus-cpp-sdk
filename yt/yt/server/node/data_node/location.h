@@ -1,0 +1,780 @@
+#pragma once
+
+#include "disk_location.h"
+
+#include <yt/yt/orm/library/query/public.h>
+
+#include <yt/yt/server/node/data_node/public.h>
+
+#include <yt/yt/server/node/cluster_node/public.h>
+
+#include <yt/yt/server/lib/io/public.h>
+
+#include <yt/yt/ytlib/chunk_client/proto/chunk_info.pb.h>
+#include <yt/yt/ytlib/chunk_client/medium_directory.h>
+#include <yt/yt/ytlib/chunk_client/session_id.h>
+
+#include <yt/yt/core/actions/signal.h>
+
+#include <yt/yt/core/concurrency/action_queue.h>
+#include <yt/yt/core/concurrency/periodic_executor.h>
+
+#include <yt/yt/core/logging/log.h>
+
+#include <yt/yt/core/misc/atomic_ptr.h>
+#include <yt/yt/core/misc/fair_share_hierarchical_queue.h>
+#include <yt/yt/core/misc/memory_usage_tracker.h>
+
+#include <yt/yt/library/profiling/sensor.h>
+
+#include <library/cpp/yt/threading/atomic_object.h>
+
+#include <atomic>
+#include <map>
+
+namespace NYT::NDataNode {
+
+////////////////////////////////////////////////////////////////////////////////
+
+DEFINE_ENUM(ELocationType,
+    (Store)
+    (Cache)
+);
+
+DEFINE_ENUM(EIODirection,
+    (Read)
+    (Write)
+);
+
+DEFINE_ENUM(EIOCategory,
+    (Repair)
+    (Batch)
+    (Interactive)
+    (Realtime)
+);
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct TLocationPerformanceCounters
+    : public TRefCounted
+{
+    explicit TLocationPerformanceCounters(const NProfiling::TProfiler& profiler);
+
+    TEnumIndexedArray<EIODirection, TEnumIndexedArray<EIOCategory, NProfiling::TCounter>> CompletedIOSize;
+
+    TEnumIndexedArray<EIODirection, TEnumIndexedArray<EIOCategory, std::atomic<i64>>> UsedMemory;
+    TEnumIndexedArray<EIODirection, TEnumIndexedArray<EIOCategory, std::atomic<i64>>> LegacyUsedMemory;
+
+    NProfiling::TCounter ThrottledProbingReads;
+    NProfiling::TCounter ThrottledReads;
+    std::atomic<NProfiling::TCpuInstant> LastReadThrottleTime{};
+
+    void ReportThrottledProbingRead();
+    void ReportThrottledRead();
+
+    NProfiling::TCounter ThrottledProbingWrites;
+    NProfiling::TCounter ThrottledWrites;
+    std::atomic<NProfiling::TCpuInstant> LastWriteThrottleTime{};
+
+    void ReportThrottledProbingWrite();
+    void ReportThrottledWrite();
+
+    NProfiling::TEventTimer PutBlocksWallTime;
+    NProfiling::TEventTimer BlobChunkMetaReadTime;
+
+    NProfiling::TEventTimer BlobChunkWriterOpenTime;
+    NProfiling::TEventTimer BlobChunkWriterAbortTime;
+    NProfiling::TEventTimer BlobChunkWriterCloseTime;
+
+    TEnumIndexedArray<EWorkloadCategory, NProfiling::TSummary> BlobBlockReadSize;
+
+    TEnumIndexedArray<EWorkloadCategory, NProfiling::TEventTimer> BlobBlockReadTime;
+    NProfiling::TCounter BlobBlockReadBytes;
+    NProfiling::TCounter BlobBlockReadCount;
+
+    TEnumIndexedArray<EWorkloadCategory, NProfiling::TEventTimer> BlobBlockReadLatencies;
+    TEnumIndexedArray<EWorkloadCategory, NProfiling::TEventTimer> BlobChunkMetaReadLatencies;
+
+    NProfiling::TSummary BlobBlockWriteSize;
+    NProfiling::TEventTimer BlobBlockWriteTime;
+    NProfiling::TCounter BlobBlockWriteBytes;
+
+    NProfiling::TSummary JournalBlockReadSize;
+    NProfiling::TEventTimer JournalBlockReadTime;
+    NProfiling::TCounter JournalBlockReadBytes;
+
+    NProfiling::TEventTimer JournalChunkCreateTime;
+    NProfiling::TEventTimer JournalChunkOpenTime;
+    NProfiling::TEventTimer JournalChunkRemoveTime;
+
+    TEnumIndexedArray<ESessionType, std::atomic<int>> SessionCount;
+
+    NProfiling::TGauge IOWeight;
+    NProfiling::TGauge UsedSpace;
+    NProfiling::TGauge AvailableSpace;
+    NProfiling::TGauge ChunkCount;
+    NProfiling::TGauge TrashChunkCount;
+    NProfiling::TGauge TrashSpace;
+    NProfiling::TGauge Full;
+};
+
+DEFINE_REFCOUNTED_TYPE(TLocationPerformanceCounters)
+
+////////////////////////////////////////////////////////////////////////////////
+
+class TLocationFairShareSlot
+    : public TRefCounted
+{
+public:
+    TLocationFairShareSlot(
+        TFairShareHierarchicalSlotQueuePtr<std::string> queue,
+        TFairShareHierarchicalSlotQueueSlotPtr<std::string> slot);
+
+    TFairShareHierarchicalSlotQueueSlotPtr<std::string> GetSlot() const;
+
+    ~TLocationFairShareSlot();
+
+private:
+    TFairShareHierarchicalSlotQueuePtr<std::string> Queue_;
+    TFairShareHierarchicalSlotQueueSlotPtr<std::string> Slot_;
+
+    void MoveFrom(TLocationFairShareSlot&& other);
+};
+
+DEFINE_REFCOUNTED_TYPE(TLocationFairShareSlot)
+
+////////////////////////////////////////////////////////////////////////////////
+
+class TLocationMemoryGuard
+{
+public:
+    TLocationMemoryGuard() = default;
+    TLocationMemoryGuard(TLocationMemoryGuard&& other);
+    ~TLocationMemoryGuard();
+
+    void Release();
+
+    i64 GetSize() const;
+    bool GetUseLegacyUsedMemory() const;
+    TChunkLocationPtr GetOwner() const;
+
+    void IncreaseSize(i64 delta);
+    void DecreaseSize(i64 delta);
+
+    TLocationMemoryGuard& operator=(TLocationMemoryGuard&& other);
+
+    explicit operator bool() const;
+
+private:
+    friend class TChunkLocation;
+
+    // TODO(vvshlyaga): Remove flag useLegacyUsedMemory after rolling writer with probing on all nodes.
+    TLocationMemoryGuard(
+        TMemoryUsageTrackerGuard memoryGuard,
+        bool useLegacyUsedMemory,
+        EIODirection direction,
+        EIOCategory category,
+        i64 size,
+        TChunkLocationPtr owner);
+
+    void MoveFrom(TLocationMemoryGuard&& other);
+
+    TMemoryUsageTrackerGuard MemoryGuard_;
+    // TODO(vvshlyaga): Remove flag useLegacyUsedMemory after rolling writer with probing on all nodes.
+    bool UseLegacyUsedMemory_ = false;
+    EIODirection Direction_;
+    EIOCategory Category_;
+    i64 Size_ = 0;
+    TChunkLocationPtr Owner_;
+};
+
+////////////////////////////////////////////////////////////////////////////////
+
+class TLockedChunkGuard
+{
+public:
+    TLockedChunkGuard() = default;
+    TLockedChunkGuard(TLockedChunkGuard&& other);
+    ~TLockedChunkGuard();
+
+    //! This method loses pointer to location and chunk for exclude
+    //! Location::UnlockChunk call in destructor. This is necessary to preserve
+    //! eternal (while the location is alive) lock on the chunk.
+    void Release();
+
+    TLockedChunkGuard& operator=(TLockedChunkGuard&& other);
+
+    explicit operator bool() const;
+
+private:
+    friend class TChunkLocation;
+
+    TLockedChunkGuard(TChunkLocationPtr location, TChunkId chunkId);
+
+    void MoveFrom(TLockedChunkGuard&& other);
+
+    TChunkLocationPtr Location_;
+    TChunkId ChunkId_;
+};
+
+////////////////////////////////////////////////////////////////////////////////
+
+class TChunkLocation
+    : public TDiskLocation
+{
+public:
+    TChunkLocation(
+        ELocationType type,
+        TString id,
+        TChunkLocationConfigPtr config,
+        NClusterNode::TClusterNodeDynamicConfigManagerPtr dynamicConfigManager,
+        TChunkStorePtr chunkStore,
+        TChunkContextPtr chunkContext,
+        IChunkStoreHostPtr chunkStoreHost);
+
+    //! Returns the type.
+    ELocationType GetType() const;
+
+    //! Returns the universally unique id.
+    TChunkLocationUuid GetUuid() const;
+
+    //! Returns the disk family
+    const TString& GetDiskFamily() const;
+
+    //! Returns the IO Engine.
+    const NIO::IIOEnginePtr& GetIOEngine() const;
+
+    //! Returns the IO Engine with stats observer.
+    const NIO::IIOEngineWorkloadModelPtr& GetIOEngineModel() const;
+
+    //! Updates the runtime configuration.
+    void Reconfigure(TChunkLocationConfigPtr config);
+
+    //! Return the maximum number of bytes in the gap between two adjacent read locations
+    //! in order to join them together during read coalescing.
+    i64 GetCoalescedReadMaxGapSize() const;
+
+    //! Returns the medium name.
+    std::string GetMediumName() const;
+
+    //! Sets medium descriptor.
+    //! #onInitialize indicates whether this method called before any data node heartbeat or on heartbeat response.
+    void UpdateMediumDescriptor(
+        const NChunkClient::TMediumDescriptor& mediumDescriptor,
+        bool onInitialize);
+
+    //! Returns the medium descriptor.
+    NChunkClient::TMediumDescriptor GetMediumDescriptor() const;
+
+    const NProfiling::TProfiler& GetProfiler() const;
+
+    //! Returns various performance counters.
+    TLocationPerformanceCounters& GetPerformanceCounters();
+
+    //! Returns the root path of the location.
+    const TString& GetPath() const;
+
+    //! Returns the maximum number of bytes the chunks assigned to this location
+    //! are allowed to use.
+    i64 GetQuota() const;
+
+    //! Returns the IO weight of the location.
+    double GetIOWeight() const;
+
+    //! Returns an invoker for various auxiliarly IO activities.
+    const IInvokerPtr& GetAuxPoolInvoker();
+
+    //! Scan the location directory removing orphaned files and returning the list of found chunks.
+    /*!
+     *  If the scan fails, the location becomes disabled and an empty list is returned.
+     */
+    std::vector<TChunkDescriptor> Scan();
+
+    //! Create cell id and uuid files if they don't exist.
+    void InitializeIds();
+
+    TErrorOr<TLocationFairShareSlotPtr> AddFairShareQueueSlot(
+        i64 size,
+        std::vector<IFairShareHierarchicalSlotQueueResourcePtr> resources,
+        std::vector<TFairShareHierarchyLevel<std::string>> levels);
+
+    //! Prepares the location to accept new writes.
+    /*!
+     *  Must be called when all locations are scanned and all existing chunks are registered.
+     *  On failure, acts similarly to Scan.
+     */
+    void Start();
+
+    //! Does the node need to tell the master about this location.
+    bool CanPublish() const;
+
+    //! Try changing location status to disabled. For this location disk must be active and test can run without I/O errors.
+    bool OnDiskRepaired();
+
+    //! This method can be called either manually from the rpc method, or automatically when the check detects a recovered empty disk.
+    //! To resurrect, we have to scan and register existing chunks of location.
+    bool Resurrect();
+
+    //! Destroy location on disk.
+    bool StartDestroy();
+
+    //! Mark location as destroyed, called after location disk recovering.
+    bool FinishDestroy(
+        bool destroyResult,
+        const TError& reason);
+
+    //! Marks location as crashed during initialization. Master must not find out about this location.
+    void Crash(const TError& reason);
+
+    //! Subscribe callback on disk health check.
+    void SubscribeDiskCheckFailed(const TCallback<void(const TError&)> callback);
+
+    //! Updates #UsedSpace and #AvailableSpace.
+    void UpdateUsedSpace(i64 size);
+
+    //! Returns the number of bytes used at the location.
+    /*!
+     *  \note
+     *  This may exceed #GetQuota.
+     */
+    i64 GetUsedSpace() const;
+
+    //! Updates #AvailableSpace with a system call and returns the result.
+    //! Never throws.
+    i64 GetAvailableSpace() const;
+
+    //! Returns the memory tracking for pending reads.
+    const IMemoryUsageTrackerPtr& GetReadMemoryTracker() const;
+
+    //! Returns the memory tracking for pending writes.
+    const IMemoryUsageTrackerPtr& GetWriteMemoryTracker() const;
+
+    //! Returns the max number of used memory across workloads.
+    // TODO(vvshlyaga): Remove flag useLegacyUsedMemory after rolling writer with probing on all nodes.
+    i64 GetMaxUsedMemory(
+        bool useLegacyUsedMemory,
+        EIODirection direction) const;
+
+    //! Returns the number of used memory.
+    // TODO(vvshlyaga): Remove flag useLegacyUsedMemory after rolling writer with probing on all nodes.
+    i64 GetUsedMemory(
+        bool useLegacyUsedMemory,
+        EIODirection direction,
+        const TWorkloadDescriptor& workloadDescriptor) const;
+
+    //! Returns total amount of used memory in given #direction.
+    // TODO(vvshlyaga): Remove flag useLegacyUsedMemory after rolling writer with probing on all nodes.
+    i64 GetUsedMemory(
+        bool useLegacyUsedMemory,
+        EIODirection direction) const;
+
+    //! Acquires a lock memory for the given number of bytes to be read or written.
+    // TODO(vvshlyaga): Remove flag useLegacyUsedMemory after rolling writer with probing on all nodes.
+    TLocationMemoryGuard AcquireLocationMemory(
+        bool useLegacyUsedMemory,
+        TMemoryUsageTrackerGuard memoryGuard,
+        EIODirection direction,
+        const TWorkloadDescriptor& workloadDescriptor,
+        i64 delta);
+
+    //! Acquires a lock memory for the given number of bytes to be read or written if possible.
+    // TODO(vvshlyaga): Remove flag useLegacyUsedMemory after rolling writer with probing on all nodes.
+    TErrorOr<TLocationMemoryGuard> TryAcquireLocationMemory(
+        bool useLegacyUsedMemory,
+        EIODirection direction,
+        const TWorkloadDescriptor& workloadDescriptor,
+        i64 delta);
+
+    //! Increases number of bytes done for disk IO.
+    void IncreaseCompletedIOSize(
+        EIODirection direction,
+        const TWorkloadDescriptor& workloadDescriptor,
+        i64 delta);
+
+    //! Changes the number of currently active sessions of a given #type by a given #delta.
+    void UpdateSessionCount(ESessionType type, int delta);
+
+    //! Changes the number of chunks by a given delta.
+    void UpdateChunkCount(int delta);
+
+    //! Returns the number of currently active sessions of a given #type.
+    int GetSessionCount(ESessionType type) const;
+
+    //! Returns the number of currently active sessions of any type.
+    int GetSessionCount() const;
+
+    //! Returns the number of chunks.
+    int GetChunkCount() const;
+
+    //! Returns a full path for a primary chunk file.
+    TString GetChunkPath(TChunkId chunkId) const;
+
+    //! Removes a chunk permanently or moves it to the trash (if available).
+    virtual void RemoveChunkFiles(TChunkId chunkId, bool force);
+
+    //! Returns the incoming bandwidth throttler for a given #descriptor.
+    const NConcurrency::IThroughputThrottlerPtr& GetInThrottler(const TWorkloadDescriptor& descriptor) const;
+
+    //! Returns the outcoming bandwidth throttler for a given #descriptor.
+    const NConcurrency::IThroughputThrottlerPtr& GetOutThrottler(const TWorkloadDescriptor& descriptor) const;
+
+    //! Returns |true| if reads were throttled (within some recent time interval).
+    bool IsReadThrottling() const;
+
+    //! Returns |true| if writes were throttled (within some recent time interval).
+    bool IsWriteThrottling() const;
+
+    struct TDiskThrottlingResult
+    {
+        bool Enabled;
+        i64 QueueSize;
+        TError Error;
+    };
+
+    //! Returns whether reads must be throttled
+    //! and the total number of bytes to read from disk including those accounted by out throttler.
+    TDiskThrottlingResult CheckReadThrottling(
+        const TWorkloadDescriptor& workloadDescriptor,
+        bool isProbing = false) const;
+
+    //! Reports throttled read.
+    void ReportThrottledProbingRead() const;
+    void ReportThrottledRead() const;
+
+    //! Returns whether writes must be throttled.
+    void ReportThrottledProbingWrite() const;
+    TDiskThrottlingResult CheckWriteThrottling(
+        TChunkId sessionId,
+        const TWorkloadDescriptor& workloadDescriptor,
+        bool blocksWindowShifted) const;
+
+    //! Reports throttled write.
+    void ReportThrottledWrite() const;
+
+    //! Location disk is OK.
+    bool IsLocationDiskOK() const;
+
+    //! Enable alert about location disk failing.
+    void MarkLocationDiskFailed();
+
+    void MarkLocationDiskWaitingReplacement();
+
+    //! Returns |true| if location is sick.
+    bool IsSick() const;
+
+    //! Returns limit on the maximum memory used of probe put blocks.
+    i64 GetLegacyWriteMemoryLimit() const;
+
+    //! Returns limit on the maximum memory used of location reads.
+    i64 GetReadMemoryLimit() const;
+
+    //! Returns limit on the maximum memory used of location writes.
+    i64 GetWriteMemoryLimit() const;
+
+    //! Returns limit on the maximum count of location write sessions.
+    i64 GetSessionCountLimit() const;
+
+    //! If location does not contain files corresponding to given #chunkId, acquires the lock
+    //! and returns a non-null guard. Otherwise, returns a null guard.
+    [[nodiscard]]
+    TLockedChunkGuard TryLockChunk(TChunkId chunkId);
+
+    //! While chunk is locked, it cannot be initialized twice.
+    //! To resurrect location, all chunks are unlocked, because they need to be created anew.
+    void UnlockChunk(TChunkId chunkId);
+
+    //! Marks the location as disabled by attempting to create a lock file and marking assigned chunks
+    //! as unavailable.
+    virtual bool ScheduleDisable(const TError& reason) = 0;
+
+    //! Wraps a given #callback with try/catch block that intercepts all exceptions
+    //! and calls #Disable when one happens.
+    template <class T>
+    TCallback<T()> DisableOnError(const TCallback<T()> callback);
+
+    //! If the tracked memory is close to the limit, new sessions will not be started.
+    //! This method returns memory limit fraction.
+    double GetMemoryLimitFractionForStartingNewSessions() const;
+
+    const TChunkStorePtr& GetChunkStore() const;
+
+    std::optional<TDuration> GetDelayBeforeBlobSessionBlockFree() const;
+
+    double GetFairShareWorkloadCategoryWeight(EWorkloadCategory category) const;
+
+    //! Push supplier to the queue.
+    void PushProbePutBlocksRequestSupplier(const TProbePutBlocksRequestSupplierPtr& supplier);
+
+    //! Try to acquire memory for top requests.
+    void CheckProbePutBlocksRequests();
+
+    //! Calc sum of all requested memory passeed to AcquireProbePutBlocks.
+    i64 GetRequestedMemory() const;
+
+    //! Returns size of requests queue.
+    i64 GetRequestedQueueSize() const;
+
+    TError GetLocationDisableError() const;
+
+protected:
+    const NClusterNode::TClusterNodeDynamicConfigManagerPtr DynamicConfigManager_;
+    const TChunkStorePtr ChunkStore_;
+    const TChunkContextPtr ChunkContext_;
+    const IChunkStoreHostPtr ChunkStoreHost_;
+
+    NProfiling::TProfiler Profiler_;
+
+    NThreading::TAtomicObject<TError> LocationDisabledAlert_;
+    NThreading::TAtomicObject<TError> LocationDiskFailedAlert_;
+
+    NServer::TDiskHealthCheckerPtr HealthChecker_;
+
+    mutable std::atomic<i64> AvailableSpace_ = 0;
+    std::atomic<i64> UsedSpace_ = 0;
+    TEnumIndexedArray<ESessionType, std::atomic<int>> PerTypeSessionCount_;
+    std::atomic<int> ChunkCount_ = 0;
+
+    static TString GetRelativeChunkPath(TChunkId chunkId);
+    static void ForceHashDirectories(const TString& rootPath);
+
+    virtual bool ShouldSkipFileName(const TString& fileName) const;
+
+    virtual void DoStart();
+    virtual std::vector<TChunkDescriptor> DoScan();
+
+    i64 GetReadThrottlingLimit() const;
+    i64 GetWriteThrottlingLimit() const;
+
+    void UnlockChunkLocks();
+
+    void RemoveChunkFilesPermanently(TChunkId chunkId);
+
+    TFuture<void> SynchronizeActions();
+    void CreateDisableLockFile(const TError& reason);
+    void ResetLocationStatistic();
+
+private:
+    friend class TLocationMemoryGuard;
+    friend class TPendingIOGuard;
+    friend class TLockedChunkGuard;
+
+    DECLARE_THREAD_AFFINITY_SLOT(ControlThread);
+
+    const ELocationType Type_;
+    const TChunkLocationConfigPtr StaticConfig_;
+
+    TAtomicIntrusivePtr<NOrm::NQuery::IExpressionEvaluator> IOWeightEvaluator_;
+
+    TLocationPerformanceCountersPtr PerformanceCounters_;
+
+    // TODO(vvshlyaga): Change to fair share queue.
+    YT_DECLARE_SPIN_LOCK(NThreading::TSpinLock, ProbePutBlocksRequestsLock_);
+    std::deque<TProbePutBlocksRequestSupplierPtr> ProbePutBlocksRequests_;
+    THashSet<TSessionId> ProbePutBlocksSessionIds_;
+
+    const IMemoryUsageTrackerPtr ReadMemoryTracker_;
+    const IMemoryUsageTrackerPtr WriteMemoryTracker_;
+
+    TAtomicPtr<TChunkLocationConfig, /*EnableAcquireHazard*/ true> RuntimeConfig_;
+
+    TChunkLocationUuid Uuid_;
+
+    NThreading::TAtomicObject<NChunkClient::TMediumDescriptor> MediumDescriptor_;
+    NProfiling::TDynamicTagPtr MediumTag_;
+    NProfiling::TGauge MediumFlag_;
+
+    TEnumIndexedArray<EChunkLocationThrottlerKind, NConcurrency::IReconfigurableThroughputThrottlerPtr> ReconfigurableThrottlers_;
+    TEnumIndexedArray<EChunkLocationThrottlerKind, NConcurrency::IThroughputThrottlerPtr> Throttlers_;
+    NConcurrency::IThroughputThrottlerPtr UnlimitedInThrottler_;
+    NConcurrency::IThroughputThrottlerPtr UnlimitedOutThrottler_;
+
+    bool EnableUncategorizedThrottler_;
+    NConcurrency::IReconfigurableThroughputThrottlerPtr ReconfigurableUncategorizedThrottler_;
+    NConcurrency::IThroughputThrottlerPtr UncategorizedThrottler_;
+
+    NIO::IDynamicIOEnginePtr DynamicIOEngine_;
+    NIO::IIOEngineWorkloadModelPtr IOEngineModel_;
+    NIO::IIOEnginePtr IOEngine_;
+
+    TFairShareHierarchicalSlotQueuePtr<std::string> IOFairShareQueue_;
+    NIO::IHugePageManagerPtr HugePageManager_;
+
+    YT_DECLARE_SPIN_LOCK(NThreading::TSpinLock, LockedChunksLock_);
+    THashSet<TChunkId> LockedChunkIds_;
+
+    static EIOCategory ToIOCategory(const TWorkloadDescriptor& workloadDescriptor);
+
+    THazardPtr<TChunkLocationConfig> GetRuntimeConfig() const;
+
+    void DoCheckProbePutBlocksRequests();
+    bool ContainsProbePutBlocksRequestSupplier(const TProbePutBlocksRequestSupplierPtr& supplier) const;
+
+    // TODO(vvshlyaga): Remove flag useLegacyUsedMemory after rolling writer with probing on all nodes.
+    void IncreaseUsedMemory(bool useLegacyUsedMemory, EIODirection direction, EIOCategory category, i64 delta);
+    // TODO(vvshlyaga): Remove flag useLegacyUsedMemory after rolling writer with probing on all nodes.
+    void DecreaseUsedMemory(bool useLegacyUsedMemory, EIODirection direction, EIOCategory category, i64 delta);
+    // TODO(vvshlyaga): Remove flag useLegacyUsedMemory after rolling writer with probing on all nodes.
+    void UpdateUsedMemory(bool useLegacyUsedMemory, EIODirection direction, EIOCategory category, i64 delta);
+
+    void UpdateIOWeightEvaluator(const std::optional<std::string>& formula);
+    TErrorOr<double> EvaluateIOWeight(const NOrm::NQuery::IExpressionEvaluatorPtr& evaluator) const;
+
+    void ValidateWritable();
+    void InitializeCellId();
+    void InitializeUuid();
+
+    void UpdateMediumTag();
+
+    void OnHealthCheckFailed(const TError& error);
+    void MarkUninitializedLocationDisabled(const TError& error);
+
+    void PopulateAlerts(std::vector<TError>* alerts);
+
+    virtual i64 GetAdditionalSpace() const;
+
+    virtual std::optional<TChunkDescriptor> RepairChunk(TChunkId chunkId) = 0;
+    virtual std::vector<TString> GetChunkPartNames(TChunkId chunkId) const = 0;
+};
+
+DEFINE_REFCOUNTED_TYPE(TChunkLocation)
+
+////////////////////////////////////////////////////////////////////////////////
+
+class TStoreLocation
+    : public TChunkLocation
+{
+public:
+    struct TIOStatistics
+    {
+        i64 FilesystemReadRate = 0;
+        i64 FilesystemWriteRate = 0;
+
+        i64 DiskReadRate = 0;
+        i64 DiskWriteRate = 0;
+    };
+
+    TStoreLocation(
+        TString id,
+        TStoreLocationConfigPtr config,
+        NClusterNode::TClusterNodeDynamicConfigManagerPtr dynamicConfigManager,
+        TChunkStorePtr chunkStore,
+        TChunkContextPtr chunkContext,
+        IChunkStoreHostPtr chunkStoreHost);
+
+    ~TStoreLocation();
+
+    //! Returns the static config.
+    const TStoreLocationConfigPtr& GetStaticConfig() const;
+
+    //! Returns the runtime config.
+    TStoreLocationConfigPtr GetRuntimeConfig() const;
+
+    //! Updates the runtime configuration.
+    void Reconfigure(TStoreLocationConfigPtr config);
+
+    //! Returns Journal Manager associated with this location.
+    const IJournalManagerPtr& GetJournalManager();
+
+    //! Returns the space reserved for low watermark.
+    //! Never throws.
+    i64 GetLowWatermarkSpace() const;
+
+    //! Returns max allowed write rate by device warranty.
+    //! Never throws.
+    i64 GetMaxWriteRateByDwpd() const;
+
+    //! Checks whether the location is full.
+    bool IsFull() const;
+
+    //! Checks whether to location has enough space to contain file of size #size.
+    bool HasEnoughSpace(i64 size) const;
+
+    //! Removes a chunk permanently or moves it to the trash.
+    void RemoveChunkFiles(TChunkId chunkId, bool force) override;
+
+    //! Returns the number of trash chunks.
+    int GetTrashChunkCount() const;
+
+    //! Returns the number of bytes used in trash.
+    i64 GetTrashSpace() const;
+
+    //! Returns various IO related statistics.
+    TIOStatistics GetIOStatistics() const;
+
+    //! Returns |true| if the location accepts new writes.
+    bool IsWritable() const;
+
+    //! Marks the location as disabled by attempting to create a lock file and marking assigned chunks
+    //! as unavailable.
+    bool ScheduleDisable(const TError& reason) override;
+
+private:
+    const TStoreLocationConfigPtr StaticConfig_;
+
+    const IJournalManagerPtr JournalManager_;
+    const NConcurrency::TActionQueuePtr TrashCheckQueue_;
+
+    mutable std::atomic<bool> Full_ = false;
+    mutable std::atomic<bool> WritesDisabledDueToHighPendingReadSize_ = false;
+
+    struct TTrashChunkEntry
+    {
+        TChunkId ChunkId;
+        i64 DiskSpace;
+    };
+
+    YT_DECLARE_SPIN_LOCK(NThreading::TSpinLock, TrashMapSpinLock_);
+    std::multimap<TInstant, TTrashChunkEntry> TrashMap_;
+    const NConcurrency::TPeriodicExecutorPtr TrashCheckExecutor_;
+
+    std::atomic<i64> TrashSpace_ = 0;
+    std::atomic<int> TrashChunkCount_ = 0;
+
+    class TIOStatisticsProvider;
+    const TIntrusivePtr<TIOStatisticsProvider> IOStatisticsProvider_;
+
+    TAtomicPtr<TStoreLocationConfig> RuntimeConfig_;
+
+    static TJournalManagerConfigPtr BuildJournalManagerConfig(
+        const TDataNodeConfigPtr& dataNodeConfig,
+        const TStoreLocationConfigPtr& storeLocationConfig);
+
+    void UpdateTrashChunkCount(int delta);
+    void UpdateTrashSpace(i64 size);
+    TString GetTrashPath() const;
+    TString GetTrashChunkPath(TChunkId chunkId) const;
+    void RegisterTrashChunk(TChunkId chunkId);
+    void OnCheckTrash();
+    void CheckTrashTtl();
+    void CheckTrashWatermark();
+    void RemoveTrashFiles(const TTrashChunkEntry& entry);
+    void MoveChunkFilesToTrash(TChunkId chunkId);
+
+    void RemoveLocationChunks();
+
+    bool IsTrashScanStopped() const;
+
+    i64 GetAdditionalSpace() const override;
+
+    std::optional<TChunkDescriptor> RepairBlobChunk(TChunkId chunkId);
+    std::optional<TChunkDescriptor> RepairJournalChunk(TChunkId chunkId);
+    std::optional<TChunkDescriptor> RepairChunk(TChunkId chunkId) override;
+
+    std::vector<TString> GetChunkPartNames(TChunkId chunkId) const override;
+    bool ShouldSkipFileName(const TString& fileName) const override;
+
+    void DoStart() override;
+    std::vector<TChunkDescriptor> DoScan() override;
+    void DoScanTrash();
+    void DoAsyncScanTrash();
+};
+
+DEFINE_REFCOUNTED_TYPE(TStoreLocation)
+
+////////////////////////////////////////////////////////////////////////////////
+
+} // namespace NYT::NDataNode
+
+#define LOCATION_INL_H_
+#include "location-inl.h"
+#undef LOCATION_INL_H_

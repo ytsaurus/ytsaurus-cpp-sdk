@@ -1,0 +1,15 @@
+#pragma once
+
+#include <util/generic/string.h>
+
+namespace NYT {
+
+////////////////////////////////////////////////////////////////////////////////
+
+void ValidateHostName(const std::string& address);
+void ValidateDataCenterName(const std::string& name);
+void ValidateRackName(const std::string& name);
+
+////////////////////////////////////////////////////////////////////////////////
+
+} // namespace NYT

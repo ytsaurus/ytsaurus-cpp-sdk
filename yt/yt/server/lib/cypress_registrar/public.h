@@ -1,0 +1,17 @@
+#pragma once
+
+#include <library/cpp/yt/memory/ref_counted.h>
+
+namespace NYT {
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct TCypressRegistrarOptions;
+
+DECLARE_REFCOUNTED_STRUCT(TCypressRegistrarConfig)
+
+DECLARE_REFCOUNTED_STRUCT(ICypressRegistrar)
+
+////////////////////////////////////////////////////////////////////////////////
+
+} // namespace NYT

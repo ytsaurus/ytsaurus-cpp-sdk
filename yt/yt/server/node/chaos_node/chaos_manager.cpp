@@ -1,0 +1,3280 @@
+#include "chaos_manager.h"
+
+#include "automaton.h"
+#include "bootstrap.h"
+#include "chaos_cell_synchronizer.h"
+#include "chaos_lease.h"
+#include "chaos_slot.h"
+#include "foreign_migrated_replication_card_remover.h"
+#include "helpers.h"
+#include "migrated_replication_card_remover.h"
+#include "replication_card.h"
+#include "replication_card_batcher.h"
+#include "replication_card_collocation.h"
+#include "replication_card_observer.h"
+#include "replication_card_serialization.h"
+#include "transaction.h"
+#include "transaction_manager.h"
+
+#include <yt/server/node/chaos_node/chaos_manager.pb.h>
+
+#include <yt/yt/server/lib/hydra/entity_map.h>
+
+#include <yt/yt/server/lib/hive/helpers.h>
+#include <yt/yt/server/lib/hive/hive_manager.h>
+
+#include <yt/yt/server/lib/chaos_node/config.h>
+
+#include <yt/yt/server/lib/misc/interned_attributes.h>
+
+#include <yt/yt/server/lib/tablet_server/config.h>
+#include <yt/yt/server/lib/tablet_server/replicated_table_tracker.h>
+
+#include <yt/yt/ytlib/api/native/connection.h>
+
+#include <yt/yt/ytlib/chaos_client/replication_cards_watcher.h>
+#include <yt/yt/ytlib/chaos_client/replication_card_updates_batcher_serialization.h>
+
+#include <yt/yt/client/chaos_client/helpers.h>
+#include <yt/yt/client/chaos_client/replication_card_serialization.h>
+
+#include <yt/yt/client/object_client/helpers.h>
+
+#include <yt/yt/client/tablet_client/helpers.h>
+
+#include <yt/yt/client/transaction_client/timestamp_provider.h>
+
+#include <yt/yt/core/ytree/convert.h>
+#include <yt/yt/core/ytree/fluent.h>
+#include <yt/yt/core/ytree/virtual.h>
+
+#include <yt/yt/core/yson/string.h>
+
+#include <yt/yt/core/misc/protobuf_helpers.h>
+
+namespace NYT::NChaosNode {
+
+using namespace NYson;
+using namespace NYTree;
+using namespace NHydra;
+using namespace NClusterNode;
+using namespace NHiveServer;
+using namespace NConcurrency;
+using namespace NObjectClient;
+using namespace NChaosClient;
+using namespace NTableClient;
+using namespace NTabletClient;
+using namespace NTabletServer;
+using namespace NTabletNode;
+using namespace NTransactionSupervisor;
+using namespace NServer;
+
+using NYT::FromProto;
+using NYT::ToProto;
+
+////////////////////////////////////////////////////////////////////////////////
+
+static constexpr int MigrateLeftoversBatchSize = 128;
+
+static constexpr int MaxLogProgressSegmentsSize = 30;
+static constexpr int MaxLogProgressHistorySize = 100;
+
+////////////////////////////////////////////////////////////////////////////////
+
+class TChaosManager
+    : public IChaosManager
+    , public TChaosAutomatonPart
+{
+    DEFINE_SIGNAL_OVERRIDE(void(TReplicatedTableData), ReplicatedTableCreated);
+    DEFINE_SIGNAL_OVERRIDE(void(TTableId), ReplicatedTableDestroyed);
+    DEFINE_SIGNAL_OVERRIDE(void(TReplicaData), ReplicaCreated);
+    DEFINE_SIGNAL_OVERRIDE(void(TTableReplicaId), ReplicaDestroyed);
+    DEFINE_SIGNAL_OVERRIDE(void(TTableCollocationData), ReplicationCollocationCreated);
+    DEFINE_SIGNAL_OVERRIDE(void(TTableCollocationId), ReplicationCollocationDestroyed);
+
+public:
+    TChaosManager(
+        TChaosManagerConfigPtr config,
+        IChaosSlotPtr slot,
+        IBootstrap* bootstrap)
+        : TChaosAutomatonPart(
+            slot,
+            bootstrap)
+        , Config_(config)
+        , OrchidService_(CreateOrchidService())
+        , ChaosCellSynchronizer_(CreateChaosCellSynchronizer(Config_->ChaosCellSynchronizer, slot, bootstrap))
+        , CommencerExecutor_(New<TPeriodicExecutor>(
+            slot->GetAutomatonInvoker(NChaosNode::EAutomatonThreadQueue::EraCommencer),
+            BIND(&TChaosManager::PeriodicCurrentTimestampPropagation, MakeWeak(this)),
+            Config_->EraCommencingPeriod))
+        , ReplicationCardObserver_(CreateReplicationCardObserver(Config_->ReplicationCardObserver, slot))
+        , MigratedReplicationCardRemover_(CreateMigratedReplicationCardRemover(Config_->MigratedReplicationCardRemover, slot, bootstrap))
+        , ForeignMigratedReplicationCardRemover_(CreateForeignMigratedReplicationCardRemover(
+            Config_->ForeignMigratedReplicationCardRemover,
+            slot,
+            HydraManager_))
+        , LeftoversMigrationExecutor_(New<TPeriodicExecutor>(
+            slot->GetAutomatonInvoker(NChaosNode::EAutomatonThreadQueue::MigrationDepartment),
+            BIND(&TChaosManager::PeriodicMigrateLeftovers, MakeWeak(this)),
+            Config_->LeftoverMigrationPeriod))
+        , ReplicationCardWatcher_(slot->GetReplicationCardsWatcher())
+        , ChaosLeaseTracker_(CreateTransactionLeaseTracker(
+            Bootstrap_->GetTransactionLeaseTrackerThreadPool(),
+            Logger))
+    {
+        YT_ASSERT_INVOKER_THREAD_AFFINITY(Slot_->GetAutomatonInvoker(), AutomatonThread);
+
+        RegisterLoader(
+            "ChaosManager.Keys",
+            BIND_NO_PROPAGATE(&TChaosManager::LoadKeys, Unretained(this)));
+        RegisterLoader(
+            "ChaosManager.Values",
+            BIND_NO_PROPAGATE(&TChaosManager::LoadValues, Unretained(this)));
+
+        RegisterSaver(
+            ESyncSerializationPriority::Keys,
+            "ChaosManager.Keys",
+            BIND_NO_PROPAGATE(&TChaosManager::SaveKeys, Unretained(this)));
+        RegisterSaver(
+            ESyncSerializationPriority::Values,
+            "ChaosManager.Values",
+            BIND_NO_PROPAGATE(&TChaosManager::SaveValues, Unretained(this)));
+
+        RegisterMethod(BIND_NO_PROPAGATE(&TChaosManager::HydraGenerateReplicationCardId, Unretained(this)));
+        RegisterMethod(BIND_NO_PROPAGATE(&TChaosManager::HydraCreateReplicationCard, Unretained(this)));
+        RegisterMethod(BIND_NO_PROPAGATE(&TChaosManager::HydraRemoveReplicationCard, Unretained(this)));
+        RegisterMethod(BIND_NO_PROPAGATE(&TChaosManager::HydraAlterReplicationCard, Unretained(this)));
+        RegisterMethod(BIND_NO_PROPAGATE(&TChaosManager::HydraChaosNodeRemoveReplicationCard, Unretained(this)));
+        RegisterMethod(BIND_NO_PROPAGATE(&TChaosManager::HydraUpdateCoordinatorCells, Unretained(this)));
+        RegisterMethod(BIND_NO_PROPAGATE(&TChaosManager::HydraCreateTableReplica, Unretained(this)));
+        RegisterMethod(BIND_NO_PROPAGATE(&TChaosManager::HydraRemoveTableReplica, Unretained(this)));
+        RegisterMethod(BIND_NO_PROPAGATE(&TChaosManager::HydraAlterTableReplica, Unretained(this)));
+        RegisterMethod(BIND_NO_PROPAGATE(&TChaosManager::HydraUpdateTableReplicaProgress, Unretained(this)));
+        RegisterMethod(BIND_NO_PROPAGATE(&TChaosManager::HydraUpdateTableProgress, Unretained(this)));
+        RegisterMethod(BIND_NO_PROPAGATE(&TChaosManager::HydraUpdateMultipleTableProgresses, Unretained(this)));
+        RegisterMethod(BIND_NO_PROPAGATE(&TChaosManager::HydraCommenceNewReplicationEra, Unretained(this)));
+        RegisterMethod(BIND_NO_PROPAGATE(&TChaosManager::HydraPropagateCurrentTimestamps, Unretained(this)));
+        RegisterMethod(BIND_NO_PROPAGATE(&TChaosManager::HydraRspGrantShortcuts, Unretained(this)));
+        RegisterMethod(BIND_NO_PROPAGATE(&TChaosManager::HydraRspRevokeShortcuts, Unretained(this)));
+        RegisterMethod(BIND_NO_PROPAGATE(&TChaosManager::HydraSuspendCoordinator, Unretained(this)));
+        RegisterMethod(BIND_NO_PROPAGATE(&TChaosManager::HydraResumeCoordinator, Unretained(this)));
+        RegisterMethod(BIND_NO_PROPAGATE(&TChaosManager::HydraRemoveExpiredReplicaHistory, Unretained(this)));
+        RegisterMethod(BIND_NO_PROPAGATE(&TChaosManager::HydraMigrateReplicationCards, Unretained(this)));
+        RegisterMethod(BIND_NO_PROPAGATE(&TChaosManager::HydraResumeChaosCell, Unretained(this)));
+        RegisterMethod(BIND_NO_PROPAGATE(&TChaosManager::HydraChaosNodeMigrateReplicationCards, Unretained(this)));
+        RegisterMethod(BIND_NO_PROPAGATE(&TChaosManager::HydraChaosNodeConfirmReplicationCardMigration, Unretained(this)));
+        RegisterMethod(BIND_NO_PROPAGATE(&TChaosManager::HydraCreateReplicationCardCollocation, Unretained(this)));
+        RegisterMethod(BIND_NO_PROPAGATE(&TChaosManager::HydraChaosNodeRemoveMigratedReplicationCards, Unretained(this)));
+        RegisterMethod(BIND_NO_PROPAGATE(&TChaosManager::HydraForsakeCoordinator, Unretained(this)));
+        RegisterMethod(BIND_NO_PROPAGATE(&TChaosManager::HydraCreateChaosLease, Unretained(this)));
+        RegisterMethod(BIND_NO_PROPAGATE(&TChaosManager::HydraRemoveChaosLease, Unretained(this)));
+    }
+
+    void Initialize() override
+    {
+        const auto& transactionManager = Slot_->GetTransactionManager();
+        transactionManager->RegisterTransactionActionHandlers<NChaosClient::NProto::TReqCreateReplicationCard>({
+            .Prepare = BIND_NO_PROPAGATE(&TChaosManager::HydraPrepareCreateReplicationCard, Unretained(this)),
+            .Commit = BIND_NO_PROPAGATE(&TChaosManager::HydraCommitCreateReplicationCard, Unretained(this)),
+            .Abort = BIND_NO_PROPAGATE(&TChaosManager::HydraAbortCreateReplicationCard, Unretained(this)),
+        });
+        transactionManager->RegisterTransactionActionHandlers<NChaosClient::NProto::TReqAttachReplicationCardToRemoteCollocation>({
+            .Prepare = BIND_NO_PROPAGATE(&TChaosManager::HydraPrepareAttachReplicationCardToRemoteCollocation, Unretained(this)),
+            .Commit = BIND_NO_PROPAGATE(&TChaosManager::HydraCommitAttachReplicationCardToRemoteCollocation, Unretained(this)),
+            .Abort = BIND_NO_PROPAGATE(&TChaosManager::HydraAbortAttachReplicationCardToRemoteCollocation, Unretained(this)),
+        });
+    }
+
+    IYPathServicePtr GetOrchidService() const override
+    {
+        return OrchidService_;
+    }
+
+    virtual ITransactionLeaseTrackerPtr GetChaosLeaseTracker() const override
+    {
+        return ChaosLeaseTracker_;
+    }
+
+    void GenerateReplicationCardId(const TCtxGenerateReplicationCardIdPtr& context) override
+    {
+        auto mutation = CreateMutation(
+            HydraManager_,
+            context,
+            &TChaosManager::HydraGenerateReplicationCardId,
+            this);
+        YT_UNUSED_FUTURE(mutation->CommitAndReply(context));
+    }
+
+    void CreateReplicationCard(const TCtxCreateReplicationCardPtr& context) override
+    {
+        auto mutation = CreateMutation(
+            HydraManager_,
+            context,
+            &TChaosManager::HydraCreateReplicationCard,
+            this);
+        YT_UNUSED_FUTURE(mutation->CommitAndReply(context));
+    }
+
+    void RemoveReplicationCard(const TCtxRemoveReplicationCardPtr& context) override
+    {
+        auto mutation = CreateMutation(
+            HydraManager_,
+            context,
+            &TChaosManager::HydraRemoveReplicationCard,
+            this);
+        YT_UNUSED_FUTURE(mutation->CommitAndReply(context));
+    }
+
+    void AlterReplicationCard(const TCtxAlterReplicationCardPtr& context) override
+    {
+        auto mutation = CreateMutation(
+            HydraManager_,
+            context,
+            &TChaosManager::HydraAlterReplicationCard,
+            this);
+        YT_UNUSED_FUTURE(mutation->CommitAndReply(context));
+    }
+
+    void CreateTableReplica(const TCtxCreateTableReplicaPtr& context) override
+    {
+        auto mutation = CreateMutation(
+            HydraManager_,
+            context,
+            &TChaosManager::HydraCreateTableReplica,
+            this);
+        YT_UNUSED_FUTURE(mutation->CommitAndReply(context));
+    }
+
+    void RemoveTableReplica(const TCtxRemoveTableReplicaPtr& context) override
+    {
+        auto mutation = CreateMutation(
+            HydraManager_,
+            context,
+            &TChaosManager::HydraRemoveTableReplica,
+            this);
+        YT_UNUSED_FUTURE(mutation->CommitAndReply(context));
+    }
+
+    void AlterTableReplica(const TCtxAlterTableReplicaPtr& context) override
+    {
+        auto mutation = CreateMutation(
+            HydraManager_,
+            context,
+            &TChaosManager::HydraAlterTableReplica,
+            this);
+        YT_UNUSED_FUTURE(mutation->CommitAndReply(context));
+    }
+
+    void UpdateTableReplicaProgress(const TCtxUpdateTableReplicaProgressPtr& context) override
+    {
+        auto mutation = CreateMutation(
+            HydraManager_,
+            context,
+            &TChaosManager::HydraUpdateTableReplicaProgress,
+            this);
+        YT_UNUSED_FUTURE(mutation->CommitAndReply(context));
+    }
+
+    void UpdateTableProgress(const TCtxUpdateTableProgressPtr& context) override
+    {
+        auto mutation = CreateMutation(
+            HydraManager_,
+            context,
+            &TChaosManager::HydraUpdateTableProgress,
+            this);
+        YT_UNUSED_FUTURE(mutation->CommitAndReply(context));
+    }
+
+    void UpdateMultipleTableProgresses(const TCtxUpdateMultipleTableProgressesPtr& context) override
+    {
+        auto mutation = CreateMutation(
+            HydraManager_,
+            context,
+            &TChaosManager::HydraUpdateMultipleTableProgresses,
+            this);
+        YT_UNUSED_FUTURE(mutation->CommitAndReply(context));
+    }
+
+    void MigrateReplicationCards(const TCtxMigrateReplicationCardsPtr& context) override
+    {
+        auto mutation = CreateMutation(
+            HydraManager_,
+            context,
+            &TChaosManager::HydraMigrateReplicationCards,
+            this);
+        YT_UNUSED_FUTURE(mutation->CommitAndReply(context));
+    }
+
+    void ResumeChaosCell(const TCtxResumeChaosCellPtr& context) override
+    {
+        auto mutation = CreateMutation(
+            HydraManager_,
+            context,
+            &TChaosManager::HydraResumeChaosCell,
+            this);
+        YT_UNUSED_FUTURE(mutation->CommitAndReply(context));
+    }
+
+    TFuture<void> ExecuteAlterTableReplica(const NChaosClient::NProto::TReqAlterTableReplica& request) override
+    {
+        auto mutation = CreateMutation(
+            HydraManager_,
+            request,
+            &TChaosManager::HydraExecuteAlterTableReplica,
+            this);
+        return mutation
+            ->CommitAndLog(Logger)
+            .AsVoid();
+    }
+
+    void CreateReplicationCardCollocation(const TCtxCreateReplicationCardCollocationPtr& context) override
+    {
+        auto mutation = CreateMutation(
+            HydraManager_,
+            context,
+            &TChaosManager::HydraCreateReplicationCardCollocation,
+            this);
+        YT_UNUSED_FUTURE(mutation->CommitAndReply(context));
+    }
+
+    void ForsakeCoordinator(const TCtxForsakeCoordinatorPtr& context) override
+    {
+        auto mutation = CreateMutation(
+            HydraManager_,
+            context,
+            &TChaosManager::HydraForsakeCoordinator,
+            this);
+        YT_UNUSED_FUTURE(mutation->CommitAndReply(context));
+    }
+
+    const std::vector<TCellId>& CoordinatorCellIds() override
+    {
+        return CoordinatorCellIds_;
+    }
+
+    bool IsCoordinatorSuspended(TCellId coordinatorCellId) override
+    {
+        return SuspendedCoordinators_.contains(coordinatorCellId);
+    }
+
+    DECLARE_ENTITY_MAP_ACCESSORS_OVERRIDE(ReplicationCard, TReplicationCard);
+    DECLARE_ENTITY_MAP_ACCESSORS_OVERRIDE(ReplicationCardCollocation, TReplicationCardCollocation);
+    DECLARE_ENTITY_MAP_ACCESSORS_OVERRIDE(ChaosLease, TChaosLease);
+
+    TReplicationCard* FindNotMigratedReplicationCard(TReplicationCardId replicationCardId)
+    {
+        auto* replicationCard = FindReplicationCard(replicationCardId);
+
+        if (!replicationCard || IsReplicationCardMigrated(replicationCard)) {
+            return nullptr;
+        }
+
+        return replicationCard;
+    }
+
+    TReplicationCard* GetReplicationCardOrThrow(TReplicationCardId replicationCardId, bool allowMigrated=false) override
+    {
+        auto* replicationCard = ReplicationCardMap_.Find(replicationCardId);
+
+        if (!replicationCard) {
+            // Only replication card origin cell can answer if replication card exists.
+            if (IsDomesticReplicationCard(replicationCardId)) {
+                THROW_ERROR_EXCEPTION(NYTree::EErrorCode::ResolveError, "No such replication card")
+                    << TErrorAttribute("replication_card_id", replicationCardId);
+            } else {
+                THROW_ERROR_EXCEPTION(NChaosClient::EErrorCode::ReplicationCardNotKnown, "Replication card is not known")
+                    << TErrorAttribute("replication_card_id", replicationCardId);
+            }
+        }
+
+        if (!allowMigrated && IsReplicationCardMigrated(replicationCard)) {
+            THROW_ERROR_EXCEPTION(NChaosClient::EErrorCode::ReplicationCardMigrated, "Replication card has been migrated")
+                << TErrorAttribute("replication_card_id", replicationCardId)
+                << TErrorAttribute("immigrated_to_cell_id", replicationCard->Migration().ImmigratedToCellId)
+                << TErrorAttribute("immigration_time", replicationCard->Migration().ImmigrationTime);
+        }
+
+        return replicationCard;
+    }
+
+    TReplicationCardCollocation* GetReplicationCardCollocationOrThrow(TReplicationCardCollocationId collocationId) override
+    {
+        auto* collocation = FindReplicationCardCollocation(collocationId);
+        if (!collocation) {
+            THROW_ERROR_EXCEPTION(NChaosClient::EErrorCode::ReplicationCardNotKnown, "No such replication card collocation")
+                << TErrorAttribute("replication_card_collocation_id", collocationId);
+        }
+
+        return collocation;
+    }
+
+    void UpdateReplicationCardLagTimes(const TReplicationCard& replicationCard) override
+    {
+        if (IsReplicationCardMigrated(&replicationCard)) {
+            for (const auto& [replicaId, replicaInfo] : replicationCard.Replicas()) {
+                ReplicaCounters_.erase(replicaId);
+            }
+
+            return;
+        }
+
+        auto replicaLagTimes = ComputeReplicasLag(replicationCard.Replicas());
+        for (const auto& [replicaId, replicaLagTime] : replicaLagTimes) {
+            const auto& replicaCounters = GetOrInsert(ReplicaCounters_, replicaId, [&]() {
+                return CreateReplicaCounters(replicationCard, replicaId);
+            });
+
+            replicaCounters.LagTime.Update(replicaLagTime);
+        }
+    }
+
+    void CreateChaosLease(const TCtxCreateChaosLeasePtr& context) override
+    {
+        auto mutation = CreateMutation(
+            HydraManager_,
+            context,
+            &TChaosManager::HydraCreateChaosLease,
+            this);
+        YT_UNUSED_FUTURE(mutation->CommitAndReply(context));
+    }
+
+    void RemoveChaosLease(const TCtxRemoveChaosLeasePtr& context) override
+    {
+        auto mutation = CreateMutation(
+            HydraManager_,
+            context,
+            &TChaosManager::HydraRemoveChaosLease,
+            this);
+        YT_UNUSED_FUTURE(mutation->CommitAndReply(context));
+    }
+
+    void PingChaosLease(const TCtxPingChaosLeasePtr& context) override
+    {
+        auto chaosLeaseId = FromProto<TChaosLeaseId>(context->Request().chaos_lease_id());
+        bool pingAncestors = context->Request().ping_ancestors();
+
+        auto pingFuture = ChaosLeaseTracker_->PingTransaction(chaosLeaseId, pingAncestors);
+        context->Reply();
+    }
+
+
+    TChaosLease* GetChaosLeaseOrThrow(TChaosLeaseId chaosLeaseId) override
+    {
+        auto* chaosLease = FindChaosLease(chaosLeaseId);
+        if (!chaosLease) {
+            ThrowChaosLeaseNotKnown(chaosLeaseId);
+        }
+
+        return chaosLease;
+    }
+
+    TChaosObjectBase* FindChaosObject(TChaosObjectId chaosObjectId) override
+    {
+        switch (TypeFromId(chaosObjectId)) {
+            case EObjectType::ReplicationCard:
+                return ReplicationCardMap_.Find(chaosObjectId);
+
+            case EObjectType::ChaosLease:
+                return ChaosLeaseMap_.Find(chaosObjectId);
+
+            default:
+                return nullptr;
+        }
+    }
+
+    TChaosObjectBase* GetChaosObjectOrThrow(TChaosObjectId chaosObjectId)
+    {
+        auto* chaosObject = FindChaosObject(chaosObjectId);
+        if (!chaosObject) {
+            THROW_ERROR_EXCEPTION(
+                NYTree::EErrorCode::ResolveError,
+                "Chaos object %v of type %Qlv does not exist",
+                chaosObjectId,
+                TypeFromId(chaosObjectId));
+        }
+
+        return chaosObject;
+    }
+
+private:
+    class TReplicationCardOrchidService
+        : public TVirtualMapBase
+    {
+    public:
+        static IYPathServicePtr Create(TWeakPtr<TChaosManager> impl, IInvokerPtr invoker)
+        {
+            return New<TReplicationCardOrchidService>(std::move(impl))
+                ->Via(invoker);
+        }
+
+        std::vector<std::string> GetKeys(i64 limit) const override
+        {
+            std::vector<std::string> keys;
+            if (auto owner = Owner_.Lock()) {
+                for (const auto& [replicationCardId, _] : owner->ReplicationCards()) {
+                    if (std::ssize(keys) >= limit) {
+                        break;
+                    }
+                    keys.push_back(ToString(replicationCardId));
+                }
+            }
+            return keys;
+        }
+
+        i64 GetSize() const override
+        {
+            if (auto owner = Owner_.Lock()) {
+                return owner->ReplicationCards().size();
+            }
+            return 0;
+        }
+
+        IYPathServicePtr FindItemService(const std::string& key) const override
+        {
+            if (auto owner = Owner_.Lock()) {
+                if (auto replicationCard = owner->FindReplicationCard(TReplicationCardId::FromString(key))) {
+                    auto producer = BIND(&TChaosManager::BuildReplicationCardOrchidYson, owner, replicationCard);
+                    return ConvertToNode(producer);
+                }
+            }
+            return nullptr;
+        }
+
+    private:
+        const TWeakPtr<TChaosManager> Owner_;
+
+        explicit TReplicationCardOrchidService(TWeakPtr<TChaosManager> impl)
+            : Owner_(std::move(impl))
+        { }
+
+        DECLARE_NEW_FRIEND()
+    };
+
+    const TChaosManagerConfigPtr Config_;
+    const IYPathServicePtr OrchidService_;
+    const IChaosCellSynchronizerPtr ChaosCellSynchronizer_;
+    const TPeriodicExecutorPtr CommencerExecutor_;
+    const IReplicationCardObserverPtr ReplicationCardObserver_;
+    const IMigratedReplicationCardRemoverPtr MigratedReplicationCardRemover_;
+    const IForeignMigratedReplicationCardRemoverPtr ForeignMigratedReplicationCardRemover_;
+    const TPeriodicExecutorPtr LeftoversMigrationExecutor_;
+    const IReplicationCardsWatcherPtr ReplicationCardWatcher_;
+
+    const ITransactionLeaseTrackerPtr ChaosLeaseTracker_;
+
+    TEntityMap<TReplicationCard> ReplicationCardMap_;
+    TEntityMap<TReplicationCardCollocation> CollocationMap_;
+    TEntityMap<TChaosLease> ChaosLeaseMap_;
+    std::vector<TCellId> CoordinatorCellIds_;
+    THashMap<TCellId, TInstant> SuspendedCoordinators_;
+    THashMap<TReplicaId, TReplicaCounters> ReplicaCounters_;
+    bool Suspended_ = false;
+
+    DECLARE_THREAD_AFFINITY_SLOT(AutomatonThread);
+
+
+    void SaveKeys(TSaveContext& context) const
+    {
+        YT_ASSERT_THREAD_AFFINITY(AutomatonThread);
+
+        ReplicationCardMap_.SaveKeys(context);
+        CollocationMap_.SaveKeys(context);
+        ChaosLeaseMap_.SaveKeys(context);
+    }
+
+    void SaveValues(TSaveContext& context) const
+    {
+        YT_ASSERT_THREAD_AFFINITY(AutomatonThread);
+
+        using NYT::Save;
+
+        ReplicationCardMap_.SaveValues(context);
+        CollocationMap_.SaveValues(context);
+        ChaosLeaseMap_.SaveValues(context);
+        Save(context, CoordinatorCellIds_);
+        Save(context, SuspendedCoordinators_);
+        Save(context, Suspended_);
+        MigratedReplicationCardRemover_->Save(context);
+    }
+
+    void LoadKeys(TLoadContext& context)
+    {
+        YT_ASSERT_THREAD_AFFINITY(AutomatonThread);
+
+        ReplicationCardMap_.LoadKeys(context);
+        CollocationMap_.LoadKeys(context);
+        if (context.GetVersion() >= EChaosReign::IntroduceChaosObjectAndLease) {
+            ChaosLeaseMap_.LoadKeys(context);
+        }
+    }
+
+    void LoadValues(TLoadContext& context)
+    {
+        YT_ASSERT_THREAD_AFFINITY(AutomatonThread);
+
+        using NYT::Load;
+
+        ReplicationCardMap_.LoadValues(context);
+        CollocationMap_.LoadValues(context);
+        if (context.GetVersion() >= EChaosReign::IntroduceChaosObjectAndLease) {
+            ChaosLeaseMap_.LoadValues(context);
+        }
+
+        Load(context, CoordinatorCellIds_);
+        Load(context, SuspendedCoordinators_);
+        Load(context, Suspended_);
+        MigratedReplicationCardRemover_->Load(context);
+    }
+
+    void Clear() override
+    {
+        YT_ASSERT_THREAD_AFFINITY(AutomatonThread);
+
+        TChaosAutomatonPart::Clear();
+
+        ReplicationCardMap_.Clear();
+        CollocationMap_.Clear();
+        ChaosLeaseMap_.Clear();
+        CoordinatorCellIds_.clear();
+        SuspendedCoordinators_.clear();
+        MigratedReplicationCardRemover_->Clear();
+    }
+
+
+    void OnLeaderActive() override
+    {
+        YT_ASSERT_THREAD_AFFINITY(AutomatonThread);
+
+        TChaosAutomatonPart::OnLeaderActive();
+
+        ReplicationCardWatcher_->Start(ConvertNodeCardsToClientCards(ReplicationCardMap_));
+        ChaosCellSynchronizer_->Start();
+        CommencerExecutor_->Start();
+        LeftoversMigrationExecutor_->Start();
+        ReplicationCardObserver_->Start();
+        MigratedReplicationCardRemover_->Start();
+        ForeignMigratedReplicationCardRemover_->Start();
+        Slot_->GetReplicatedTableTracker()->EnableTracking();
+        ChaosLeaseTracker_->Start();
+
+        // Recreate chaos leases.
+        for (auto [chaosLeaseId, chaosLease] : ChaosLeaseMap_) {
+            ChaosLeaseTracker_->RegisterTransaction(
+                chaosLeaseId,
+                chaosLease->GetParentId(),
+                chaosLease->GetTimeout(),
+                std::nullopt,
+                BIND(&TChaosManager::OnLeaseExpired, MakeStrong(this))
+                    .Via(Slot_->GetAutomatonInvoker()));
+        }
+    }
+
+    void OnStopLeading() override
+    {
+        YT_ASSERT_THREAD_AFFINITY(AutomatonThread);
+
+        TChaosAutomatonPart::OnStopLeading();
+
+        ChaosCellSynchronizer_->Stop();
+        YT_UNUSED_FUTURE(CommencerExecutor_->Stop());
+        YT_UNUSED_FUTURE(LeftoversMigrationExecutor_->Stop());
+        ReplicationCardObserver_->Stop();
+        MigratedReplicationCardRemover_->Stop();
+        ForeignMigratedReplicationCardRemover_->Stop();
+        Slot_->GetReplicatedTableTracker()->DisableTracking();
+        ReplicationCardWatcher_->Stop();
+    }
+
+    void OnRecoveryComplete() override
+    {
+        YT_ASSERT_THREAD_AFFINITY(AutomatonThread);
+
+        TChaosAutomatonPart::OnRecoveryComplete();
+
+        Slot_->GetReplicatedTableTracker()->Initialize();
+    }
+
+    void HydraGenerateReplicationCardId(
+        const TCtxGenerateReplicationCardIdPtr& context,
+        NChaosClient::NProto::TReqGenerateReplicationCardId* /*request*/,
+        NChaosClient::NProto::TRspGenerateReplicationCardId* response)
+    {
+        auto replicationCardId = GenerateNewReplicationCardId();
+
+        ToProto(response->mutable_replication_card_id(), replicationCardId);
+
+        if (context) {
+            context->SetResponseInfo("ReplicationCardId: %v",
+                replicationCardId);
+        }
+    }
+
+    void ValidateReplicationCardCreation(NChaosClient::NProto::TReqCreateReplicationCard* request)
+    {
+        if (Suspended_ && !FromProto<bool>(request->bypass_suspended())) {
+            THROW_ERROR_EXCEPTION(NChaosClient::EErrorCode::ChaosCellSuspended, "Chaos cell %v is suspended",
+                Slot_->GetCellId());
+        }
+
+        auto hintId = FromProto<TReplicationCardId>(request->hint_id());
+        auto replicationCardId = hintId ? hintId : GenerateNewReplicationCardId();
+
+        auto tableId = FromProto<TTableId>(request->table_id());
+        if (tableId && TypeFromId(tableId) != EObjectType::ChaosReplicatedTable) {
+            THROW_ERROR_EXCEPTION("Malformed chaos replicated table id %v",
+                tableId);
+        }
+
+        if (!IsDomesticReplicationCard(replicationCardId)) {
+            THROW_ERROR_EXCEPTION("Could not create replication card with id %v: expected cell tag %v, got %v",
+                replicationCardId,
+                CellTagFromId(Slot_->GetCellId()),
+                CellTagFromId(replicationCardId));
+        }
+    }
+
+    TReplicationCardId CreateReplicationCardImpl(
+        NChaosClient::NProto::TReqCreateReplicationCard* request,
+        TTimestamp timestamp)
+    {
+        auto tableId = FromProto<TTableId>(request->table_id());
+        auto hintId = FromProto<TReplicationCardId>(request->hint_id());
+        auto replicationCardId = hintId ? hintId : GenerateNewReplicationCardId();
+        auto options = request->has_replicated_table_options()
+            ? SafeDeserializeReplicatedTableOptions(replicationCardId, TYsonString(request->replicated_table_options()))
+            : New<TReplicatedTableOptions>();
+
+        auto replicationCardHolder = std::make_unique<TReplicationCard>(replicationCardId);
+
+        auto* replicationCard = replicationCardHolder.get();
+        replicationCard->SetTableId(tableId);
+        replicationCard->SetTablePath(request->table_path());
+        replicationCard->SetTableClusterName(request->table_cluster_name());
+        replicationCard->SetReplicatedTableOptions(std::move(options));
+
+        ReplicationCardMap_.Insert(replicationCardId, std::move(replicationCardHolder));
+
+        YT_LOG_DEBUG("Replication card created (ReplicationCardId: %v, ReplicationCard: %v)",
+            replicationCardId,
+            *replicationCard);
+
+        BindReplicationCardToRtt(replicationCard);
+
+        auto clientReplicationCard = replicationCard->ConvertToClientCard(MinimalFetchOptions);
+        ReplicationCardWatcher_->RegisterReplicationCard(replicationCardId, clientReplicationCard, timestamp);
+
+        return replicationCardId;
+    }
+
+    void HydraCreateReplicationCard(
+        const TCtxCreateReplicationCardPtr& context,
+        NChaosClient::NProto::TReqCreateReplicationCard* request,
+        NChaosClient::NProto::TRspCreateReplicationCard* response)
+    {
+        ValidateReplicationCardCreation(request);
+        auto replicationCardId = CreateReplicationCardImpl(request, NullTimestamp);
+
+        ToProto(response->mutable_replication_card_id(), replicationCardId);
+
+        if (context) {
+            context->SetResponseInfo("ReplicationCardId: %v",
+                replicationCardId);
+        }
+    }
+
+    void HydraPrepareCreateReplicationCard(
+        TTransaction* /*transaction*/,
+        NChaosClient::NProto::TReqCreateReplicationCard* request,
+        const TTransactionPrepareOptions& /*options*/)
+    {
+        if (request->has_replicated_table_options()) {
+            auto options = ConvertTo<TReplicatedTableOptionsPtr>(TYsonString(request->replicated_table_options()));
+            Y_UNUSED(options);
+        }
+        ValidateReplicationCardCreation(request);
+    }
+
+    void HydraCommitCreateReplicationCard(
+        TTransaction* transaction,
+        NChaosClient::NProto::TReqCreateReplicationCard* request,
+        const TTransactionCommitOptions& /*options*/)
+    {
+        CreateReplicationCardImpl(request, transaction->GetPrepareTimestamp());
+    }
+
+    void HydraAbortCreateReplicationCard(
+        TTransaction* /*transaction*/,
+        NChaosClient::NProto::TReqCreateReplicationCard* /*request*/,
+        const TTransactionAbortOptions& /*options*/)
+    { }
+
+    void HydraAlterReplicationCard(
+        const TCtxAlterReplicationCardPtr& /*context*/,
+        NChaosClient::NProto::TReqAlterReplicationCard* request,
+        NChaosClient::NProto::TRspAlterReplicationCard* /*response*/)
+    {
+        auto replicationCardId = FromProto<TReplicationCardId>(request->replication_card_id());
+
+        auto options = request->has_replicated_table_options()
+            ? SafeDeserializeReplicatedTableOptions(replicationCardId, TYsonString(request->replicated_table_options()))
+            : TReplicatedTableOptionsPtr();
+        auto enableTracker = request->has_enable_replicated_table_tracker()
+            ? std::make_optional(request->enable_replicated_table_tracker())
+            : std::nullopt;
+        auto collocationId = request->has_replication_card_collocation_id()
+            ? std::make_optional(FromProto<TReplicationCardCollocationId>(request->replication_card_collocation_id()))
+            : std::nullopt;
+        auto collocationOptions = request->has_collocation_options()
+            ? std::make_optional(ConvertTo<TReplicationCollocationOptionsPtr>(TYsonString(request->collocation_options())))
+            : std::nullopt;
+
+        if (options && enableTracker) {
+            THROW_ERROR_EXCEPTION(
+                "Cannot alter replication card %v: only one of \"replicated_table_options\" "
+                "and \"enable_replicated_table_tracker\" could be specified",
+                replicationCardId);
+        }
+
+        auto replicationCard = GetReplicationCardOrThrow(replicationCardId);
+        replicationCard->ValidateCollocationNotMigrating();
+
+        if (collocationId && *collocationId) {
+            auto* collocation = FindReplicationCardCollocation(*collocationId);
+            if (!collocation) {
+                THROW_ERROR_EXCEPTION(NChaosClient::EErrorCode::ReplicationCollocationNotKnown,
+                    "No such replication card collocation")
+                    << TErrorAttribute("collocation_id", *collocationId);
+            }
+            collocation->ValidateNotMigrating();
+        } else if (collocationOptions && !replicationCard->GetCollocation()) {
+            THROW_ERROR_EXCEPTION("Replication card %v is not a member of any collocation",
+                replicationCardId);
+        }
+
+        YT_LOG_DEBUG(
+            "Alter replication card "
+            "(ReplicationCardId: %v, ReplicatedTableOptions: %v, EnableReplicatedTableTracker: %v)",
+            replicationCardId,
+            options
+                ? TStringBuf("null")
+                : ConvertToYsonString(options, EYsonFormat::Text).AsStringBuf(),
+            enableTracker);
+
+        if (options) {
+            replicationCard->SetReplicatedTableOptions(options);
+            ReplicatedTableCreated_.Fire(TReplicatedTableData{
+                .Id = replicationCardId,
+                .Options = options,
+            });
+        }
+        if (enableTracker) {
+            replicationCard->GetReplicatedTableOptions()->EnableReplicatedTableTracker = *enableTracker;
+            ReplicatedTableCreated_.Fire(TReplicatedTableData{
+                .Id = replicationCardId,
+                .Options = replicationCard->GetReplicatedTableOptions(),
+            });
+        }
+        if (collocationId) {
+            auto* collocation = FindReplicationCardCollocation(*collocationId);
+            UpdateReplicationCardCollocation(
+                replicationCard,
+                collocation);
+        }
+        if (collocationOptions) {
+            auto* collocation = replicationCard->GetCollocation();
+            collocation->ValidateNotMigrating();
+
+            collocation->Options() = std::move(*collocationOptions);
+            FireReplicationCardCollocationUpdated(collocation);
+        }
+    }
+
+    void HydraPrepareAttachReplicationCardToRemoteCollocation(
+        TTransaction* /*transaction*/,
+        NChaosClient::NProto::TReqAttachReplicationCardToRemoteCollocation* request,
+        const TTransactionPrepareOptions& /*options*/)
+    {
+        auto replicationCardId = FromProto<TReplicationCardId>(request->replication_card_id());
+        auto collocationId = FromProto<TReplicationCardCollocationId>(request->replication_card_collocation_id());
+        auto replicationCardCellId = FromProto<TCellId>(request->replication_card_cell_id());
+        auto collocationCellId = FromProto<TCellId>(request->replication_card_collocation_cell_id());
+
+        if (Suspended_) {
+            THROW_ERROR_EXCEPTION("Chaos cell is suspended")
+                << TErrorAttribute("chaos_cell_id", Slot_->GetCellId());
+        }
+
+        if (Slot_->GetCellId() == replicationCardCellId) {
+            auto replicationCard = GetReplicationCardOrThrow(replicationCardId);
+
+            if (replicationCard->GetState() != EReplicationCardState::Normal) {
+                THROW_ERROR_EXCEPTION("Trying to attach replication card to remote collocation while it is in %Qlv state",
+                    replicationCard->GetState())
+                    << TErrorAttribute("replication_card_id", replicationCardId);
+            }
+
+            UpdateReplicationCardState(replicationCard, EReplicationCardState::RemoteCollocationAttachPrepared);
+
+        } else if (Slot_->GetCellId() == collocationCellId) {
+            auto* collocation = GetReplicationCardCollocationOrThrow(collocationId);
+
+            if (collocation->GetState() != EReplicationCardCollocationState::Normal &&
+                collocation->GetState() != EReplicationCardCollocationState::Immigrating)
+            {
+                THROW_ERROR_EXCEPTION("Replication card collocation is in %Qlv state",
+                    collocation->GetState())
+                    << TErrorAttribute("replication_collocation_id", collocationId);
+            }
+
+            collocation->SetState(EReplicationCardCollocationState::Immigrating);
+            collocation->SetSize(collocation->GetSize() + 1);
+        } else {
+            THROW_ERROR_EXCEPTION("Unexpected chaos cell: neigther replication card nor collocation")
+                << TErrorAttribute("replication_card_cell_id", replicationCardCellId)
+                << TErrorAttribute("replication_card_collocation_cell_id", collocationCellId)
+                << TErrorAttribute("chaos_cell_id", Slot_->GetCellId());
+        }
+
+        YT_LOG_DEBUG("Prepared distributed replication card collocation attachment (ReplicationCardId: %v, CollocationId: %v)",
+            replicationCardId,
+            collocationId);
+    }
+
+    void HydraCommitAttachReplicationCardToRemoteCollocation(
+        TTransaction* /*transaction*/,
+        NChaosClient::NProto::TReqAttachReplicationCardToRemoteCollocation* request,
+        const TTransactionCommitOptions& /*options*/)
+    {
+        auto replicationCardId = FromProto<TReplicationCardId>(request->replication_card_id());
+        auto collocationId = FromProto<TReplicationCardCollocationId>(request->replication_card_collocation_id());
+        auto replicationCardCellId = FromProto<TCellId>(request->replication_card_cell_id());
+        auto collocationCellId = FromProto<TCellId>(request->replication_card_collocation_cell_id());
+
+        if (Slot_->GetCellId() == replicationCardCellId) {
+            auto* replicationCard = GetReplicationCard(replicationCardId);
+            YT_VERIFY(replicationCard->GetState() == EReplicationCardState::RemoteCollocationAttachPrepared);
+
+            replicationCard->SetState(EReplicationCardState::Normal);
+            replicationCard->Migration().ImmigratedToCellId = collocationCellId;
+            replicationCard->SetAwaitingCollocationId(collocationId);
+            UpdateReplicationCardState(replicationCard, EReplicationCardState::RevokingShortcutsForMigration);
+        }
+
+        YT_LOG_DEBUG("Committed distributed replication card collocation attachment (ReplicationCardId: %v, CollocationId: %v)",
+            replicationCardId,
+            collocationId);
+    }
+
+    void HydraAbortAttachReplicationCardToRemoteCollocation(
+        TTransaction* /*transaction*/,
+        NChaosClient::NProto::TReqAttachReplicationCardToRemoteCollocation* request,
+        const TTransactionAbortOptions& /*options*/)
+    {
+        auto replicationCardId = FromProto<TReplicationCardId>(request->replication_card_id());
+        auto collocationId = FromProto<TReplicationCardCollocationId>(request->replication_card_collocation_id());
+        auto replicationCardCellId = FromProto<TCellId>(request->replication_card_cell_id());
+        auto collocationCellId = FromProto<TCellId>(request->replication_card_collocation_cell_id());
+
+        if (Slot_->GetCellId() == replicationCardCellId) {
+            auto* replicationCard = GetReplicationCard(replicationCardId);
+            YT_VERIFY(replicationCard->GetState() == EReplicationCardState::RemoteCollocationAttachPrepared);
+            UpdateReplicationCardState(replicationCard, EReplicationCardState::Normal);
+        } else if (Slot_->GetCellId() == collocationCellId) {
+            auto* collocation = GetReplicationCardCollocation(collocationId);
+            collocation->SetSize(collocation->GetSize() - 1);
+
+            YT_VERIFY(collocation->GetState() == EReplicationCardCollocationState::Immigrating);
+            if (std::ssize(collocation->ReplicationCards()) == collocation->GetSize()) {
+                collocation->SetState(EReplicationCardCollocationState::Normal);
+                // COMPAT(osidorkin)
+                int reign = GetCurrentMutationContext()->Request().Reign;
+                if (reign < static_cast<int>(EChaosReign::NoDetachOnDistributedCollocationAttach)) {
+                    BindReplicationCardCollocationToRtt(collocation);
+                }
+            }
+        }
+
+        YT_LOG_DEBUG("Aborted distributed replication card collocation attachment (ReplicationCardId: %v, CollocationId: %v)",
+            replicationCardId,
+            collocationId);
+    }
+
+    void HydraRemoveReplicationCard(
+        const TCtxRemoveReplicationCardPtr& /*context*/,
+        NChaosClient::NProto::TReqRemoveReplicationCard* request,
+        NChaosClient::NProto::TRspRemoveReplicationCard* /*response*/)
+    {
+        auto replicationCardId = FromProto<TReplicationCardId>(request->replication_card_id());
+        bool isHiveMutation = IsHiveMutation();
+        auto* replicationCard = GetReplicationCardOrThrow(replicationCardId, isHiveMutation);
+
+        if (IsReplicationCardMigrated(replicationCard)) {
+            YT_VERIFY(isHiveMutation);
+            MigratedReplicationCardRemover_->EnqueueRemoval(replicationCardId);
+            return;
+        }
+
+        if (replicationCard->GetState() == EReplicationCardState::RemoteCollocationAttachPrepared) {
+            // TODO(savrus) Allow replication card removal during this process
+            THROW_ERROR_EXCEPTION("Failed to remove replication card since it is in locked by alter process")
+                << TErrorAttribute("replication_card_id", replicationCardId);
+        }
+
+        replicationCard->ValidateCollocationNotMigrating();
+
+        RevokeShortcuts(replicationCard);
+
+        if (!IsDomesticReplicationCard(replicationCardId)) {
+            const auto& hiveManager = Slot_->GetHiveManager();
+            NChaosNode::NProto::TReqRemoveReplicationCard req;
+            ToProto(req.mutable_replication_card_id(), replicationCard->GetId());
+
+            auto mailbox = hiveManager->GetMailbox(replicationCard->Migration().OriginCellId);
+            hiveManager->PostMessage(mailbox, req);
+
+            YT_LOG_DEBUG("Removing migrated replication card at origin cell (ReplicationCardId: %v, OriginCellId: %v)",
+                replicationCardId,
+                replicationCard->Migration().OriginCellId);
+        }
+
+        UpdateReplicationCardCollocation(
+            replicationCard,
+            /*collocation*/ nullptr);
+        UnbindReplicationCardFromRtt(replicationCard);
+
+        for (const auto& [replicaId, replicaInfo] : replicationCard->Replicas()) {
+            ReplicaCounters_.erase(replicaId);
+        }
+
+        ReplicationCardMap_.Remove(replicationCardId);
+        MigratedReplicationCardRemover_->ConfirmRemoval(replicationCardId);
+
+        YT_LOG_DEBUG("Replication card removed (ReplicationCardId: %v)",
+            replicationCardId);
+
+        ReplicationCardWatcher_->OnReplicationCardRemoved(replicationCardId);
+    }
+
+    void HydraChaosNodeRemoveReplicationCard(NChaosNode::NProto::TReqRemoveReplicationCard *request)
+    {
+        auto replicationCardId = FromProto<TReplicationCardId>(request->replication_card_id());
+        auto* replicationCard = FindReplicationCard(replicationCardId);
+
+        if (!replicationCard) {
+            YT_LOG_ALERT("Trying to remove emigrated replication card but it does not exist "
+                "(ReplicationCardId: %v)",
+                replicationCardId);
+            return;
+        }
+
+        if (!IsReplicationCardMigrated(replicationCard)) {
+            YT_LOG_ALERT("Trying to remove emigrated replication card in unexpected state "
+                "(ReplicationCardId: %v, ReplicationCardState: %v)",
+                replicationCardId,
+                replicationCard->GetState());
+
+            return;
+        }
+
+        if (!IsDomesticReplicationCard(replicationCardId)) {
+            YT_LOG_ALERT("Trying to remove emigrated replication card but it is not domestic "
+                "(ReplicationCardId: %v, OriginCellId: %v)",
+                replicationCardId,
+                replicationCard->Migration().OriginCellId);
+
+            return;
+        }
+
+        if (auto* collocation = replicationCard->GetCollocation()) {
+            YT_LOG_ALERT("Removing migrated replication card with non-zero collocation (ReplicationCardId: %v, CollocationId: %v)",
+                replicationCardId,
+                collocation->GetId());
+
+            UpdateReplicationCardCollocation(
+                replicationCard,
+                /*collocation*/ nullptr);
+        }
+
+        for (const auto& [replicaId, replicaInfo] : replicationCard->Replicas()) {
+            ReplicaCounters_.erase(replicaId);
+        }
+
+        ReplicationCardMap_.Remove(replicationCardId);
+        MigratedReplicationCardRemover_->ConfirmRemoval(replicationCardId);
+
+        YT_LOG_DEBUG("Replication card removed (ReplicationCardId: %v)",
+            replicationCardId);
+
+        ReplicationCardWatcher_->OnReplicationCardRemoved(replicationCardId);
+    }
+
+    void HydraChaosNodeRemoveMigratedReplicationCards(NChaosNode::NProto::TReqRemoveMigratedReplicationCards* request)
+    {
+        int cardsRemoved = 0;
+        for (const auto& protoMigratedCard : request->migrated_cards()) {
+            auto replicationCardId = FromProto<TReplicationCardId>(protoMigratedCard.replication_card_id());
+            auto migrationTimestamp = FromProto<TTimestamp>(protoMigratedCard.migration_timestamp());
+
+            const auto* replicationCard = ReplicationCardMap_.Find(replicationCardId);
+            if (!replicationCard || IsDomesticReplicationCard(replicationCardId) ||
+                !IsReplicationCardMigrated(replicationCard) || replicationCard->GetCurrentTimestamp() != migrationTimestamp)
+            {
+                continue;
+            }
+
+            for (const auto& [replicaId, replicaInfo] : replicationCard->Replicas()) {
+                ReplicaCounters_.erase(replicaId);
+            }
+
+            ReplicationCardMap_.Remove(replicationCardId);
+            ++cardsRemoved;
+        }
+
+        YT_LOG_DEBUG(
+            "Removed foreign migrated replication cards (Requested: %v, Removed: %v)",
+            request->migrated_cards_size(),
+            cardsRemoved);
+    }
+
+    void HydraCreateTableReplica(
+        const TCtxCreateTableReplicaPtr& context,
+        NChaosClient::NProto::TReqCreateTableReplica* request,
+        NChaosClient::NProto::TRspCreateTableReplica* response)
+    {
+        auto replicationCardId = FromProto<TReplicationCardId>(request->replication_card_id());
+        const auto& clusterName = request->cluster_name();
+        const auto& replicaPath = request->replica_path();
+        auto contentType = FromProto<ETableReplicaContentType>(request->content_type());
+        auto mode = FromProto<ETableReplicaMode>(request->mode());
+        auto enabled = request->enabled();
+        auto catchup = request->catchup();
+        auto replicationProgress = request->has_replication_progress()
+            ? std::make_optional(FromProto<TReplicationProgress>(request->replication_progress()))
+            : std::nullopt;
+        auto enableReplicatedTableTracker = request->has_enable_replicated_table_tracker()
+            ? request->enable_replicated_table_tracker()
+            : false;
+
+        if (!IsStableReplicaMode(mode)) {
+            THROW_ERROR_EXCEPTION("Invalid replica mode %v", mode);
+        }
+
+        auto* replicationCard = GetReplicationCardOrThrow(replicationCardId);
+
+        if (std::ssize(replicationCard->Replicas()) >= MaxReplicasPerReplicationCard) {
+            THROW_ERROR_EXCEPTION("Replication card already has too many replicas")
+                << TErrorAttribute("replication_card_id", replicationCardId)
+                << TErrorAttribute("limit", MaxReplicasPerReplicationCard);
+        }
+
+        for (const auto& [replicaId, replicaInfo] : replicationCard->Replicas()) {
+            if (replicaInfo.ClusterName == clusterName && replicaInfo.ReplicaPath == replicaPath) {
+                THROW_ERROR_EXCEPTION("Replica already exists")
+                    << TErrorAttribute("replica_id", replicaId)
+                    << TErrorAttribute("cluster_name", replicaInfo.ClusterName)
+                    << TErrorAttribute("replica_path", replicaInfo.ReplicaPath);
+            }
+        }
+
+        if (!catchup && replicationProgress) {
+            THROW_ERROR_EXCEPTION("Replication progress specified while replica is not to be caught up")
+                << TErrorAttribute("replication_progress", *replicationProgress);
+        }
+
+        if (!replicationProgress) {
+            replicationProgress = TReplicationProgress{
+                .Segments = {{EmptyKey(), MinTimestamp}},
+                .UpperKey = MaxKey()
+            };
+        }
+
+        auto isWaitingReplica = [&] {
+            for (const auto& [replicaId, replicaInfo] : replicationCard->Replicas()) {
+                if (!replicaInfo.History.empty() &&
+                    IsReplicationProgressGreaterOrEqual(*replicationProgress, replicaInfo.ReplicationProgress))
+                {
+                    return true;
+                }
+            }
+            return false;
+        };
+
+        // Validate that old data is actually present at queues.
+        // To do this we check that at least one replica is as far behind as the new one (as should be in case of replica copying).
+        // This is correct since a) data replica first updates its progress at the replication card
+        // b) queue only removes data that is older than overall replication card progress (e.g. data 'invisible' to other replicas)
+
+        if (catchup && replicationCard->GetEra() != InitialReplicationEra && !isWaitingReplica()) {
+            THROW_ERROR_EXCEPTION("Could not create replica since all other replicas already left it behind")
+                << TErrorAttribute("replication_progress", *replicationProgress);
+        }
+
+        auto newReplicaId = GenerateNewReplicaId(replicationCard);
+
+        auto& replicaInfo = EmplaceOrCrash(replicationCard->Replicas(), newReplicaId, TReplicaInfo())->second;
+        replicaInfo.ClusterName = clusterName;
+        replicaInfo.ReplicaPath = replicaPath;
+        replicaInfo.ContentType = contentType;
+        replicaInfo.State = enabled ? ETableReplicaState::Enabling : ETableReplicaState::Disabled;
+        replicaInfo.Mode = mode;
+        replicaInfo.ReplicationProgress = std::move(*replicationProgress);
+        replicaInfo.EnableReplicatedTableTracker = enableReplicatedTableTracker;
+
+        if (catchup) {
+            replicaInfo.History.push_back({
+                .Era = replicationCard->GetEra(),
+                .Timestamp = MinTimestamp,
+                .Mode = mode,
+                .State = enabled && replicationCard->GetEra() == InitialReplicationEra
+                    ? ETableReplicaState::Enabled
+                    : ETableReplicaState::Disabled
+            });
+        }
+
+        YT_LOG_DEBUG("Table replica created (ReplicationCardId: %v, ReplicaId: %v, ReplicaInfo: %v)",
+            replicationCardId,
+            newReplicaId,
+            replicaInfo);
+
+        if (replicaInfo.State == ETableReplicaState::Enabling) {
+            UpdateReplicationCardState(replicationCard, EReplicationCardState::RevokingShortcutsForAlter);
+        }
+
+        ReplicaCreated_.Fire(TReplicaData{
+            .TableId = replicationCardId,
+            .Id = newReplicaId,
+            .Mode = mode,
+            .Enabled = enabled,
+            .ClusterName = clusterName,
+            .TablePath = replicaPath,
+            .TrackingEnabled = enableReplicatedTableTracker,
+            .ContentType = contentType
+        });
+
+        ToProto(response->mutable_replica_id(), newReplicaId);
+
+        if (context) {
+            context->SetResponseInfo("ReplicaId: %v",
+                newReplicaId);
+        }
+    }
+
+    void HydraRemoveTableReplica(
+        const TCtxRemoveTableReplicaPtr& /*context*/,
+        NChaosClient::NProto::TReqRemoveTableReplica* request,
+        NChaosClient::NProto::TRspRemoveTableReplica* /*response*/)
+    {
+        auto replicationCardId = FromProto<TReplicationCardId>(request->replication_card_id());
+        auto replicaId = FromProto<TReplicaId>(request->replica_id());
+
+        auto* replicationCard = GetReplicationCardOrThrow(replicationCardId);
+        auto* replicaInfo = replicationCard->GetReplicaOrThrow(replicaId);
+
+        if (replicaInfo->State != ETableReplicaState::Disabled) {
+            THROW_ERROR_EXCEPTION("Could not remove replica since it is not disabled")
+                << TErrorAttribute("replication_card_id", replicationCardId)
+                << TErrorAttribute("replica_id", replicaId)
+                << TErrorAttribute("state", replicaInfo->State);
+        }
+
+        ReplicaCounters_.erase(replicaId);
+        EraseOrCrash(replicationCard->Replicas(), replicaId);
+
+        ReplicaDestroyed_.Fire(replicaId);
+
+        YT_LOG_DEBUG("Table replica removed (ReplicationCardId: %v, ReplicaId: %v)",
+            replicationCardId,
+            replicaId);
+    }
+
+    void HydraAlterTableReplica(
+        const TCtxAlterTableReplicaPtr& /*context*/,
+        NChaosClient::NProto::TReqAlterTableReplica* request,
+        NChaosClient::NProto::TRspAlterTableReplica* /*response*/)
+    {
+        HydraExecuteAlterTableReplica(request);
+    }
+
+    void HydraExecuteAlterTableReplica(NChaosClient::NProto::TReqAlterTableReplica* request)
+    {
+        auto replicationCardId = FromProto<TReplicationCardId>(request->replication_card_id());
+        auto replicaId = FromProto<TReplicaId>(request->replica_id());
+        auto mode = request->has_mode()
+            ? std::make_optional(FromProto<ETableReplicaMode>(request->mode()))
+            : std::nullopt;
+        auto enabled = request->has_enabled()
+            ? std::make_optional(request->enabled())
+            : std::nullopt;
+        auto enableReplicatedTableTracker = request->has_enable_replicated_table_tracker()
+            ? std::make_optional(request->enable_replicated_table_tracker())
+            : std::nullopt;
+        auto replicaPath = request->has_replica_path()
+            ? std::make_optional(request->replica_path())
+            : std::nullopt;
+        bool force = request->force();
+
+        if (mode && !IsStableReplicaMode(*mode)) {
+            THROW_ERROR_EXCEPTION("Invalid replica mode %Qlv", *mode);
+        }
+
+        auto* replicationCard = GetReplicationCardOrThrow(replicationCardId);
+        auto* replicaInfo = replicationCard->GetReplicaOrThrow(replicaId);
+
+        if (replicationCard->GetState() == EReplicationCardState::RevokingShortcutsForMigration) {
+            THROW_ERROR_EXCEPTION("Replication card is migrating")
+                << TErrorAttribute("replication_card_id", replicationCardId)
+                << TErrorAttribute("replica_id", replicaId)
+                << TErrorAttribute("state", replicationCard->GetState());
+        }
+
+        bool shouldForbidReplicaSwitchToAsync = false;
+        int minSyncQueueCount = 0;
+        int syncReplicaCount = MaxReplicasPerReplicationCard;
+
+        if (IsSyncQueueReplica(*replicaInfo)) {
+            minSyncQueueCount = GetMinRequiredSyncQueueCount(*replicationCard);
+            syncReplicaCount = CountSyncQueueReplicas(*replicationCard);
+            shouldForbidReplicaSwitchToAsync = minSyncQueueCount >= syncReplicaCount;
+        }
+
+        // COMPAT(osidorkin)
+        int reign = GetCurrentMutationContext()->Request().Reign;
+        bool shouldThrowOnLowQueuesCount = reign >= static_cast<int>(EChaosReign::ForbidSyncQueuesCountBelowLimit);
+
+        bool revoke = false;
+
+        if (mode && replicaInfo->Mode != *mode) {
+            switch (*mode) {
+                case ETableReplicaMode::Sync:
+                    replicaInfo->Mode = ETableReplicaMode::AsyncToSync;
+                    break;
+
+                case ETableReplicaMode::Async:
+                    if (shouldForbidReplicaSwitchToAsync) {
+                        if (!force && shouldThrowOnLowQueuesCount) {
+                            THROW_ERROR_EXCEPTION(
+                                "Queue replica cannot be switched to async mode because there will not be enough sync queues")
+                                << TErrorAttribute("replication_card_id", replicationCardId)
+                                << TErrorAttribute("replica_id", replicaId)
+                                << TErrorAttribute("min_sync_queue_count", minSyncQueueCount);
+                        } else {
+                            YT_LOG_WARNING(
+                                "Forcing queue replica switch beyond the minimum sync queues count "
+                                "(ReplicationCardId: %v, ReplicaId: %v, MinSyncQueueCount: %v, SyncQueueCount: %v)",
+                                replicationCardId,
+                                replicaId,
+                                minSyncQueueCount,
+                                syncReplicaCount);
+                        }
+                    }
+
+                    replicaInfo->Mode = ETableReplicaMode::SyncToAsync;
+                    break;
+
+                default:
+                    YT_ABORT();
+            }
+
+            revoke = true;
+            FireTableReplicaCreatedOrUpdated(replicationCardId, replicaId, *replicaInfo);
+        }
+
+        bool currentlyEnabled = replicaInfo->State == ETableReplicaState::Enabled;
+        if (enabled && *enabled != currentlyEnabled) {
+            if (!(*enabled) && shouldForbidReplicaSwitchToAsync) {
+                if (!force && shouldThrowOnLowQueuesCount) {
+                    THROW_ERROR_EXCEPTION(
+                        "Queue replica cannot be disabled because there will not be enough sync queues")
+                            << TErrorAttribute("replication_card_id", replicationCardId)
+                        << TErrorAttribute("replica_id", replicaId)
+                        << TErrorAttribute("min_sync_queue_count", minSyncQueueCount);
+                } else {
+                    YT_LOG_WARNING(
+                        "Forcing queue replica disabling beyond the minimum sync queues count "
+                        "(ReplicationCardId: %v, ReplicaId: %v, MinSyncQueueCount: %v, SyncQueueCount: %v)",
+                        replicationCardId,
+                        replicaId,
+                        minSyncQueueCount,
+                        syncReplicaCount);
+                }
+            }
+
+            replicaInfo->State = *enabled
+                ? ETableReplicaState::Enabling
+                : ETableReplicaState::Disabling;
+
+            revoke = true;
+            FireTableReplicaCreatedOrUpdated(replicationCardId, replicaId, *replicaInfo);
+        }
+
+        if (enableReplicatedTableTracker && replicaInfo->EnableReplicatedTableTracker != *enableReplicatedTableTracker) {
+            replicaInfo->EnableReplicatedTableTracker = *enableReplicatedTableTracker;
+            FireTableReplicaCreatedOrUpdated(replicationCardId, replicaId, *replicaInfo);
+        }
+
+        if (replicaPath && replicaInfo->ReplicaPath != *replicaPath) {
+            for (const auto& [existingReplicaId, existingReplicaInfo] : replicationCard->Replicas()) {
+                if (existingReplicaInfo.ClusterName == replicaInfo->ClusterName &&
+                    existingReplicaInfo.ReplicaPath == *replicaPath)
+                {
+                    THROW_ERROR_EXCEPTION("Replica already exists")
+                        << TErrorAttribute("replica_id", existingReplicaId)
+                        << TErrorAttribute("cluster_name", existingReplicaInfo.ClusterName)
+                        << TErrorAttribute("replica_path", existingReplicaInfo.ReplicaPath);
+                }
+            }
+
+            replicaInfo->ReplicaPath = *replicaPath;
+            revoke = true;
+            FireTableReplicaCreatedOrUpdated(replicationCardId, replicaId, *replicaInfo);
+        }
+
+        YT_LOG_DEBUG("Table replica altered (ReplicationCardId: %v, ReplicaId: %v, Replica: %v)",
+            replicationCardId,
+            replicaId,
+            *replicaInfo);
+
+        if (revoke) {
+            UpdateReplicationCardState(replicationCard, EReplicationCardState::RevokingShortcutsForAlter);
+        }
+    }
+
+    void HydraRspGrantShortcuts(NChaosNode::NProto::TRspGrantShortcuts* request)
+    {
+        auto coordinatorCellId = FromProto<TCellId>(request->coordinator_cell_id());
+        bool suspended = request->suspended();
+        std::vector<TReplicationCardId> replicationCardIds;
+
+        for (const auto& shortcut : request->shortcuts()) {
+            auto era = shortcut.era();
+
+            auto chaosObjectId = FromProto<TChaosObjectId>(shortcut.chaos_object_id());
+            TChaosObjectBase* chaosObject = FindChaosObject(chaosObjectId);
+
+            if (!chaosObject) {
+                YT_LOG_WARNING("Got grant shortcut response for an unknown object (ChaosObjectId: %v, Type: %v)",
+                    chaosObjectId,
+                    TypeFromId(chaosObjectId));
+                continue;
+            }
+
+            if (chaosObject->GetEra() != era) {
+                YT_LOG_ALERT("Got grant shortcut response with invalid era (ChaosObjectId: %v, Type: %v, "
+                    "Era: %v, ResponseEra: %v)",
+                    chaosObjectId,
+                    TypeFromId(chaosObjectId),
+                    chaosObject->GetEra(),
+                    era);
+                continue;
+            }
+
+            if (auto it = chaosObject->Coordinators().find(coordinatorCellId); !it || it->second.State != EShortcutState::Granting) {
+                YT_LOG_WARNING("Got grant shortcut response but shortcut is not waiting for it "
+                    "(ChaosObjectId: %v, Type: %v, Era: %v, CoordinatorCellId: %v, ShortcutState: %v)",
+                    chaosObjectId,
+                    TypeFromId(chaosObjectId),
+                    era,
+                    coordinatorCellId,
+                    it ? std::make_optional(it->second.State) : std::nullopt);
+
+                continue;
+            }
+
+            if (IsReplicationCardType(TypeFromId(chaosObjectId))) {
+                replicationCardIds.push_back(chaosObjectId);
+            }
+
+            chaosObject->Coordinators()[coordinatorCellId].State = EShortcutState::Granted;
+        }
+
+        if (suspended) {
+            SuspendCoordinator(coordinatorCellId);
+        } else {
+            ResumeCoordinator(coordinatorCellId);
+        }
+
+        YT_LOG_DEBUG("Shortcuts granted (CoordinatorCellId: %v, Suspended: %v, ReplicationCardIds: %v)",
+            coordinatorCellId,
+            suspended,
+            replicationCardIds);
+
+        NotifyWatchers(std::move(replicationCardIds));
+    }
+
+    void HydraRspRevokeShortcuts(NChaosNode::NProto::TRspRevokeShortcuts* request)
+    {
+        auto coordinatorCellId = FromProto<TCellId>(request->coordinator_cell_id());
+        std::vector<TReplicationCardId> replicationCardIds;
+
+        for (const auto& shortcut : request->shortcuts()) {
+            auto era = shortcut.era();
+
+            auto chaosObjectId = FromProto<TChaosObjectId>(shortcut.chaos_object_id());
+            TChaosObjectBase* chaosObject = FindChaosObject(chaosObjectId);
+
+            if (!chaosObject) {
+                YT_LOG_WARNING("Got revoke shortcut response for an unknown object (ChaosObjectId: %v, Type: %v)",
+                    chaosObjectId,
+                    TypeFromId(chaosObjectId));
+                continue;
+            }
+
+            if (chaosObject->GetEra() != era) {
+                YT_LOG_ALERT("Got revoke shortcut response with invalid era "
+                    "(ChaosObjectId: %v, Type: %v, Era: %v, ResponseEra: %v)",
+                    chaosObjectId,
+                    TypeFromId(chaosObjectId),
+                    chaosObject->GetEra(),
+                    era);
+                continue;
+            }
+
+            if (auto it = chaosObject->Coordinators().find(coordinatorCellId); it && it->second.State != EShortcutState::Revoking) {
+                YT_LOG_WARNING("Got revoke shortcut response but shortcut is not waiting for it "
+                    "(ChaosObjectId: %v, Type: %v, Era: %v CoordinatorCellId: %v, ShortcutState: %v)",
+                    chaosObjectId,
+                    TypeFromId(chaosObjectId),
+                    chaosObject->GetEra(),
+                    coordinatorCellId,
+                    it->second.State);
+
+                continue;
+            }
+
+            EraseOrCrash(chaosObject->Coordinators(), coordinatorCellId);
+
+            // TODO(gryzlov-ad): Add migration logic to ChaosBaseObject
+            // so leases can migrate too, as they have different states
+            if (IsReplicationCardType(TypeFromId(chaosObjectId))) {
+                replicationCardIds.push_back(chaosObjectId);
+                HandleReplicationCardStateTransition(static_cast<TReplicationCard*>(chaosObject));
+            }
+        }
+
+        YT_LOG_DEBUG("Shortcuts revoked (CoordinatorCellId: %v, ReplicationCardIds: %v)",
+            coordinatorCellId,
+            replicationCardIds);
+
+        NotifyWatchers(std::move(replicationCardIds));
+    }
+
+    void RevokeShortcuts(TChaosObjectBase* chaosObject)
+    {
+        YT_VERIFY(HasMutationContext());
+
+        const auto& hiveManager = Slot_->GetHiveManager();
+        NChaosNode::NProto::TReqRevokeShortcuts req;
+        ToProto(req.mutable_chaos_cell_id(), Slot_->GetCellId());
+        auto* shortcut = req.add_shortcuts();
+        ToProto(shortcut->mutable_chaos_object_id(), chaosObject->GetId());
+        shortcut->set_era(chaosObject->GetEra());
+
+        for (auto [cellId, coordinator] : GetValuesSortedByKey(chaosObject->Coordinators())) {
+            if (coordinator->State == EShortcutState::Revoking) {
+                YT_LOG_DEBUG("Will not revoke shortcut since it already is revoking "
+                    "(ChaosObjectId: %v, Type: %v, Era: %v CoordinatorCellId: %v)",
+                    chaosObject->GetId(),
+                    TypeFromId(chaosObject->GetId()),
+                    chaosObject->GetEra(),
+                    cellId);
+
+                continue;
+            }
+
+            coordinator->State = EShortcutState::Revoking;
+
+            auto mailbox = hiveManager->GetMailbox(cellId);
+            hiveManager->PostMessage(mailbox, req);
+
+            YT_LOG_DEBUG("Revoking shortcut (ChaosObjectId: %v, Type: %v, Era: %v CoordinatorCellId: %v)",
+                chaosObject->GetId(),
+                TypeFromId(chaosObject->GetId()),
+                chaosObject->GetEra(),
+                cellId);
+        }
+
+        YT_LOG_DEBUG("Finished revoking shortcuts (ChaosObjectId: %v, Type: %v, Era: %v)",
+            chaosObject->GetId(),
+            TypeFromId(chaosObject->GetId()),
+            chaosObject->GetEra());
+    }
+
+    void GrantShortcuts(TChaosObjectBase* chaosObject, const std::vector<TCellId> coordinatorCellIds, bool strict = true)
+    {
+        YT_VERIFY(HasMutationContext());
+
+        const auto& hiveManager = Slot_->GetHiveManager();
+        NChaosNode::NProto::TReqGrantShortcuts req;
+        ToProto(req.mutable_chaos_cell_id(), Slot_->GetCellId());
+        auto* shortcut = req.add_shortcuts();
+        ToProto(shortcut->mutable_chaos_object_id(), chaosObject->GetId());
+        shortcut->set_era(chaosObject->GetEra());
+
+        std::vector<TCellId> suspendedCoordinators;
+
+        for (auto cellId : coordinatorCellIds) {
+            if (IsCoordinatorSuspended(cellId)) {
+                suspendedCoordinators.push_back(cellId);
+                continue;
+            }
+
+            // TODO(savrus) This could happen in case if coordinator cell id has been removed from CoordinatorCellIds_ and then added.
+            // Need to make a better protocol (YT-16072).
+            if (chaosObject->Coordinators().contains(cellId)) {
+                if (strict) {
+                    YT_LOG_ALERT("Will not grant shortcut as the coordinator is already present for the object"
+                        "(ChaosObjectId: %v, Type: %v, Era: %v, CoordinatorCellId: %v, CoordinatorState: %v)",
+                        chaosObject->GetId(),
+                        TypeFromId(chaosObject->GetId()),
+                        chaosObject->GetEra(),
+                        cellId,
+                        chaosObject->Coordinators()[cellId].State);
+                }
+
+                continue;
+            }
+
+            chaosObject->Coordinators().insert(std::pair(cellId, TCoordinatorInfo{EShortcutState::Granting}));
+            auto mailbox = hiveManager->GetOrCreateCellMailbox(cellId);
+            hiveManager->PostMessage(mailbox, req);
+
+            YT_LOG_DEBUG("Granting shortcut to coordinator (ChaosObjectId: %v, Type: %v, Era: %v, CoordinatorCellId: %v",
+                chaosObject->GetId(),
+                TypeFromId(chaosObject->GetId()),
+                chaosObject->GetEra(),
+                cellId);
+        }
+
+        YT_LOG_DEBUG("Finished granting shortcuts (ChaosObjectId: %v, Type: %v, Era: %v, SuspendedCoordinators: %v)",
+            chaosObject->GetId(),
+            TypeFromId(chaosObject->GetId()),
+            chaosObject->GetEra(),
+            suspendedCoordinators);
+    }
+
+    void HydraForsakeCoordinator(
+        const TCtxForsakeCoordinatorPtr& /*context*/,
+        NChaosClient::NProto::TReqForsakeCoordinator* request,
+        NChaosClient::NProto::TRspForsakeCoordinator* /*response*/)
+    {
+        auto coordinatorCellId = FromProto<TCellId>(request->coordinator_cell_id());
+
+        auto it = std::find(CoordinatorCellIds_.begin(), CoordinatorCellIds_.end(), coordinatorCellId);
+        if (it != CoordinatorCellIds_.end()) {
+            THROW_ERROR_EXCEPTION("Trying to forsake an alive coordinator")
+                << TErrorAttribute("coordinator_cell_id", coordinatorCellId);
+        }
+
+        for (auto* replicationCard : GetValuesSortedByKey(ReplicationCardMap_)) {
+            auto state = replicationCard->GetState();
+            if (state == EReplicationCardState::RemoteCollocationAttachPrepared) {
+                YT_LOG_DEBUG("Skipping replication card since it is attaching to remote collocation "
+                    "(ReplicationCardId: %v, Era: %v)",
+                    replicationCard->GetId(),
+                    replicationCard->GetEra());
+                continue;
+            }
+
+            if (auto it = replicationCard->Coordinators().find(coordinatorCellId);
+                it != replicationCard->Coordinators().end())
+            {
+                replicationCard->Coordinators().erase(it);
+
+                YT_LOG_DEBUG("Forsaking coordinator (ReplicationCardId: %v, Era: %v, State: %v, Coordinator: %v)",
+                replicationCard->GetId(),
+                replicationCard->GetEra(),
+                replicationCard->GetState(),
+                coordinatorCellId);
+
+                if (EqualToOneOf(
+                    state,
+                    EReplicationCardState::RevokingShortcutsForAlter,
+                    EReplicationCardState::RevokingShortcutsForMigration))
+                {
+                    HandleReplicationCardStateTransition(replicationCard);
+                } else if (state == EReplicationCardState::Normal) {
+                    UpdateReplicationCardState(replicationCard, EReplicationCardState::RevokingShortcutsForAlter);
+                }
+            }
+        }
+    }
+
+    void HydraMigrateReplicationCards(
+        const TCtxMigrateReplicationCardsPtr& /*context*/,
+        NChaosClient::NProto::TReqMigrateReplicationCards* request,
+        NChaosClient::NProto::TRspMigrateReplicationCards* /*response*/)
+    {
+        auto migrateToCellId = FromProto<TCellId>(request->migrate_to_cell_id());
+        auto replicationCardIds = FromProto<std::vector<TReplicationCardId>>(request->replication_card_ids());
+        bool migrateAllReplicationCards = request->migrate_all_replication_cards();
+        bool suspendChaosCell = request->suspend_chaos_cell();
+        bool requireSuspension = request->require_suspension();
+
+        if (requireSuspension && !Suspended_) {
+            THROW_ERROR_EXCEPTION("Request cannot be processed in non-suspended state");
+        }
+
+        if (std::find(CoordinatorCellIds_.begin(), CoordinatorCellIds_.end(), migrateToCellId) == CoordinatorCellIds_.end()) {
+            THROW_ERROR_EXCEPTION("Trying to migrate replication card to unknown cell %v",
+                migrateToCellId);
+        }
+
+        if (migrateAllReplicationCards) {
+            if (!replicationCardIds.empty()) {
+                THROW_ERROR_EXCEPTION("Replication card ids and migrate all replication cards cannot be specified simultaneously");
+            } else {
+                for (auto* replicationCard : GetValuesSortedByKey(ReplicationCardMap_)) {
+                    if (replicationCard->IsReadyToMigrate()) {
+                        replicationCardIds.push_back(replicationCard->GetId());
+                    }
+                }
+            }
+        }
+
+        THashSet<TReplicationCardCollocation*> collocations;
+        for (auto replicationCardId : replicationCardIds) {
+            auto replicationCard = GetReplicationCardOrThrow(replicationCardId);
+            if (!replicationCard->IsReadyToMigrate()) {
+                THROW_ERROR_EXCEPTION("Trying to migrate replication card %v while it is in %v state",
+                    replicationCardId,
+                    replicationCard->GetState());
+            }
+
+            if (auto* collocation = replicationCard->GetCollocation()) {
+                collocations.insert(collocation);
+            }
+        }
+
+        THashSet<TReplicationCardId> replicationCardIdsSet(replicationCardIds.begin(), replicationCardIds.end());
+        for (auto* collocation : GetValuesSortedByKey(collocations)) {
+            collocation->ValidateNotMigrating();
+
+            for (auto* replicationCard : GetValuesSortedByKey(collocation->ReplicationCards())) {
+                if (!replicationCardIdsSet.contains(replicationCard->GetId())) {
+                    THROW_ERROR_EXCEPTION("Trying to move incomplete collocation %v: replication card %v is absent",
+                        collocation->GetId(),
+                        replicationCard->GetId());
+                }
+            }
+        }
+
+        if (suspendChaosCell) {
+            YT_LOG_DEBUG("Suspending chaos cell");
+
+            Suspended_ = true;
+        }
+
+        for (auto* collocation : collocations) {
+            collocation->SetState(EReplicationCardCollocationState::Emigrating);
+            ReplicationCollocationDestroyed_.Fire(collocation->GetId());
+        }
+
+        for (auto replicationCardId : replicationCardIds) {
+            auto replicationCard = GetReplicationCardOrThrow(replicationCardId);
+            replicationCard->Migration().ImmigratedToCellId = migrateToCellId;
+            UpdateReplicationCardState(replicationCard, EReplicationCardState::RevokingShortcutsForMigration);
+            UnbindReplicationCardFromRtt(replicationCard);
+        }
+    }
+
+    void HydraChaosNodeMigrateReplicationCards(NChaosNode::NProto::TReqMigrateReplicationCards* request)
+    {
+        auto emigratedFromCellId = FromProto<TCellId>(request->emigrated_from_cell_id());
+        auto now = GetCurrentMutationContext()->GetTimestamp();
+
+        for (const auto& protoMigrationCard : request->migration_cards()) {
+            const auto& protoReplicationCard = protoMigrationCard.replication_card();
+
+            auto collocationId = FromProto<TReplicationCardCollocationId>(
+                protoReplicationCard.replication_card_collocation_id());
+            auto* collocation = FindReplicationCardCollocation(collocationId);
+            auto collocationSize = protoMigrationCard.replication_card_collocation_size();
+
+            YT_LOG_ALERT_IF(collocation && collocation->GetSize() != collocationSize && collocationSize != 0,
+                "Replication collocation size differ (CollocationId: %v, ExpectedSize: %v, ActualSize: %v)",
+                collocationId,
+                collocation->GetSize(),
+                collocationSize);
+
+            if (!collocation && collocationId) {
+                YT_LOG_ALERT_IF(collocationSize == 0,
+                    "Creating replication card colocation with zero size (CollocationId: %v)",
+                        collocationId);
+
+                auto collocationOptions = protoMigrationCard.has_replication_card_collocation_options()
+                    ? ConvertTo<TReplicationCollocationOptionsPtr>(TYsonString(protoMigrationCard.replication_card_collocation_options()))
+                    : New<TReplicationCollocationOptions>();
+
+                collocation = CreateReplicationCardCollocation(
+                    collocationId,
+                    EReplicationCardCollocationState::Immigrating,
+                    collocationSize,
+                    std::move(collocationOptions));
+            }
+
+            auto replicationCardId = FromProto<TReplicationCardId>(protoMigrationCard.replication_card_id());
+            auto* replicationCard = FindReplicationCard(replicationCardId);
+            bool replicationCardCreated = false;
+            if (!replicationCard) {
+                if (IsDomesticReplicationCard(replicationCardId)) {
+                    // Seems like card has been removed.
+                    YT_LOG_DEBUG("Unexpected replication card returned from emigration (ReplicationCardId: %v)",
+                        replicationCardId);
+                    continue;
+                }
+
+                auto replicationCardHolder = std::make_unique<TReplicationCard>(replicationCardId);
+                replicationCard = replicationCardHolder.get();
+
+                ReplicationCardMap_.Insert(replicationCardId, std::move(replicationCardHolder));
+                replicationCardCreated = true;
+
+                YT_LOG_DEBUG("Replication card created for immigration (ReplicationCardId: %v)",
+                    replicationCardId);
+            }
+
+            auto options = protoReplicationCard.has_replicated_table_options()
+                ? SafeDeserializeReplicatedTableOptions(
+                    replicationCardId,
+                    TYsonString(protoReplicationCard.replicated_table_options()))
+                : New<TReplicatedTableOptions>();
+
+            replicationCard->SetTableId(FromProto<TTableId>(protoReplicationCard.table_id()));
+            replicationCard->SetTablePath(protoReplicationCard.table_path());
+            replicationCard->SetTableClusterName(protoReplicationCard.table_cluster_name());
+            replicationCard->SetEra(protoReplicationCard.era());
+            replicationCard->SetReplicatedTableOptions(std::move(options));
+            replicationCard->SetAwaitingCollocationId(TReplicationCardCollocationId());
+
+            YT_VERIFY(replicationCard->Coordinators().empty());
+
+            replicationCard->Replicas().clear();
+            for (auto protoReplica : protoReplicationCard.replicas()) {
+                auto replicaId = FromProto<TReplicaId>(protoReplica.id());
+                auto replicaInfo = FromProto<TReplicaInfo>(protoReplica.info());
+                EmplaceOrCrash(replicationCard->Replicas(), replicaId, replicaInfo);
+            }
+
+            auto& migration = replicationCard->Migration();
+            if (IsDomesticReplicationCard(replicationCardId)) {
+                migration.ImmigratedToCellId = TCellId();
+                migration.ImmigrationTime = TInstant();
+            } else {
+                migration.OriginCellId = FromProto<TCellId>(protoMigrationCard.origin_cell_id());
+                migration.EmigratedFromCellId = emigratedFromCellId;
+                migration.EmigrationTime = now;
+            }
+
+            replicationCard->SetState(EReplicationCardState::GeneratingTimestampForNewEra);
+
+            YT_LOG_DEBUG("Replication card migration started (ReplicationCardId: %v, Domestic: %v, CollocationId: %v, ReplicationCard: %v)",
+                replicationCardId,
+                IsDomesticReplicationCard(replicationCardId),
+                collocationId,
+                *replicationCard);
+
+            UpdateReplicationCardCollocation(
+                replicationCard,
+                collocation,
+                /*migration*/ true);
+
+            if (!collocation) {
+                BindReplicationCardToRtt(replicationCard);
+            }
+
+            if (replicationCardCreated) {
+                auto clientReplicationCard = replicationCard->ConvertToClientCard(MinimalFetchOptions);
+                ReplicationCardWatcher_->RegisterReplicationCard(
+                    replicationCardId,
+                    clientReplicationCard,
+                    NullTimestamp);
+            }
+
+            HandleReplicationCardStateTransition(replicationCard);
+        }
+
+        if (!request->has_migration_token()) {
+            return;
+        }
+
+        std::vector<TReplicationCardId> replicationCardIds;
+        for (const auto& protoMigrationCard : request->migration_cards()) {
+            replicationCardIds.push_back(FromProto<TReplicationCardId>(protoMigrationCard.replication_card_id()));
+        }
+
+        auto migrationToken = FromProto<NObjectClient::TObjectId>(request->migration_token());
+
+        NChaosNode::NProto::TReqConfirmReplicationCardMigration rsp;
+        ToProto(rsp.mutable_replication_card_ids(), replicationCardIds);
+        ToProto(rsp.mutable_migration_token(), migrationToken);
+
+        const auto& hiveManager = Slot_->GetHiveManager();
+        auto mailbox = hiveManager->GetOrCreateCellMailbox(emigratedFromCellId);
+        hiveManager->PostMessage(mailbox, rsp);
+    }
+
+    void HydraChaosNodeConfirmReplicationCardMigration(NChaosNode::NProto::TReqConfirmReplicationCardMigration* request)
+    {
+        auto expectedMigrationToken = FromProto<NObjectClient::TObjectId>(request->migration_token());
+        std::vector<std::pair<TReplicationCardId, TCellId>> replicationCardIds;
+        replicationCardIds.reserve(request->replication_card_ids_size());
+
+        for (const auto& protoReplicationCardId : request->replication_card_ids()) {
+            auto replicationCardId = FromProto<TReplicationCardId>(protoReplicationCardId);
+            auto* replicationCard = ReplicationCardMap_.Find(replicationCardId);
+
+            if (!replicationCard ||
+                replicationCard->GetState() != EReplicationCardState::AwaitingMigrationConfirmation ||
+                replicationCard->GetMigrationToken() != expectedMigrationToken)
+            {
+                continue;
+            }
+
+            replicationCard->SetState(EReplicationCardState::Migrated);
+            replicationCardIds.emplace_back(replicationCardId, replicationCard->Migration().ImmigratedToCellId);
+        }
+
+        ReplicationCardWatcher_->OnReplicationCardMigrated(replicationCardIds);
+    }
+
+
+    void MigrateReplicationCard(TReplicationCard* replicationCard)
+    {
+        YT_VERIFY(HasMutationContext());
+        YT_VERIFY(replicationCard->Coordinators().empty());
+        auto immigratedToCellId = replicationCard->Migration().ImmigratedToCellId;
+
+        auto replicationCardId = replicationCard->GetId();
+        YT_LOG_DEBUG("Migrating replication card to different cell "
+            "(ReplicationCardId: %v, ImmigratedToCellId: %v, Domestic: %v, CollocationId: %v)",
+            replicationCardId,
+            immigratedToCellId,
+            IsDomesticReplicationCard(replicationCardId),
+            replicationCard->GetCollocation()
+                ? replicationCard->GetCollocation()->GetId()
+                : replicationCard->GetAwaitingCollocationId());
+
+        NChaosNode::NProto::TReqMigrateReplicationCards req;
+        ToProto(req.mutable_emigrated_from_cell_id(), Slot_->GetCellId());
+        auto protoMigrationCard = req.add_migration_cards();
+        auto originCellId = IsDomesticReplicationCard(replicationCardId)
+            ? Slot_->GetCellId()
+            : replicationCard->Migration().OriginCellId;
+        ToProto(protoMigrationCard->mutable_origin_cell_id(), originCellId);
+        ToProto(protoMigrationCard->mutable_replication_card_id(), replicationCardId);
+        auto* protoReplicationCard = protoMigrationCard->mutable_replication_card();
+
+        ToProto(protoReplicationCard->mutable_table_id(), replicationCard->GetTableId());
+        protoReplicationCard->set_table_path(replicationCard->GetTablePath());
+        protoReplicationCard->set_table_cluster_name(replicationCard->GetTableClusterName());
+        protoReplicationCard->set_era(replicationCard->GetEra());
+        protoReplicationCard->set_replicated_table_options(
+            ConvertToYsonString(replicationCard->GetReplicatedTableOptions()).ToString());
+
+        if (auto* collocation = replicationCard->GetCollocation()) {
+            ToProto(protoReplicationCard->mutable_replication_card_collocation_id(), collocation->GetId());
+            protoMigrationCard->set_replication_card_collocation_size(collocation->GetSize());
+            protoMigrationCard->set_replication_card_collocation_options(
+                ConvertToYsonString(collocation->Options()).ToString());
+        } else if (replicationCard->GetAwaitingCollocationId()) {
+            ToProto(protoReplicationCard->mutable_replication_card_collocation_id(), replicationCard->GetAwaitingCollocationId());
+        }
+
+        TReplicationCardFetchOptions fetchOptions{
+            .IncludeProgress = true,
+            .IncludeHistory = true
+        };
+
+        for (const auto& [replicaId, replicaInfo] : replicationCard->Replicas()) {
+            auto* protoEntry = protoReplicationCard->add_replicas();
+            ToProto(protoEntry->mutable_id(), replicaId);
+            ToProto(protoEntry->mutable_info(), replicaInfo, fetchOptions);
+        }
+
+        auto migrationToken = Slot_->GenerateId(EObjectType::Null);
+        ToProto(req.mutable_migration_token(), migrationToken);
+
+        const auto& hiveManager = Slot_->GetHiveManager();
+        auto mailbox = hiveManager->GetOrCreateCellMailbox(immigratedToCellId);
+        hiveManager->PostMessage(mailbox, req);
+
+        replicationCard->SetState(EReplicationCardState::AwaitingMigrationConfirmation);
+        replicationCard->Migration().ImmigrationTime = GetCurrentMutationContext()->GetTimestamp();
+        replicationCard->SetMigrationToken(migrationToken);
+
+        if (replicationCard->GetCollocation()) {
+            UpdateReplicationCardCollocation(
+                replicationCard,
+                /*collocation*/ nullptr,
+                /*migration*/ true);
+        }
+    }
+
+    bool IsDomesticReplicationCard(TReplicationCardId replicationCardId)
+    {
+        return CellTagFromId(replicationCardId) == CellTagFromId(Slot_->GetCellId());
+    }
+
+    bool IsReplicationCardMigrated(const TReplicationCard* replicationCard)
+    {
+        return replicationCard->IsMigrated();
+    }
+
+    void HydraResumeChaosCell(
+        const TCtxResumeChaosCellPtr& /*context*/,
+        NChaosClient::NProto::TReqResumeChaosCell* /*request*/,
+        NChaosClient::NProto::TRspResumeChaosCell* /*response*/)
+    {
+        YT_LOG_DEBUG("Resuming chaos cell");
+
+        Suspended_ = false;
+    }
+
+    void PeriodicMigrateLeftovers()
+    {
+        if (!Suspended_) {
+            return;
+        }
+
+        auto cardIdsToMigrate = BuildReadyToMigrateReplicationCardBatch(
+            ReplicationCardMap_,
+            MigrateLeftoversBatchSize);
+
+        if (cardIdsToMigrate.empty()) {
+            return;
+        }
+
+        const auto& connection = Bootstrap_->GetConnection();
+        const auto& cellDirectory = connection->GetCellDirectory();
+
+        auto siblingCellTag = GetSiblingChaosCellTag(CellTagFromId(Slot_->GetCellId()));
+        auto descriptor = cellDirectory->FindDescriptorByCellTag(siblingCellTag);
+        if (!descriptor) {
+            THROW_ERROR_EXCEPTION("Unable to identify sibling cell to migrate replication cards into")
+                << TErrorAttribute("chaos_cell_id", Slot_->GetCellId())
+                << TErrorAttribute("sibling_cell_tag", siblingCellTag);
+        }
+
+        NChaosClient::NProto::TReqMigrateReplicationCards req;
+        ToProto(req.mutable_replication_card_ids(), cardIdsToMigrate);
+        ToProto(req.mutable_migrate_to_cell_id(), descriptor->CellId);
+        req.set_require_suspension(true);
+
+        YT_UNUSED_FUTURE(CreateMutation(HydraManager_, req)
+            ->CommitAndLog(Logger));
+    }
+
+    void PeriodicCurrentTimestampPropagation()
+    {
+        if (!IsLeader()) {
+            return;
+        }
+
+        Slot_->GetTimestampProvider()->GenerateTimestamps()
+            .Subscribe(BIND(
+                &TChaosManager::OnCurrentTimestampPropagationGenerated,
+                MakeWeak(this))
+                .Via(AutomatonInvoker_));
+    }
+
+    void OnCurrentTimestampPropagationGenerated(const TErrorOr<TTimestamp>& timestampOrError)
+    {
+        if (!IsLeader()) {
+            return;
+        }
+
+        if (!timestampOrError.IsOK()) {
+            YT_LOG_DEBUG(timestampOrError, "Error generating new current timestamp");
+            return;
+        }
+
+        auto timestamp = timestampOrError.Value();
+        YT_LOG_DEBUG("New current timestamp generated (Timestamp: %v)",
+            timestamp);
+
+        NChaosNode::NProto::TReqPropagateCurrentTimestamp request;
+        request.set_timestamp(timestamp);
+        YT_UNUSED_FUTURE(CreateMutation(HydraManager_, request)
+            ->CommitAndLog(Logger));
+    }
+
+    void HydraPropagateCurrentTimestamps(NChaosNode::NProto::TReqPropagateCurrentTimestamp* request)
+    {
+        auto timestamp = request->timestamp();
+
+        YT_LOG_DEBUG("Started periodic current timestamp propagation (Timestamp: %v)",
+            timestamp);
+
+        for (auto* replicationCard : GetValuesSortedByKey(ReplicationCardMap_)) {
+            if (IsReplicationCardMigrated(replicationCard)) {
+                continue;
+            }
+
+            MaybeCommenceNewReplicationEra(replicationCard, timestamp);
+        }
+
+        YT_LOG_DEBUG("Finished periodic current timestamp propagation (Timestamp: %v)",
+            timestamp);
+    }
+
+    void UpdateReplicationCardState(TReplicationCard* replicationCard, EReplicationCardState newState)
+    {
+        switch (newState) {
+            case EReplicationCardState::RevokingShortcutsForMigration:
+                YT_VERIFY(replicationCard->IsReadyToMigrate());
+                replicationCard->SetState(EReplicationCardState::RevokingShortcutsForMigration);
+                RevokeShortcuts(replicationCard);
+                HandleReplicationCardStateTransition(replicationCard);
+                break;
+
+            case EReplicationCardState::RevokingShortcutsForAlter:
+                if (replicationCard->GetState() == EReplicationCardState::Normal) {
+                    replicationCard->SetState(EReplicationCardState::RevokingShortcutsForAlter);
+                    RevokeShortcuts(replicationCard);
+                    HandleReplicationCardStateTransition(replicationCard);
+                } else {
+                    YT_LOG_DEBUG("Skipping replication card state update (ReplicationCardId: %v, State: %v, NewState: %v)",
+                        replicationCard->GetId(),
+                        replicationCard->GetState(),
+                        newState);
+                }
+                break;
+
+            case EReplicationCardState::RemoteCollocationAttachPrepared:
+                YT_VERIFY(replicationCard->GetState() == EReplicationCardState::Normal);
+                replicationCard->SetState(EReplicationCardState::RemoteCollocationAttachPrepared);
+                break;
+
+            default:
+                YT_ABORT();
+        }
+    }
+
+    void HandleReplicationCardStateTransition(TReplicationCard* replicationCard)
+    {
+        while (true) {
+            switch (replicationCard->GetState()) {
+                case EReplicationCardState::RevokingShortcutsForMigration:
+                    if (replicationCard->Coordinators().empty()) {
+                        MigrateReplicationCard(replicationCard);
+                    }
+                    return;
+
+                case EReplicationCardState::RevokingShortcutsForAlter:
+                    if (replicationCard->Coordinators().empty()) {
+                        replicationCard->SetState(EReplicationCardState::GeneratingTimestampForNewEra);
+                        continue;
+                    }
+                    return;
+
+                case EReplicationCardState::GeneratingTimestampForNewEra:
+                    GenerateTimestampForNewEra(replicationCard);
+                    return;
+
+                case EReplicationCardState::Normal:
+                    return;
+
+                default:
+                    YT_ABORT();
+            }
+        }
+    }
+
+    void GenerateTimestampForNewEra(TReplicationCard* replicationCard)
+    {
+        if (!IsLeader()) {
+            return;
+        }
+
+        Slot_->GetTimestampProvider()->GenerateTimestamps()
+            .Subscribe(BIND(
+                &TChaosManager::OnNewReplicationEraTimestampGenerated,
+                MakeWeak(this),
+                replicationCard->GetId(),
+                replicationCard->GetEra())
+                .Via(AutomatonInvoker_));
+    }
+
+    void OnNewReplicationEraTimestampGenerated(
+        TReplicationCardId replicationCardId,
+        TReplicationEra era,
+        const TErrorOr<TTimestamp>& timestampOrError)
+    {
+        if (!IsLeader()) {
+            return;
+        }
+
+        if (!timestampOrError.IsOK()) {
+            YT_LOG_DEBUG(timestampOrError, "Error generating new era timestamp (ReplicationCardId: %v, Era: %v)",
+                replicationCardId,
+                era);
+            return;
+        }
+
+        auto timestamp = timestampOrError.Value();
+        YT_LOG_DEBUG("New era timestamp generated (ReplicationCardId: %v, Era: %v, Timestamp: %v)",
+            replicationCardId,
+            era,
+            timestamp);
+
+        NChaosNode::NProto::TReqCommenceNewReplicationEra request;
+        ToProto(request.mutable_replication_card_id(), replicationCardId);
+        request.set_timestamp(timestamp);
+        request.set_replication_era(era);
+        YT_UNUSED_FUTURE(CreateMutation(HydraManager_, request)
+            ->CommitAndLog(Logger));
+    }
+
+    void HydraCommenceNewReplicationEra(NChaosNode::NProto::TReqCommenceNewReplicationEra* request)
+    {
+        auto timestamp = static_cast<TTimestamp>(request->timestamp());
+        auto replicationCardId = FromProto<NChaosClient::TReplicationCardId>(request->replication_card_id());
+        auto era = static_cast<TReplicationEra>(request->replication_era());
+
+        auto* replicationCard = FindReplicationCard(replicationCardId);
+        if (!replicationCard) {
+            YT_LOG_DEBUG("Will not commence new replication era because replication card is not found (ReplicationCardId: %v)",
+                replicationCardId);
+            return;
+        }
+
+        if (IsReplicationCardMigrated(replicationCard)) {
+            YT_LOG_DEBUG("Will not commence new replication card era since replication card has been migrated "
+                "(ReplicationCardId: %v)",
+                replicationCardId);
+            return;
+        }
+
+        if (replicationCard->GetEra() != era) {
+            YT_LOG_DEBUG("Will not commence new replication card era because of era mismatch "
+                "(ReplicationCardId: %v, ExpectedEra: %v, ActualEra: %v)",
+                era,
+                replicationCard->GetEra(),
+                replicationCardId);
+            return;
+        }
+
+        MaybeCommenceNewReplicationEra(replicationCard, timestamp);
+    }
+
+    void MaybeCommenceNewReplicationEra(TReplicationCard *replicationCard, TTimestamp timestamp)
+    {
+        YT_VERIFY(HasMutationContext());
+
+        bool willUpdate = timestamp > replicationCard->GetCurrentTimestamp();
+        YT_LOG_DEBUG("Updating replication card current timestamp "
+            "(ReplicationCardId: %v, Era: %v, State: %v, CurrentTimestamp: %v, NewTimestamp: %v, WillUpdate: %v)",
+            replicationCard->GetId(),
+            replicationCard->GetEra(),
+            replicationCard->GetState(),
+            replicationCard->GetCurrentTimestamp(),
+            timestamp,
+            willUpdate);
+
+        if (!willUpdate) {
+            return;
+        }
+
+        replicationCard->SetCurrentTimestamp(timestamp);
+
+        if (replicationCard->GetState() != EReplicationCardState::GeneratingTimestampForNewEra) {
+            return;
+        }
+
+        int minSyncQueueCount = GetMinRequiredSyncQueueCount(*replicationCard);
+        int syncQueueCount = CountSyncQueueReplicas(*replicationCard);
+        if (syncQueueCount < minSyncQueueCount) {
+            YT_LOG_DEBUG("Will not commence new replication era since there would be not enough sync queue replicas "
+                "(ReplicationCard: %v, MinSyncQueueCount: %v, SyncQueueCount: %v)",
+                *replicationCard,
+                minSyncQueueCount,
+                syncQueueCount);
+            return;
+        }
+
+        auto newEra = replicationCard->GetEra() + 1;
+        replicationCard->SetEra(newEra);
+
+        for (auto& [replicaId, replicaInfo] : replicationCard->Replicas()) {
+            bool updated = false;
+
+            if (replicaInfo.Mode == ETableReplicaMode::SyncToAsync) {
+                replicaInfo.Mode = ETableReplicaMode::Async;
+                updated = true;
+            } else if (replicaInfo.Mode == ETableReplicaMode::AsyncToSync) {
+                replicaInfo.Mode = ETableReplicaMode::Sync;
+                updated = true;
+            }
+
+            if (replicaInfo.State == ETableReplicaState::Disabling) {
+                replicaInfo.State = ETableReplicaState::Disabled;
+                updated = true;
+            } else if (replicaInfo.State == ETableReplicaState::Enabling) {
+                replicaInfo.State = ETableReplicaState::Enabled;
+                updated = true;
+            }
+
+            if (updated) {
+                if (replicaInfo.History.empty()) {
+                    replicaInfo.ReplicationProgress = TReplicationProgress{
+                        .Segments = {{EmptyKey(), timestamp}},
+                        .UpperKey = MaxKey()
+                    };
+                }
+
+                if (replicaInfo.History.empty() ||
+                    replicaInfo.History.back().Mode != replicaInfo.Mode ||
+                    replicaInfo.History.back().State != replicaInfo.State)
+                {
+                    replicaInfo.History.push_back({newEra, timestamp, replicaInfo.Mode, replicaInfo.State});
+                }
+            }
+        }
+
+        replicationCard->SetState(EReplicationCardState::Normal);
+
+        YT_LOG_DEBUG("Starting new replication era (ReplicationCard: %v, Era: %v, Timestamp: %v)",
+            *replicationCard,
+            newEra,
+            timestamp);
+
+        GrantShortcuts(replicationCard, CoordinatorCellIds_);
+    }
+
+    void HydraSuspendCoordinator(NChaosNode::NProto::TReqSuspendCoordinator* request)
+    {
+        auto coordinatorCellId = FromProto<TCellId>(request->coordinator_cell_id());
+        SuspendCoordinator(coordinatorCellId);
+
+        NChaosNode::NProto::TReqRevokeShortcuts req;
+        ToProto(req.mutable_chaos_cell_id(), Slot_->GetCellId());
+
+        for (auto* replicationCard : GetValuesSortedByKey(ReplicationCardMap_)) {
+            if (replicationCard->GetState() != EReplicationCardState::Normal) {
+                continue;
+            }
+
+            if (auto it = replicationCard->Coordinators().find(coordinatorCellId);
+                it && (it->second.State == EShortcutState::Granted || it->second.State == EShortcutState::Granting))
+            {
+                auto* shortcut = req.add_shortcuts();
+                ToProto(shortcut->mutable_chaos_object_id(), replicationCard->GetId());
+                shortcut->set_era(replicationCard->GetEra());
+
+                it->second.State = EShortcutState::Revoking;
+            }
+        }
+
+        const auto& hiveManager = Slot_->GetHiveManager();
+        auto mailbox = hiveManager->GetMailbox(coordinatorCellId);
+        hiveManager->PostMessage(mailbox, req);
+    }
+
+    void HydraResumeCoordinator(NChaosNode::NProto::TReqResumeCoordinator* request)
+    {
+        auto coordinatorCellId = FromProto<TCellId>(request->coordinator_cell_id());
+        ResumeCoordinator(coordinatorCellId);
+
+        NChaosNode::NProto::TReqGrantShortcuts req;
+        ToProto(req.mutable_chaos_cell_id(), Slot_->GetCellId());
+
+        for (auto* replicationCard : GetValuesSortedByKey(ReplicationCardMap_)) {
+            if (replicationCard->GetState() != EReplicationCardState::Normal) {
+                continue;
+            }
+
+            if (auto it = replicationCard->Coordinators().find(coordinatorCellId);
+                !it || (it->second.State == EShortcutState::Revoked || it->second.State == EShortcutState::Revoking))
+            {
+                auto* shortcut = req.add_shortcuts();
+                ToProto(shortcut->mutable_chaos_object_id(), replicationCard->GetId());
+                shortcut->set_era(replicationCard->GetEra());
+
+                if (it) {
+                    it->second.State = EShortcutState::Granting;
+                } else {
+                    replicationCard->Coordinators().insert(std::pair(
+                        coordinatorCellId,
+                        TCoordinatorInfo{EShortcutState::Granting}));
+                }
+            }
+        }
+
+        const auto& hiveManager = Slot_->GetHiveManager();
+        auto mailbox = hiveManager->GetMailbox(coordinatorCellId);
+        hiveManager->PostMessage(mailbox, req);
+    }
+
+    void SuspendCoordinator(TCellId coordinatorCellId)
+    {
+        auto [_, inserted] = SuspendedCoordinators_.emplace(
+            coordinatorCellId,
+            GetCurrentMutationContext()->GetTimestamp());
+        if (inserted) {
+            YT_LOG_DEBUG("Coordinator suspended (CoordinatorCellId: %v)",
+                coordinatorCellId);
+        }
+    }
+
+    void ResumeCoordinator(TCellId coordinatorCellId)
+    {
+        auto removed = SuspendedCoordinators_.erase(coordinatorCellId);
+        if (removed > 0) {
+            YT_LOG_DEBUG("Coordinator resumed (CoordinatorCellId: %v)",
+                coordinatorCellId);
+        }
+    }
+
+
+    void HydraUpdateCoordinatorCells(NChaosNode::NProto::TReqUpdateCoordinatorCells* request)
+    {
+        auto newCells = FromProto<std::vector<TCellId>>(request->add_coordinator_cell_ids());
+        auto oldCells = FromProto<std::vector<TCellId>>(request->remove_coordinator_cell_ids());
+        auto oldCellsSet = THashSet<TCellId>(oldCells.begin(), oldCells.end());
+        auto newCellsSet = THashSet<TCellId>(newCells.begin(), newCells.end());
+        std::vector<TCellId> removedCells;
+
+        int current = 0;
+        for (int index = 0; index < std::ssize(CoordinatorCellIds_); ++index) {
+            const auto& cellId = CoordinatorCellIds_[index];
+
+            if (auto it = newCellsSet.find(cellId)) {
+                newCellsSet.erase(it);
+            }
+
+            if (!oldCellsSet.contains(cellId)) {
+                if (current != index) {
+                    CoordinatorCellIds_[current] = cellId;
+                }
+                ++current;
+            } else {
+                removedCells.push_back(cellId);
+            }
+        }
+
+        CoordinatorCellIds_.resize(current);
+        newCells = std::vector<TCellId>(newCellsSet.begin(), newCellsSet.end());
+        std::sort(newCells.begin(), newCells.end());
+
+        for (auto* replicationCard : GetValuesSortedByKey(ReplicationCardMap_)) {
+            if (replicationCard->GetState() == EReplicationCardState::Normal) {
+                GrantShortcuts(replicationCard, newCells, /*strict*/ false);
+            }
+        }
+
+        CoordinatorCellIds_.insert(CoordinatorCellIds_.end(), newCells.begin(), newCells.end());
+
+        YT_LOG_DEBUG("Coordinator cells updated (AddedCoordinatorCellIds: %v, RemovedCoordinatorCellIds: %v)",
+            newCells,
+            removedCells);
+    }
+
+    void HydraUpdateTableReplicaProgress(
+        const TCtxUpdateTableReplicaProgressPtr& /*context*/,
+        NChaosClient::NProto::TReqUpdateTableReplicaProgress* request,
+        NChaosClient::NProto::TRspUpdateTableReplicaProgress* /*response*/)
+    {
+        auto replicationCardId = FromProto<TReplicationCardId>(request->replication_card_id());
+        auto replicaId = FromProto<TReplicaId>(request->replica_id());
+        auto newProgress = FromProto<TReplicationProgress>(request->replication_progress());
+        auto force = request->force();
+
+        auto* replicationCard = GetReplicationCardOrThrow(replicationCardId);
+        auto* replicaInfo = replicationCard->GetReplicaOrThrow(replicaId);
+
+        if (replicaInfo->History.empty()) {
+            THROW_ERROR_EXCEPTION("Replication progress update is prohibited because replica history has not been started yet")
+                << TErrorAttribute("replication_card_id", replicationCardId)
+                << TErrorAttribute("replica_id", replicaId);
+        }
+
+        bool needLogFullProgress = force ||
+            (replicaInfo->ReplicationProgress.Segments.size() < MaxLogProgressSegmentsSize &&
+                replicaInfo->History.size() < MaxLogProgressHistorySize) ||
+            Slot_->IsVerboseLoggingEnabled();
+
+        if (needLogFullProgress) {
+            YT_LOG_DEBUG("Updating replication progress "
+                "(ReplicationCardId: %v, ReplicaId: %v, Force: %v, OldProgress: %v, NewProgress: %v)",
+                replicationCardId,
+                replicaId,
+                force,
+                replicaInfo->ReplicationProgress,
+                newProgress);
+        } else {
+            YT_LOG_DEBUG("Updating replication progress, full progress logging was skipped "
+                "(ReplicationCardId: %v, ReplicaId: %v, Force: %v, NewProgress: %v)",
+                replicationCardId,
+                replicaId,
+                force,
+                newProgress);
+        }
+
+        if (force) {
+            replicaInfo->ReplicationProgress = std::move(newProgress);
+        } else {
+            NChaosClient::UpdateReplicationProgress(&replicaInfo->ReplicationProgress, newProgress);
+        }
+
+        if (needLogFullProgress) {
+            YT_LOG_DEBUG("Replication progress updated (ReplicationCardId: %v, ReplicaId: %v, Progress: %v)",
+                replicationCardId,
+                replicaId,
+                replicaInfo->ReplicationProgress);
+        } else {
+            YT_LOG_DEBUG("Replication progress updated, full progress logging was skipped "
+                "(ReplicationCardId: %v, ReplicaId: %v)",
+                replicationCardId,
+                replicaId);
+        }
+    }
+
+    void HydraUpdateTableProgress(
+        const TCtxUpdateTableProgressPtr& /*context*/,
+        NChaosClient::NProto::TReqUpdateTableProgress* request,
+        NChaosClient::NProto::TRspUpdateTableProgress* response)
+    {
+        auto replicationCardProgressUpdate = FromProto<TReplicationCardProgressUpdate>(
+            request->replication_card_progress_update());
+
+        auto* replicationCard = GetReplicationCardOrThrow(replicationCardProgressUpdate.ReplicationCardId);
+        for (const auto& replicaProgressUpdate : replicationCardProgressUpdate.ReplicaProgressUpdates) {
+            auto* replicaInfo = replicationCard->FindReplica(replicaProgressUpdate.ReplicaId);
+            if (!replicaInfo) {
+                YT_LOG_DEBUG("Replica progress was not updated because replica had not been found "
+                    "(ReplicationCardId: %v, ReplicaId: %v)",
+                    replicationCardProgressUpdate.ReplicationCardId,
+                    replicaProgressUpdate.ReplicaId);
+            }
+
+            if (replicaInfo->History.empty()) {
+                YT_LOG_DEBUG("Replication progress update is prohibited because replica history has "
+                    "not been started yet (ReplicationCardId: %v, ReplicaId: %v)",
+                    replicationCardProgressUpdate.ReplicationCardId,
+                    replicaProgressUpdate.ReplicaId);
+
+                continue;
+            }
+
+            replicaInfo->ReplicationProgress = BuildMaxProgress(
+                replicaInfo->ReplicationProgress,
+                replicaProgressUpdate.ReplicationProgressUpdate);
+        }
+
+        if (replicationCardProgressUpdate.FetchOptions) {
+            ToProto(
+                response->mutable_replication_card(),
+                *replicationCard,
+                *replicationCardProgressUpdate.FetchOptions);
+        }
+
+        YT_LOG_DEBUG("Successfully updated replication progress (ReplicationCardId: %v)",
+            replicationCardProgressUpdate.ReplicationCardId);
+    }
+
+    void HydraUpdateMultipleTableProgresses(
+        const TCtxUpdateMultipleTableProgressesPtr& /*context*/,
+        NChaosClient::NProto::TReqUpdateMultipleTableProgresses* request,
+        NChaosClient::NProto::TRspUpdateMultipleTableProgresses* response)
+    {
+        auto replicationCardProgressUpdatesBatch = FromProto<TReplicationCardProgressUpdatesBatch>(*request);
+        const auto& replicationCardProgressUpdates = replicationCardProgressUpdatesBatch.ReplicationCardProgressUpdates;
+
+        response->mutable_replication_card_progress_update_results()->Reserve(replicationCardProgressUpdates.size());
+
+        for (const auto& replicationCardProgressUpdate : replicationCardProgressUpdates) {
+            auto* updateResult = response->add_replication_card_progress_update_results();
+            ToProto(updateResult->mutable_replication_card_id(), replicationCardProgressUpdate.ReplicationCardId);
+
+            auto* replicationCard = FindNotMigratedReplicationCard(replicationCardProgressUpdate.ReplicationCardId);
+            if (!replicationCard) {
+                YT_LOG_DEBUG("Replication card not found (ReplicationCardId: %v)",
+                    replicationCardProgressUpdate.ReplicationCardId);
+
+                ToProto(updateResult->mutable_error(), TError("Replication card not found"));
+                continue;
+            }
+
+            for (const auto& replicaProgressUpdate : replicationCardProgressUpdate.ReplicaProgressUpdates) {
+                auto* replicaInfo = replicationCard->FindReplica(replicaProgressUpdate.ReplicaId);
+                if (!replicaInfo) {
+                    YT_LOG_DEBUG("Replica progress was not updated because replica had not been found "
+                        "(ReplicationCardId: %v, ReplicaId: %v)",
+                        replicationCardProgressUpdate.ReplicationCardId,
+                        replicaProgressUpdate.ReplicaId);
+
+                    continue;
+                }
+
+                if (replicaInfo->History.empty()) {
+                    YT_LOG_DEBUG("Replication progress update is prohibited because replica history has "
+                        "not been started yet (ReplicationCardId: %v, ReplicaId: %v)",
+                        replicationCardProgressUpdate.ReplicationCardId,
+                        replicaProgressUpdate.ReplicaId);
+
+                    continue;
+                }
+
+                replicaInfo->ReplicationProgress = BuildMaxProgress(
+                    replicaInfo->ReplicationProgress,
+                    replicaProgressUpdate.ReplicationProgressUpdate);
+            }
+
+            if (replicationCardProgressUpdate.FetchOptions) {
+                ToProto(
+                    updateResult->mutable_result()->mutable_replication_card(),
+                    *replicationCard,
+                    *replicationCardProgressUpdate.FetchOptions);
+            }
+
+            YT_LOG_DEBUG("Successfully updated replication progress (ReplicationCardId: %v)",
+                replicationCardProgressUpdate.ReplicationCardId);
+        }
+    }
+
+    void HydraRemoveExpiredReplicaHistory(NProto::TReqRemoveExpiredReplicaHistory *request)
+    {
+        auto expires = FromProto<std::vector<TExpiredReplicaHistory>>(request->expired_replica_histories());
+
+        for (const auto [replicaId, retainTimestamp] : expires) {
+            auto replicationCardId = ReplicationCardIdFromReplicaId(replicaId);
+            auto* replicationCard = FindReplicationCard(replicationCardId);
+            if (!replicationCard || IsReplicationCardMigrated(replicationCard)) {
+                continue;
+            }
+
+            auto* replica = replicationCard->FindReplica(replicaId);
+            if (!replica) {
+                continue;
+            }
+
+            auto historyIndex = replica->FindHistoryItemIndex(retainTimestamp);
+            if (historyIndex > 0) {
+                replica->History.erase(
+                    replica->History.begin(),
+                    replica->History.begin() + historyIndex);
+
+                YT_LOG_DEBUG("Forsaken old replica history items "
+                    "(ReplicationCardId: %v, ReplicaId: %v, RetainTimestamp: %v, HistoryItemIndex: %v)",
+                    replicationCardId,
+                    replicaId,
+                    retainTimestamp,
+                    historyIndex);
+            }
+        }
+    }
+
+    void HydraCreateReplicationCardCollocation(
+        const TCtxCreateReplicationCardCollocationPtr& context,
+        NChaosClient::NProto::TReqCreateReplicationCardCollocation* request,
+        NChaosClient::NProto::TRspCreateReplicationCardCollocation* response)
+    {
+        auto replicationCardIds = FromProto<std::vector<TReplicationCardId>>(request->replication_card_ids());
+        auto collocationOptions = request->has_options()
+            ? ConvertTo<TReplicationCollocationOptionsPtr>(TYsonString(request->options()))
+            : New<TReplicationCollocationOptions>();
+
+        std::vector<TReplicationCard*> replicationCards;
+        for (auto replicationCardId : replicationCardIds) {
+            replicationCards.push_back(GetReplicationCardOrThrow(replicationCardId));
+        }
+
+        for (auto replicationCard : replicationCards) {
+            if (auto* collocation = replicationCard->GetCollocation()) {
+                THROW_ERROR_EXCEPTION("Replication card %v already belongs to collocation %v",
+                    replicationCard->GetId(),
+                    collocation->GetId());
+            }
+        }
+
+        auto collocationCards = TReplicationCardCollocation::TReplicationCards(
+            replicationCards.begin(),
+            replicationCards.end());
+
+        auto* collocation = CreateReplicationCardCollocation(
+            MakeReplicationCardCollocationId(Slot_->GenerateId(EObjectType::ReplicationCardCollocation)),
+            EReplicationCardCollocationState::Normal,
+            std::ssize(collocationCards),
+            std::move(collocationOptions));
+
+        collocation->ReplicationCards() = std::move(collocationCards);
+
+        for (auto replicationCard : replicationCards) {
+            replicationCard->SetCollocation(collocation);
+        }
+
+        FireReplicationCardCollocationUpdated(collocation);
+
+        YT_LOG_DEBUG("Created replication card collocation (CollocationId: %v, ReplicationCardIds: %v)",
+            collocation->GetId(),
+            collocation->GetReplicationCardIds());
+
+        ToProto(response->mutable_replication_card_collocation_id(), collocation->GetId());
+
+        if (context) {
+            context->SetResponseInfo("ReplicationCardCollocationId: %v",
+                collocation->GetId());
+        }
+    }
+
+    void HydraCreateChaosLease(
+        const TCtxCreateChaosLeasePtr& context,
+        NChaosClient::NProto::TReqCreateChaosLease* request,
+        NChaosClient::NProto::TRspCreateChaosLease* response)
+    {
+        auto chaosLeaseId = GenerateNewChaosLeaseId();
+        auto timeout = FromProto<TDuration>(request->timeout());
+        auto parentId = request->has_parent_id()
+            ? FromProto<TChaosLeaseId>(request->parent_id())
+            : TChaosLeaseId{};
+
+        ChaosLeaseTracker_->RegisterTransaction(
+            chaosLeaseId,
+            parentId,
+            timeout,
+            std::nullopt,
+            BIND(&TChaosManager::OnLeaseExpired, MakeStrong(this))
+                .Via(Slot_->GetAutomatonInvoker()));
+
+        auto chaosLease = std::make_unique<TChaosLease>(chaosLeaseId);
+        chaosLease->SetParentId(parentId);
+        chaosLease->SetTimeout(timeout);
+        auto* chaosLeasePtr = ChaosLeaseMap_.Insert(chaosLeaseId, std::move(chaosLease));
+
+        YT_LOG_DEBUG("Created chaos lease (LeaseId: %v)",
+            chaosLeaseId);
+
+        GrantShortcuts(chaosLeasePtr, CoordinatorCellIds_);
+
+        ToProto(response->mutable_chaos_lease_id(), chaosLeaseId);
+
+        if (context) {
+            context->SetResponseInfo("ChaosLeaseId: %v",
+                chaosLeaseId);
+        }
+    }
+
+    void OnLeaseExpired(TChaosLeaseId chaosLeaseId)
+    {
+        NChaosClient::NProto::TReqRemoveChaosLease request;
+        ToProto(request.mutable_chaos_lease_id(), chaosLeaseId);
+        auto mutation = CreateMutation(HydraManager_, request);
+
+        YT_UNUSED_FUTURE(mutation->Commit());
+    }
+
+    void HydraRemoveChaosLease(
+        const TCtxRemoveChaosLeasePtr& context,
+        NChaosClient::NProto::TReqRemoveChaosLease* request,
+        NChaosClient::NProto::TRspRemoveChaosLease* /*response*/)
+    {
+        auto chaosLeaseId = FromProto<TChaosLeaseId>(request->chaos_lease_id());
+        auto* chaosLease = GetChaosLeaseOrThrow(chaosLeaseId);
+
+        // TODO(gryzlov-ad): Add option to wait for full shortcut revocation and not just hive enqueue.
+        RevokeShortcuts(chaosLease);
+
+        // TODO(gryzlov-ad): Handle lease migration.
+        ChaosLeaseMap_.Remove(chaosLeaseId);
+
+        ChaosLeaseTracker_->UnregisterTransaction(
+            chaosLeaseId);
+
+        YT_LOG_DEBUG("Chaos lease removed (ChaosLeaseId: %v)",
+            chaosLeaseId);
+
+        if (context) {
+            context->SetResponseInfo("ChaosLeaseId: %v",
+                chaosLeaseId);
+        }
+    }
+
+    void UpdateReplicationCardCollocation(
+        TReplicationCard* replicationCard,
+        TReplicationCardCollocation* collocation,
+        bool migration = false)
+    {
+        if (collocation == replicationCard->GetCollocation()) {
+            return;
+        }
+
+        auto* oldCollocation = replicationCard->GetCollocation();
+
+        if (migration) {
+            YT_LOG_ALERT_IF(collocation && replicationCard->GetCollocation(),
+                "Replication card collocation exchange during migration "
+                "(ReplicationCardId: %v, OldCollocationId: %v, NewCollocationId: %v)",
+                replicationCard->GetId(),
+                replicationCard->GetCollocation()->GetId(),
+                collocation->GetId());
+
+            YT_LOG_ALERT_IF(
+                collocation && collocation->GetState() != EReplicationCardCollocationState::Immigrating,
+                "Unexpected replication card collocation state during migration "
+                "(ReplicationCardId: %v, NewCollocationId: %v, NewCollocationState: %v)",
+                replicationCard->GetId(),
+                collocation->GetId(),
+                collocation->GetState());
+
+            YT_LOG_ALERT_IF(
+                oldCollocation && oldCollocation->GetState() != EReplicationCardCollocationState::Emigrating,
+                "Unexpected replication card collocation state during migration "
+                "(ReplicationCardId: %v, OldCollocationId: %v, OldCollocationState: %v)",
+                replicationCard->GetId(),
+                oldCollocation->GetId(),
+                oldCollocation->GetState());
+        }
+
+        YT_LOG_DEBUG("Updating replication card collocation "
+            "(ReplicationCardId: %v, OldCollocationId: %v, NewCollocationId: %v)",
+            replicationCard->GetId(),
+            oldCollocation ? oldCollocation->GetId() : TGuid(),
+            collocation ? collocation->GetId() : TGuid());
+
+        if (oldCollocation) {
+            EraseOrCrash(oldCollocation->ReplicationCards(), replicationCard);
+            if (!migration) {
+                oldCollocation->SetSize(oldCollocation->GetSize() - 1);
+
+                if (oldCollocation->ReplicationCards().empty()) {
+                    ReplicationCollocationDestroyed_.Fire(oldCollocation->GetId());
+                } else {
+                    FireReplicationCardCollocationUpdated(oldCollocation);
+                }
+            }
+            if (oldCollocation->ReplicationCards().empty()) {
+                CollocationMap_.Remove(oldCollocation->GetId());
+            }
+        }
+
+        if (collocation) {
+            EmplaceOrCrash(collocation->ReplicationCards(), replicationCard);
+
+            if (!migration) {
+                collocation->SetSize(collocation->GetSize() + 1);
+                FireReplicationCardCollocationUpdated(collocation);
+            } else if (std::ssize(collocation->ReplicationCards()) == collocation->GetSize()) {
+                collocation->SetState(EReplicationCardCollocationState::Normal);
+                BindReplicationCardCollocationToRtt(collocation);
+            }
+
+            YT_LOG_DEBUG("Updated replication card collocation (Migration: %v, ReplicationCardId: %v,"
+                " CollocationId: %v, CollocationSize: %v, CollocationActualSize: %v, CollocationState: %v)",
+                migration,
+                replicationCard->GetId(),
+                collocation->GetId(),
+                collocation->GetSize(),
+                std::size(collocation->ReplicationCards()),
+                collocation->GetState());
+        }
+
+        replicationCard->SetCollocation(collocation);
+    }
+
+    TReplicationCardCollocation* CreateReplicationCardCollocation(
+        TReplicationCardCollocationId collocationId,
+        EReplicationCardCollocationState state,
+        int size,
+        TReplicationCollocationOptionsPtr options)
+    {
+        YT_LOG_DEBUG("Create replication card collocation (CollocationId: %v, State: %v, Size: %v, Options: %v)",
+            collocationId,
+            state,
+            size,
+            ConvertToYsonString(options, EYsonFormat::Text).ToString());
+
+        auto collocationHolder = std::make_unique<TReplicationCardCollocation>(collocationId);
+        auto* collocation = collocationHolder.get();
+        CollocationMap_.Insert(collocationId, std::move(collocationHolder));
+        collocation->SetState(state);
+        collocation->SetSize(size);
+        collocation->Options() = std::move(options);
+        return collocation;
+    }
+
+    TReplicationCardId GenerateNewReplicationCardId()
+    {
+        return MakeReplicationCardId(Slot_->GenerateId(EObjectType::ReplicationCard));
+    }
+
+    TReplicaId GenerateNewReplicaId(TReplicationCard* replicationCard)
+    {
+        while (true) {
+            auto index = replicationCard->GetCurrentReplicaIdIndex();
+            // NB: Wrap-around is possible.
+            replicationCard->SetCurrentReplicaIdIndex(index + 1);
+            auto replicaId = MakeReplicaId(replicationCard->GetId(), index);
+            if (!replicationCard->Replicas().contains(replicaId)) {
+                return replicaId;
+            }
+        }
+    }
+
+    TReplicationCardId GenerateNewChaosLeaseId()
+    {
+        return MakeChaosLeaseId(Slot_->GenerateId(EObjectType::ChaosLease));
+    }
+
+    void FireReplicationCardCollocationUpdated(TReplicationCardCollocation* collocation)
+    {
+        ReplicationCollocationCreated_.Fire(TTableCollocationData{
+            .Id = collocation->GetId(),
+            .TableIds = collocation->GetReplicationCardIds(),
+            .Options = collocation->Options(),
+        });
+    }
+
+    void BindReplicationCardCollocationToRtt(TReplicationCardCollocation* collocation)
+    {
+        for (auto* replicationCard : collocation->ReplicationCards()) {
+            BindReplicationCardToRtt(replicationCard);
+        }
+
+        FireReplicationCardCollocationUpdated(collocation);
+    }
+
+    void BindReplicationCardToRtt(TReplicationCard* replicationCard)
+    {
+        ReplicatedTableCreated_.Fire(TReplicatedTableData{
+            .Id = replicationCard->GetId(),
+            .Options = replicationCard->GetReplicatedTableOptions(),
+        });
+
+        for (const auto& [replicaId, replicaInfo] : replicationCard->Replicas()) {
+            FireTableReplicaCreatedOrUpdated(replicationCard->GetId(), replicaId, replicaInfo);
+        }
+    }
+
+    void UnbindReplicationCardFromRtt(TReplicationCard* replicationCard)
+    {
+        for (const auto& [replicaId, _] : replicationCard->Replicas()) {
+            ReplicaDestroyed_.Fire(replicaId);
+        }
+
+        ReplicatedTableDestroyed_.Fire(replicationCard->GetId());
+    }
+
+    TEnumIndexedArray<EReplicationCardState, int> CountReplicationCardStates() const
+    {
+        TEnumIndexedArray<EReplicationCardState, int> counts;
+        for (const auto& [_, replicationCard] : ReplicationCardMap_) {
+            counts[replicationCard->GetState()]++;
+        }
+
+        return counts;
+    }
+
+    TEnumIndexedArray<EReplicationCardCollocationState, int> CountReplicationCardCollocationStates() const
+    {
+        TEnumIndexedArray<EReplicationCardCollocationState, int> counts;
+        for (const auto& [_, collocation] : CollocationMap_) {
+            counts[collocation->GetState()]++;
+        }
+
+        return counts;
+    }
+
+    TCompositeMapServicePtr CreateOrchidService()
+    {
+        return New<TCompositeMapService>()
+            ->AddAttribute(EInternedAttributeKey::Opaque, BIND([] (IYsonConsumer* consumer) {
+                    BuildYsonFluently(consumer)
+                        .Value(true);
+                }))
+            ->AddChild("internal", IYPathService::FromMethod(
+                &TChaosManager::BuildInternalOrchid,
+                MakeWeak(this))
+                ->Via(Slot_->GetAutomatonInvoker()))
+            ->AddChild("coordinators", IYPathService::FromMethod(
+                &TChaosManager::BuildCoordinatorsOrchid,
+                MakeWeak(this))
+                ->Via(Slot_->GetAutomatonInvoker()))
+            ->AddChild("suspended_coordinators", IYPathService::FromMethod(
+                &TChaosManager::BuildSuspendedCoordinatorsOrchid,
+                MakeWeak(this))
+                ->Via(Slot_->GetAutomatonInvoker()))
+            ->AddChild("replication_card_collocations", IYPathService::FromMethod(
+                &TChaosManager::BuildReplicationCardCollocationsOrchid,
+                MakeWeak(this))
+                ->Via(Slot_->GetAutomatonInvoker()))
+            ->AddChild("replication_cards", TReplicationCardOrchidService::Create(
+                MakeWeak(this),
+                Slot_->GetGuardedAutomatonInvoker()));
+    }
+
+    void BuildInternalOrchid(IYsonConsumer* consumer) const
+    {
+        // NB: Transactions account for both 2pc replication card creation and coordinator transactions.
+        const auto& transactionManager = Slot_->GetTransactionManager();
+        auto replicationCardStateCounts = CountReplicationCardStates();
+        auto collocationStateCounts = CountReplicationCardCollocationStates();
+
+        BuildYsonFluently(consumer)
+            .BeginMap()
+                .Item("suspended").Value(Suspended_
+                    && replicationCardStateCounts[EReplicationCardState::Migrated] == ReplicationCardMap_.GetSize()
+                    && transactionManager->Transactions().empty()
+                    && CollocationMap_.empty())
+                .Item("replication_card_states").DoMapFor(
+                    TEnumTraits<EReplicationCardState>::GetDomainValues(),
+                    [&] (TFluentMap fluent, const auto& state) {
+                        fluent
+                            .Item(CamelCaseToUnderscoreCase(ToString(state))).Value(replicationCardStateCounts[state]);
+                    })
+                .Item("active_transactions_count").Value(transactionManager->Transactions().GetSize())
+                .Item("colocation_states").DoMapFor(
+                    TEnumTraits<EReplicationCardCollocationState>::GetDomainValues(),
+                    [&] (TFluentMap fluent, const auto& state) {
+                        fluent
+                            .Item(CamelCaseToUnderscoreCase(ToString(state))).Value(collocationStateCounts[state]);
+                    })
+            .EndMap();
+    }
+
+    void BuildCoordinatorsOrchid(IYsonConsumer* consumer) const
+    {
+        BuildYsonFluently(consumer)
+            .DoListFor(CoordinatorCellIds_, [] (TFluentList fluent, const auto& coordinatorCellId) {
+                fluent
+                    .Item().Value(coordinatorCellId);
+                });
+    }
+
+    void BuildSuspendedCoordinatorsOrchid(IYsonConsumer* consumer) const
+    {
+        BuildYsonFluently(consumer)
+            .DoListFor(SuspendedCoordinators_, [] (TFluentList fluent, const auto& suspended) {
+                fluent
+                    .Item().BeginMap()
+                        .Item("coordinator_cell_id").Value(suspended.first)
+                        .Item("suspension_time").Value(suspended.second)
+                    .EndMap();
+                });
+    }
+
+    void BuildReplicationCardOrchidYson(TReplicationCard* card, IYsonConsumer* consumer)
+    {
+        const auto& migration = card->Migration();
+        auto lagTimes = ComputeReplicasLag(card->Replicas());
+
+        BuildYsonFluently(consumer)
+            .BeginMap()
+                .Item("replication_card_id").Value(card->GetId())
+                .Item("era").Value(card->GetEra())
+                .Item("state").Value(card->GetState())
+                .Item("coordinators").DoMapFor(card->Coordinators(), [] (TFluentMap fluent, const auto& pair) {
+                    fluent
+                        .Item(ToString(pair.first)).Value(pair.second.State);
+                })
+                .Item("replicas").DoListFor(card->Replicas(), [] (TFluentList fluent, const auto& replicaInfo) {
+                    Serialize(replicaInfo, fluent.GetConsumer());
+                })
+                .Item("migration")
+                    .BeginMap()
+                        .DoIf(static_cast<bool>(migration.OriginCellId), [&] (TFluentMap fluent) {
+                            fluent.Item("origin_cell_id").Value(migration.OriginCellId);
+                        })
+                        .DoIf(static_cast<bool>(migration.ImmigratedToCellId), [&] (TFluentMap fluent) {
+                            fluent.Item("immigrated_to_cell_id").Value(migration.ImmigratedToCellId);
+                        })
+                        .DoIf(static_cast<bool>(migration.EmigratedFromCellId), [&] (TFluentMap fluent) {
+                            fluent.Item("emigrated_from_cell_id").Value(migration.EmigratedFromCellId);
+                        })
+                        .DoIf(static_cast<bool>(migration.ImmigrationTime), [&] (TFluentMap fluent) {
+                            fluent.Item("immigration_time").Value(migration.ImmigrationTime);
+                        })
+                        .DoIf(static_cast<bool>(migration.EmigrationTime), [&] (TFluentMap fluent) {
+                            fluent.Item("emigration_time").Value(migration.EmigrationTime);
+                        })
+                    .EndMap()
+                .Item("replicas_lag").DoMapFor(lagTimes, [] (TFluentMap fluent, const auto& lagTimePair) {
+                    fluent.Item(ToString(lagTimePair.first)).Value(lagTimePair.second);
+                })
+                .Item("replication_card_collocation_id").Value(card->GetCollocation()
+                    ? card->GetCollocation()->GetId()
+                    : TReplicationCardCollocationId())
+                .Item("awaiting_replication_card_collocation_id").Value(card->GetAwaitingCollocationId())
+            .EndMap();
+    }
+
+    void BuildReplicationCardCollocationsOrchid(IYsonConsumer* consumer) const
+    {
+        BuildYsonFluently(consumer)
+            .DoMapFor(CollocationMap_, [] (TFluentMap fluent, const auto& pair) {
+                const auto [collocationId, collocation] = pair;
+                fluent
+                    .Item(ToString(collocationId))
+                        .BeginMap()
+                            .Item("state").Value(collocation->GetState())
+                            .Item("size").Value(collocation->GetSize())
+                            .Item("replication_card_ids")
+                                .DoListFor(collocation->ReplicationCards(), [] (
+                                    TFluentList fluent,
+                                    const auto* replicationCard)
+                                {
+                                    fluent
+                                        .Item().Value(ToString(replicationCard->GetId()));
+                                })
+                            .Item("options").Value(collocation->Options())
+                        .EndMap();
+                });
+    }
+
+    TReplicatedTableOptionsPtr SafeDeserializeReplicatedTableOptions(
+        TReplicationCardId replicationCardId,
+        const TYsonString& serializedOptions)
+    {
+        try {
+            return ConvertTo<TReplicatedTableOptionsPtr>(serializedOptions);
+        } catch (const std::exception& ex) {
+            YT_LOG_ALERT(ex, "Failed to parse replicated table options (ReplicationCardId: %v)",
+                replicationCardId);
+        }
+        return New<TReplicatedTableOptions>();
+    }
+
+    void FireTableReplicaCreatedOrUpdated(
+        TReplicationCardId replicationCardId,
+        TReplicaId replicaId,
+        const TReplicaInfo& replicaInfo)
+    {
+        ReplicaCreated_.Fire(TReplicaData{
+            .TableId = replicationCardId,
+            .Id = replicaId,
+            .Mode = GetTargetReplicaMode(replicaInfo.Mode),
+            .Enabled = GetTargetReplicaState(replicaInfo.State) == ETableReplicaState::Enabled,
+            .ClusterName = replicaInfo.ClusterName,
+            .TablePath = replicaInfo.ReplicaPath,
+            .TrackingEnabled = replicaInfo.EnableReplicatedTableTracker,
+            .ContentType = replicaInfo.ContentType,
+        });
+    }
+
+    void NotifyWatchers(std::vector<TReplicationCardId> replicationCardIds)
+    {
+        if (!IsLeader()) {
+            return;
+        }
+
+        Slot_->GetTimestampProvider()->GenerateTimestamps()
+            .Subscribe(BIND(
+                &TChaosManager::OnNotifyWatchersTimestampGenerated,
+                MakeStrong(this),
+                std::move(replicationCardIds))
+                .Via(AutomatonInvoker_));
+    }
+
+    void OnNotifyWatchersTimestampGenerated(
+        const std::vector<TReplicationCardId>& replicationCardIds,
+        const TErrorOr<TTimestamp>& timestampOrError)
+    {
+        if (!IsLeader()) {
+            return;
+        }
+
+        if (!timestampOrError.IsOK()) {
+            YT_LOG_DEBUG(timestampOrError, "Error generating new current timestamp");
+            return;
+        }
+
+        auto timestamp = timestampOrError.Value();
+        YT_LOG_DEBUG("Timestamp generated (Timestamp: %v)",
+            timestamp);
+
+        for (auto replicationCardId : replicationCardIds) {
+            auto* replicationCard = ReplicationCardMap_.Find(replicationCardId);
+
+            if (!replicationCard) {
+                YT_LOG_DEBUG("Replication card is gone (ReplicationCardId: %v)",
+                    replicationCardId);
+                continue;
+            }
+
+            if (IsReplicationCardMigrated(replicationCard)) {
+                YT_LOG_DEBUG("Replication card migrated (ReplicationCardId: %v)",
+                    replicationCardId);
+                return;
+            }
+
+            auto cardTimestamp = std::max(timestamp, replicationCard->GetCurrentTimestamp());
+            auto clientReplicationCard = replicationCard->ConvertToClientCard(MinimalFetchOptions);
+            ReplicationCardWatcher_->OnReplcationCardUpdated(replicationCardId, clientReplicationCard, cardTimestamp);
+        }
+    }
+
+    static std::vector<std::pair<TReplicationCardId, TReplicationCardPtr>> ConvertNodeCardsToClientCards(
+        const TEntityMap<TReplicationCard>& replicationCardsMap)
+    {
+        std::vector<std::pair<TReplicationCardId, TReplicationCardPtr>> convertedCards;
+        convertedCards.reserve(replicationCardsMap.size());
+        for (const auto& [cardId, card] : replicationCardsMap) {
+            convertedCards.emplace_back(cardId, card->ConvertToClientCard(MinimalFetchOptions));
+        }
+
+        return convertedCards;
+    }
+
+    TReplicaCounters CreateReplicaCounters(const TReplicationCard& replicationCard, TReplicaId replicaId)
+    {
+        const auto& replica = GetOrCrash(replicationCard.Replicas(), replicaId);
+        auto tagsList = NProfiling::TTagList();
+        tagsList.emplace_back("replica_id", ToString(replicaId));
+        tagsList.emplace_back("replication_card_id", ToString(replicationCard.GetId()));
+        tagsList.emplace_back("replica_cluster_name", replica.ClusterName);
+        tagsList.emplace_back("replica_path", replica.ReplicaPath);
+        tagsList.emplace_back("chaos_cell_bundle", Slot_->GetCellBundleName());
+        if (!replicationCard.GetTablePath().empty()) {
+            tagsList.emplace_back("chaos_replicated_table_cluster", replicationCard.GetTableClusterName());
+            tagsList.emplace_back("chaos_replicated_table_path", replicationCard.GetTablePath());
+        }
+
+        return TReplicaCounters(Slot_->GetProfiler()
+            .WithPrefix("/replication_card").WithTags(NProfiling::TTagSet(tagsList)));
+    }
+
+    static int GetMinRequiredSyncQueueCount(const TReplicationCard& replicationCard)
+    {
+        const auto& replicatedTableOptions = replicationCard.GetReplicatedTableOptions();
+        return replicatedTableOptions->MinSyncQueueReplicaCount.value_or(
+            replicatedTableOptions->MinSyncReplicaCount.value_or(1)
+        );
+    }
+
+    static bool IsSyncQueueReplica(const TReplicaInfo& replicaInfo)
+    {
+        return replicaInfo.ContentType == ETableReplicaContentType::Queue &&
+            GetTargetReplicaState(replicaInfo.State) == ETableReplicaState::Enabled &&
+            GetTargetReplicaMode(replicaInfo.Mode) == ETableReplicaMode::Sync;
+    }
+
+    static int CountSyncQueueReplicas(const TReplicationCard& replicationCard)
+    {
+        int syncQueuesCount = 0;
+        for (const auto& [replicaId, replicaInfo] : replicationCard.Replicas()) {
+            syncQueuesCount += IsSyncQueueReplica(replicaInfo);
+        }
+
+        return syncQueuesCount;
+    }
+};
+
+DEFINE_ENTITY_MAP_ACCESSORS(TChaosManager, ReplicationCard, TReplicationCard, ReplicationCardMap_);
+DEFINE_ENTITY_MAP_ACCESSORS(TChaosManager, ReplicationCardCollocation, TReplicationCardCollocation, CollocationMap_);
+DEFINE_ENTITY_MAP_ACCESSORS(TChaosManager, ChaosLease, TChaosLease, ChaosLeaseMap_);
+
+////////////////////////////////////////////////////////////////////////////////
+
+IChaosManagerPtr CreateChaosManager(
+    TChaosManagerConfigPtr config,
+    IChaosSlotPtr slot,
+    IBootstrap* bootstrap)
+{
+    return New<TChaosManager>(
+        config,
+        slot,
+        bootstrap);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+} // namespace NYT::NChaosNode

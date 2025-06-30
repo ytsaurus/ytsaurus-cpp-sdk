@@ -1,0 +1,16 @@
+namespace: NYT::NKafka::NRecords
+
+types:
+  - type_name: TKafkaMessage
+    sorted: False
+    fields:
+      - cpp_name: MessageKey
+        cpp_type: std::optional<TString>
+        column_name: key
+        column_type: String
+        required: False
+      - cpp_name: MessageValue
+        cpp_type: std::optional<TString>
+        column_name: value
+        column_type: String
+        required: False

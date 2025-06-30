@@ -1,0 +1,109 @@
+package NYT.NYqlClient.NProto;
+
+import "yt_proto/yt/core/misc/proto/guid.proto";
+import "yt_proto/yt/core/misc/proto/error.proto";
+
+////////////////////////////////////////////////////////////////////////////////
+
+// A counterpart to NYT::NApi::TQueryFile, NYT::NYqlPlugin::TQueryFile and TBridgeQueryFile.
+message TYqlQueryFile
+{
+    enum EContentType
+    {
+        RAW_INLINE_DATA = 0;
+        URL = 1;
+    }
+
+    optional string name = 1;
+    optional bytes content = 2;
+    optional EContentType type = 3;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TYqlSecret
+{
+    optional string id = 1;
+    optional string category = 2;
+    optional string subcategory = 3;
+    optional string ypath = 4;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+// A counterpart to NYql::NEmbedded::TOperationRequest.
+message TYqlRequest
+{
+    optional string query = 1;
+    optional string title = 2;
+    optional int64 syntax_version = 3 [default = 1];
+    optional bytes attributes = 4; // YSON
+    optional bytes parameters = 5; // YSON
+    optional int64 mode = 6 [default = 2]; // EExecuteMode
+    optional bytes settings = 7; // YSON
+    repeated TYqlQueryFile files = 8;
+    repeated TYqlSecret secrets = 9;
+}
+
+// A counterpart to NYql::NEmbedded::IOperation and to NYqlClient::TYqlResponse.
+message TYqlResponse
+{
+    optional bytes result = 1; // YSON
+    optional bytes plan = 2; // YSON
+    optional bytes statistics = 3; // YSON
+    optional bytes task_info = 4; // YSON
+    optional bytes progress = 5; // YSON
+    optional bytes ast = 6; // YSON
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TReqStartQuery
+{
+    optional bool async = 1;
+    optional TYqlRequest yql_request = 2;
+    optional bool build_rowsets = 3;
+    optional int64 row_count_limit = 4;
+    optional NYT.NProto.TGuid query_id = 5;
+}
+
+message TRspStartQuery
+{
+    optional NYT.NProto.TGuid query_id = 1;
+    // May be missing if request mode is async.
+    optional TYqlResponse yql_response = 2;
+
+    // Filled only if build_rowset in request was false.
+    // In such case there are as many attachments as there are errors in this field;
+    // non-OK error corresponds to empty attachment and OK error corresponds to
+    // wire-encoded schema + schemaful rowset attachment.
+    repeated NYT.NProto.TError rowset_errors = 3;
+    repeated bool incomplete = 4;
+    repeated bytes full_result = 5; // YSON
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TReqAbortQuery
+{
+    required NYT.NProto.TGuid query_id = 1;
+}
+
+message TRspAbortQuery
+{ }
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TReqGetQueryProgress
+{
+    optional NYT.NProto.TGuid query_id = 1;
+}
+
+message TRspGetQueryProgress
+{
+    // May be missing if there are no changes in progress since last request.
+    optional TYqlResponse yql_response = 1;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+

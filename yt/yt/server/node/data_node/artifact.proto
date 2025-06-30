@@ -1,0 +1,18 @@
+package NYT.NDataNode.NProto;
+
+import "yt_proto/yt/client/chunk_client/proto/chunk_spec.proto";
+import "yt/ytlib/chunk_client/proto/data_source.proto";
+
+////////////////////////////////////////////////////////////////////////////////
+
+message TArtifactKey
+{
+    optional bytes format = 3;
+    repeated NYT.NChunkClient.NProto.TChunkSpec chunk_specs = 6;
+    required NYT.NChunkClient.NProto.TDataSource data_source = 7;
+    optional int32 access_method = 8;   // ELayerAccessMethod
+    optional int32 filesystem = 9;     // ELayerFilesystem
+    optional string nbd_export_id = 10;
+}
+
+////////////////////////////////////////////////////////////////////////////////
