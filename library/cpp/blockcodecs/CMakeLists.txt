@@ -12,36 +12,5 @@
 # Please refer to the build instructions in the repository for more information about manual
 # changes in this file.
 
-find_package(linux-headers-generic REQUIRED)
-
 add_subdirectory(core)
 add_subdirectory(codecs)
-
-add_library(library-cpp-blockcodecs)
-
-
-target_compile_options(library-cpp-blockcodecs PRIVATE
-  -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
-)
-
-target_link_libraries(library-cpp-blockcodecs PUBLIC
-  linux-headers-generic::linux-headers-generic
-  contrib-libs-cxxsupp
-  yutil
-  cpp-blockcodecs-core
-  blockcodecs-codecs-brotli
-  blockcodecs-codecs-bzip
-  blockcodecs-codecs-fastlz
-  blockcodecs-codecs-lz4
-  blockcodecs-codecs-lzma
-  blockcodecs-codecs-snappy
-  blockcodecs-codecs-zlib
-  blockcodecs-codecs-zstd
-  blockcodecs-codecs-legacy_zstd06
-)
-
-target_sources(library-cpp-blockcodecs PRIVATE
-  ${PROJECT_SOURCE_DIR}/library/cpp/blockcodecs/codecs.cpp
-  ${PROJECT_SOURCE_DIR}/library/cpp/blockcodecs/stream.cpp
-)
-
