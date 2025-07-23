@@ -28,8 +28,6 @@
   "clang.toolchain":"yt/opensource/repos/ytsaurus-cpp-sdk/github_toplevel/clang.toolchain",
   "cmake/archive.cmake":"",
   "cmake/common.cmake":"",
-  "cmake/conan1_deprecated.cmake":"",
-  "cmake/conan_provider.cmake":"",
   "cmake/fbs.cmake":"",
   "cmake/global_flags.cmake":"",
   "cmake/global_flags.compiler.gnu.cmake":"",
