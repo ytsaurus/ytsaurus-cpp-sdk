@@ -370,6 +370,7 @@
   "yt/yt/client/api/CMakeLists.txt":"",
   "yt/yt/client/api/unittests/CMakeLists.txt":"",
   "yt/yt/client/arrow/CMakeLists.txt":"",
+  "yt/yt/client/arrow/unittests/CMakeLists.txt":"",
   "yt/yt/client/cache/CMakeLists.txt":"",
   "yt/yt/client/cache/unittests/CMakeLists.txt":"",
   "yt/yt/client/driver/CMakeLists.txt":"",
