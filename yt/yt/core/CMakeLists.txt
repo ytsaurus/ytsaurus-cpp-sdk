@@ -65,6 +65,7 @@ target_link_libraries(yt-yt-core PUBLIC
   yt-yt-build
   isa-l_crc_yt_patch
   yt_proto-yt-core
+  cpp-containers-concurrent_hash
   cpp-yt-backtrace
   cpp-yt-coding
   cpp-yt-malloc
@@ -400,6 +401,7 @@ target_link_libraries(yt-yt-core.global PUBLIC
   yt-yt-build
   isa-l_crc_yt_patch
   yt_proto-yt-core
+  cpp-containers-concurrent_hash
   cpp-yt-backtrace
   cpp-yt-coding
   cpp-yt-malloc

@@ -12,6 +12,22 @@
 # Please refer to the build instructions in the repository for more information about manual
 # changes in this file.
 
-add_subdirectory(absl_flat_hash)
-add_subdirectory(concurrent_hash)
-add_subdirectory(stack_array)
+find_package(linux-headers-generic REQUIRED)
+
+add_library(cpp-containers-concurrent_hash)
+
+
+target_compile_options(cpp-containers-concurrent_hash PRIVATE
+  -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
+)
+
+target_link_libraries(cpp-containers-concurrent_hash PUBLIC
+  linux-headers-generic::linux-headers-generic
+  contrib-libs-cxxsupp
+  yutil
+)
+
+target_sources(cpp-containers-concurrent_hash PRIVATE
+  ${PROJECT_SOURCE_DIR}/library/cpp/containers/concurrent_hash/concurrent_hash.cpp
+)
+
