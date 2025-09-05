@@ -21,39 +21,9 @@ env:
   ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
 
 jobs:
-  start-vm:
-    name: Start VM
-    runs-on: trampoline
-    outputs:
-      label: ${{ steps.start-yc-runner.outputs.label }}
-      instance-id: ${{ steps.start-yc-runner.outputs.instance-id }}
-    steps:
-      - name: Start YC runner
-        id: start-yc-runner
-        uses: yc-actions/yc-github-runner@v1
-        with:
-          mode: start
-          yc-sa-json-credentials: ${{ secrets.YC_SA_JSON_CREDENTIALS }}
-          github-token: ${{ secrets.GH_PERSONAL_ACCESS_TOKEN }}
-          folder-id: ${{ vars.YC_FOLDER_ID }}
-          image-id: ${{ vars.YC_DEFAULT_IMAGE_ID }}
-          zone-id: ${{ vars.YC_ZONE_ID }}
-          subnet-id: ${{ vars.YC_SUBNET_ID }}
-          cores: 16
-          memory: 32GB
-          core-fraction: 100
-          disk-type: network-ssd-nonreplicated
-          disk-size: 279GB
-          user: ${{ secrets.YC_VM_USERNAME }}
-          ssh-public-key: ${{ secrets.YC_VM_SSH_PUBLIC_KEY }}
-          public-ip: false
-          runner-home-dir: /actions-runner
-          ttl: PT24H
-
-  checkout:
-    name: Checkout sources
-    needs: start-vm
-    runs-on: ${{ needs.start-vm.outputs.label }}
+  build:
+    name: Build
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout ytsaurus-cpp-sdk
         uses: actions/checkout@v3
@@ -64,13 +34,6 @@ jobs:
         with:
           ref: ${{ inputs.commit-sha }}
 
-  build:
-    name: Build
-    needs:
-      - start-vm
-      - checkout
-    runs-on: ${{ needs.start-vm.outputs.label }}
-    steps:
       - name: Stop and remove old container
         run: docker rm -f build-container || true
 
@@ -122,20 +85,3 @@ jobs:
             export CCACHE_REMOTE_STORAGE="${{ vars.CCACHE_REMOTE_STORAGE }}"
             ninja
           '
-
-  stop-vm:
-    name: Stop VM
-    needs:
-      - start-vm
-      - build
-    runs-on: trampoline
-    if: ${{ always() }}
-    steps:
-      - name: Stop YC runner
-        uses: yc-actions/yc-github-runner@v1
-        with:
-          mode: stop
-          yc-sa-json-credentials: ${{ secrets.YC_SA_JSON_CREDENTIALS }}
-          github-token: ${{ secrets.GH_PERSONAL_ACCESS_TOKEN }}
-          label: ${{ needs.start-vm.outputs.label }}
-          instance-id: ${{ needs.start-vm.outputs.instance-id }}
