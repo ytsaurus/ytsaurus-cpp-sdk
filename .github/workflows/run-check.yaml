@@ -36,7 +36,7 @@ jobs:
           yc-sa-json-credentials: ${{ secrets.YC_SA_JSON_CREDENTIALS }}
           github-token: ${{ secrets.GH_PERSONAL_ACCESS_TOKEN }}
           folder-id: ${{ vars.YC_FOLDER_ID }}
-          image-id: ${{ vars.YC_CPP_SDK_IMAGE_ID }}
+          image-id: ${{ vars.YC_DEFAULT_IMAGE_ID }}
           zone-id: ${{ vars.YC_ZONE_ID }}
           subnet-id: ${{ vars.YC_SUBNET_ID }}
           cores: 16
@@ -48,6 +48,7 @@ jobs:
           ssh-public-key: ${{ secrets.YC_VM_SSH_PUBLIC_KEY }}
           public-ip: false
           runner-home-dir: /actions-runner
+          ttl: PT24H
 
   checkout:
     name: Checkout sources
@@ -70,46 +71,58 @@ jobs:
       - checkout
     runs-on: ${{ needs.start-vm.outputs.label }}
     steps:
+      - name: Stop and remove old container
+        run: docker rm -f build-container || true
+
+      - name: Run container
+        run: docker run -d --name build-container --network host -v "$(pwd)":/ytsaurus-cpp-sdk ghcr.io/ytsaurus/build-env:latest tail -f /dev/null
+
       - name: Build with libc++
         run: |
-          mkdir -p ../build
-          cd ../build
-          rm -rf *
-          cmake \
-            -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_TOOLCHAIN_FILE=../ytsaurus-cpp-sdk/clang.toolchain \
-            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
-            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-            -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=../ytsaurus-cpp-sdk/cmake/conan_provider.cmake \
-            -DREQUIRED_LLVM_TOOLING_VERSION=16 \
-            -DCMAKE_CXX_FLAGS_INIT="-stdlib=libc++" \
-            ../ytsaurus-cpp-sdk
-          export CCACHE_BASEDIR="$(realpath ..)"
-          export CCACHE_REMOTE_ONLY=true
-          export CCACHE_REMOTE_STORAGE="${{ vars.CCACHE_REMOTE_STORAGE }}"
-          cd ../build
-          ninja
+          docker exec build-container bash -c '
+            set -ex
+            mkdir -p /build
+            cd /build
+            rm -rf *
+            cmake \
+              -G Ninja \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_TOOLCHAIN_FILE=/ytsaurus-cpp-sdk/clang.toolchain \
+              -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+              -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+              -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=/ytsaurus-cpp-sdk/cmake/conan_provider.cmake \
+              -DREQUIRED_LLVM_TOOLING_VERSION=16 \
+              -DCMAKE_CXX_FLAGS_INIT="-stdlib=libc++" \
+              /ytsaurus-cpp-sdk
+            export CCACHE_BASEDIR="/ytsaurus-cpp-sdk"
+            export CCACHE_REMOTE_ONLY=true
+            export CCACHE_REMOTE_STORAGE="${{ vars.CCACHE_REMOTE_STORAGE }}"
+            ninja
+          '
+
       - name: Build with libstdc++
         run: |
-          mkdir -p ../build_gcc
-          cd ../build_gcc
-          rm -rf *
-          cmake \
-            -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_TOOLCHAIN_FILE=../ytsaurus-cpp-sdk/clang.toolchain \
-            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
-            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-            -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=../ytsaurus-cpp-sdk/cmake/conan_provider.cmake \
-            -DREQUIRED_LLVM_TOOLING_VERSION=16 \
-            -DCMAKE_CXX_FLAGS_INIT="-stdlib=libstdc++ -std=c++20" \
-            ../ytsaurus-cpp-sdk
-          export CCACHE_BASEDIR="$(realpath ..)"
-          export CCACHE_REMOTE_ONLY=true
-          export CCACHE_REMOTE_STORAGE="${{ vars.CCACHE_REMOTE_STORAGE }}"
-          cd ../build_gcc
-          ninja
+          docker exec build-container bash -c '
+            set -ex
+            mkdir -p /build_gcc
+            cd /build_gcc
+            rm -rf *
+            cmake \
+              -G Ninja \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_TOOLCHAIN_FILE=/ytsaurus-cpp-sdk/clang.toolchain \
+              -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+              -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+              -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=/ytsaurus-cpp-sdk/cmake/conan_provider.cmake \
+              -DREQUIRED_LLVM_TOOLING_VERSION=16 \
+              -DCMAKE_CXX_FLAGS_INIT="-stdlib=libstdc++ -std=c++20" \
+              /ytsaurus-cpp-sdk
+            export CCACHE_BASEDIR="/ytsaurus-cpp-sdk"
+            export CCACHE_REMOTE_ONLY=true
+            export CCACHE_REMOTE_STORAGE="${{ vars.CCACHE_REMOTE_STORAGE }}"
+            ninja
+          '
+
   stop-vm:
     name: Stop VM
     needs:
