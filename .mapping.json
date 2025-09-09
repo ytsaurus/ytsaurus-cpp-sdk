@@ -14,6 +14,8 @@
   "README.md":"yt/opensource/repos/ytsaurus-cpp-sdk/github_toplevel/README.md",
   "SECURITY.md":"yt/opensource/repos/ytsaurus-cpp-sdk/github_toplevel/SECURITY.md",
   "build/CMakeLists.txt":"",
+  "build/cow/CMakeLists.txt":"",
+  "build/cow/on/CMakeLists.txt":"",
   "build/mapping.conf.json":"devtools/ya/opensource/mapping.conf.json",
   "build/scripts/CMakeLists.txt":"",
   "build/scripts/c_templates/CMakeLists.txt":"",

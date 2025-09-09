@@ -39,6 +39,7 @@ target_link_libraries(unittester-client PUBLIC
   linux-headers-generic::linux-headers-generic
   contrib-libs-cxxsupp
   yutil
+  build-cow-on
   library-cpp-cpuid_check
   cpp-testing-gtest
   cpp-testing-gtest_main

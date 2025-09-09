@@ -12,42 +12,4 @@
 # Please refer to the build instructions in the repository for more information about manual
 # changes in this file.
 
-find_package(linux-headers-generic REQUIRED)
-
-add_executable(rescompiler)
-
-
-target_compile_options(rescompiler PRIVATE
-  -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
-)
-
-target_link_libraries(rescompiler PUBLIC
-  linux-headers-generic::linux-headers-generic
-  contrib-libs-cxxsupp
-  yutil
-  build-cow-on
-  library-cpp-cpuid_check
-  library-cpp-resource
-)
-
-target_allocator(rescompiler
-  cpp-malloc-tcmalloc
-  libs-tcmalloc-no_percpu_cache
-)
-
-target_link_options(rescompiler PRIVATE
-  -ldl
-  -lrt
-  -Wl,--no-as-needed
-  -fPIC
-  -fPIC
-  -lrt
-  -ldl
-)
-
-target_sources(rescompiler PRIVATE
-  ${PROJECT_SOURCE_DIR}/tools/rescompiler/main.cpp
-)
-
-
-vcs_info(rescompiler)
+add_subdirectory(on)

@@ -32,6 +32,7 @@ target_link_libraries(mapreduce_protobuf PUBLIC
   linux-headers-generic::linux-headers-generic
   contrib-libs-cxxsupp
   yutil
+  build-cow-on
   library-cpp-cpuid_check
   cpp-mapreduce-client
   protobuf::libprotobuf

@@ -14,46 +14,18 @@
 
 find_package(linux-headers-generic REQUIRED)
 
-add_executable(table_read_write_tnode)
+add_library(build-cow-on)
 
 
-target_compile_options(table_read_write_tnode PRIVATE
-  -Wdeprecated-this-capture
-  -Wimplicit-fallthrough
-  -Wparentheses
-  -Wno-logical-op-parentheses
-  -Wno-bitwise-op-parentheses
+target_compile_options(build-cow-on PRIVATE
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 
-target_link_libraries(table_read_write_tnode PUBLIC
+target_link_libraries(build-cow-on PUBLIC
   linux-headers-generic::linux-headers-generic
-  contrib-libs-cxxsupp
-  yutil
-  build-cow-on
-  library-cpp-cpuid_check
-  cpp-mapreduce-client
 )
 
-target_allocator(table_read_write_tnode
-  cpp-malloc-tcmalloc
-  libs-tcmalloc-no_percpu_cache
+target_sources(build-cow-on PRIVATE
+  ${PROJECT_SOURCE_DIR}/build/cow/on/lib.c
 )
 
-target_link_options(table_read_write_tnode PRIVATE
-  -ldl
-  -lrt
-  -Wl,--no-as-needed
-  -fPIC
-  -fPIC
-  -lrt
-  -ldl
-  -lutil
-)
-
-target_sources(table_read_write_tnode PRIVATE
-  ${PROJECT_SOURCE_DIR}/yt/cpp/mapreduce/examples/tutorial/table_read_write_tnode/main.cpp
-)
-
-
-vcs_info(table_read_write_tnode)
