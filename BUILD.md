@@ -6,9 +6,9 @@
  Below is a list of packages that need to be installed before building YTsaurus. 'How to Build' section contains step by step instructions to obtain these packages.
 
  - cmake 3.22+
- - clang-16
- - lld-16
- - lldb-16
+ - clang-18
+ - lld-18
+ - lldb-18
  - conan 2.4.1
  - git 2.20+
  - python 3.8+
@@ -27,7 +27,7 @@
     ```
     curl -s https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add
     curl -s https://apt.kitware.com/keys/kitware-archive-latest.asc | gpg --dearmor - | sudo tee /usr/share/keyrings/kitware-archive-keyring.gpg >/dev/null
-    echo "deb http://apt.llvm.org/$(lsb_release -cs)/ llvm-toolchain-$(lsb_release -cs)-16 main" | sudo tee /etc/apt/sources.list.d/llvm.list >/dev/null
+    echo "deb http://apt.llvm.org/$(lsb_release -cs)/ llvm-toolchain-$(lsb_release -cs)-18 main" | sudo tee /etc/apt/sources.list.d/llvm.list >/dev/null
     echo "deb [signed-by=/usr/share/keyrings/kitware-archive-keyring.gpg] https://apt.kitware.com/ubuntu/ $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/kitware.list >/dev/null
     sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
 
@@ -38,13 +38,13 @@
 
     ```
     sudo apt-get install -y python3-pip ninja-build m4 cmake unzip
-    sudo apt-get install -y clang-16 lld-16 libc++1-16 libc++-16-dev libc++abi-16-dev g++-11
+    sudo apt-get install -y clang-18 lld-18 libc++1-18 libc++-18-dev libc++abi-18-dev g++-11
     sudo python3 -m pip install PyYAML==6.0.1 conan==2.4.1 dacite
     ```
  1. Install protoc.
 
     ```
-    curl -sL -o protoc.zip https://github.com/protocolbuffers/protobuf/releases/download/v3.20.1/protoc-3.20.1-linux-x86_64.zip
+    curl -sL -o protoc.zip https://github.com/protocolbuffers/protobuf/releases/download/v22.5/protoc-22.5-linux-x86_64.zip
     sudo unzip protoc.zip -d /usr/local
     rm protoc.zip
     ```
@@ -65,7 +65,7 @@
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_TOOLCHAIN_FILE=../ytsaurus-cpp-sdk/clang.toolchain \
         -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=../ytsaurus-cpp-sdk/cmake/conan_provider.cmake \
-        -DREQUIRED_LLVM_TOOLING_VERSION=16 \
+        -DREQUIRED_LLVM_TOOLING_VERSION=18 \
         -DCMAKE_CXX_FLAGS_INIT="-stdlib=libc++" \
         ../ytsaurus-cpp-sdk
     ```
@@ -78,4 +78,35 @@
     If you need to build concrete target you can run:
     ```
     ninja <target>
+    ```
+
+#### Building in a prepared environment
+
+1. Clone the YTsaurus repository.
+    ```
+    git clone https://github.com/ytsaurus/ytsaurus-cpp-sdk.git
+    ```
+
+ 1. Run the container.
+    ```
+    docker run -d --name build-container -v path/to/repository:/ytsaurus-cpp-sdk ghcr.io/ytsaurus/build-env:latest tail -f /dev/null
+    ```
+
+ 1. Build YTsaurus.
+    ```
+    docker exec build-container bash -c '
+      mkdir -p /build
+      cd /build
+      cmake \
+         -G Ninja \
+         -DCMAKE_BUILD_TYPE=Release \
+         -DCMAKE_TOOLCHAIN_FILE=/ytsaurus-cpp-sdk/clang.toolchain \
+         -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+         -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+         -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=/ytsaurus-cpp-sdk/cmake/conan_provider.cmake \
+         -DREQUIRED_LLVM_TOOLING_VERSION=18 \
+         -DCMAKE_CXX_FLAGS_INIT="-stdlib=libc++" \
+         /ytsaurus-cpp-sdk
+      ninja
+    '
     ```
