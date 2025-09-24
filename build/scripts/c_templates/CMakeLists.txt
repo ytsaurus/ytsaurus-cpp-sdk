@@ -29,3 +29,11 @@ target_sources(dummy-vcs PRIVATE
   ${PROJECT_SOURCE_DIR}/build/scripts/c_templates/svn_interface.c
 )
 
+
+set_property(
+  SOURCE
+  ${PROJECT_SOURCE_DIR}/build/scripts/c_templates/svn_interface.c
+  APPEND
+  PROPERTY
+  COMPILE_OPTIONS
+)

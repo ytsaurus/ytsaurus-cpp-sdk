@@ -36,3 +36,35 @@ target_sources(contrib-libs-libc_compat PRIVATE
   ${PROJECT_SOURCE_DIR}/contrib/libs/libc_compat/strlcpy.c
 )
 
+
+set_property(
+  SOURCE
+  ${PROJECT_SOURCE_DIR}/contrib/libs/libc_compat/string.c
+  APPEND
+  PROPERTY
+  COMPILE_OPTIONS
+)
+
+set_property(
+  SOURCE
+  ${PROJECT_SOURCE_DIR}/contrib/libs/libc_compat/readpassphrase.c
+  APPEND
+  PROPERTY
+  COMPILE_OPTIONS
+)
+
+set_property(
+  SOURCE
+  ${PROJECT_SOURCE_DIR}/contrib/libs/libc_compat/strlcat.c
+  APPEND
+  PROPERTY
+  COMPILE_OPTIONS
+)
+
+set_property(
+  SOURCE
+  ${PROJECT_SOURCE_DIR}/contrib/libs/libc_compat/strlcpy.c
+  APPEND
+  PROPERTY
+  COMPILE_OPTIONS
+)
