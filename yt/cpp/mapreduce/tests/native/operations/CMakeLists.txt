@@ -108,6 +108,7 @@ set_yunittest_property(
   yt-cpp-mapreduce-tests-native-operations
   PROPERTY
   ENVIRONMENT
+  "YT_LOG_LEVEL=debug"
 )
 
 vcs_info(yt-cpp-mapreduce-tests-native-operations)
