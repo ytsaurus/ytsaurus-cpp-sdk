@@ -12,48 +12,9 @@
 # Please refer to the build instructions in the repository for more information about manual
 # changes in this file.
 
-find_package(linux-headers-generic REQUIRED)
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64" AND NOT HAVE_CUDA)
+  include(CMakeLists.linux-aarch64.txt)
+elseif (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64" AND NOT HAVE_CUDA)
+  include(CMakeLists.linux-x86_64.txt)
+endif()
 
-add_executable(table_read_write_tnode)
-
-
-target_compile_options(table_read_write_tnode PRIVATE
-  -Wdeprecated-this-capture
-  -Wimplicit-fallthrough
-  -Wparentheses
-  -Wno-logical-op-parentheses
-  -Wno-bitwise-op-parentheses
-  -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
-)
-
-target_link_libraries(table_read_write_tnode PUBLIC
-  linux-headers-generic::linux-headers-generic
-  contrib-libs-cxxsupp
-  yutil
-  build-cow-on
-  library-cpp-cpuid_check
-  cpp-mapreduce-client
-)
-
-target_allocator(table_read_write_tnode
-  cpp-malloc-tcmalloc
-  libs-tcmalloc-no_percpu_cache
-)
-
-target_link_options(table_read_write_tnode PRIVATE
-  -ldl
-  -lrt
-  -Wl,--no-as-needed
-  -fPIC
-  -fPIC
-  -lrt
-  -ldl
-  -lutil
-)
-
-target_sources(table_read_write_tnode PRIVATE
-  ${PROJECT_SOURCE_DIR}/yt/cpp/mapreduce/examples/tutorial/table_read_write_tnode/main.cpp
-)
-
-
-vcs_info(table_read_write_tnode)

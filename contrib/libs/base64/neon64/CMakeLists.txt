@@ -12,38 +12,9 @@
 # Please refer to the build instructions in the repository for more information about manual
 # changes in this file.
 
-find_package(linux-headers-generic REQUIRED)
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64" AND NOT HAVE_CUDA)
+  include(CMakeLists.linux-aarch64.txt)
+elseif (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64" AND NOT HAVE_CUDA)
+  include(CMakeLists.linux-x86_64.txt)
+endif()
 
-add_library(libs-base64-neon64)
-
-
-target_compile_options(libs-base64-neon64 PRIVATE
-  -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
-)
-
-target_link_libraries(libs-base64-neon64 PUBLIC
-  linux-headers-generic::linux-headers-generic
-  contrib-libs-cxxsupp
-)
-
-target_sources(libs-base64-neon64 PRIVATE
-  ${PROJECT_SOURCE_DIR}/contrib/libs/base64/neon64/codec_neon64.c
-  ${PROJECT_SOURCE_DIR}/contrib/libs/base64/neon64/lib.c
-)
-
-
-set_property(
-  SOURCE
-  ${PROJECT_SOURCE_DIR}/contrib/libs/base64/neon64/codec_neon64.c
-  APPEND
-  PROPERTY
-  COMPILE_OPTIONS
-)
-
-set_property(
-  SOURCE
-  ${PROJECT_SOURCE_DIR}/contrib/libs/base64/neon64/lib.c
-  APPEND
-  PROPERTY
-  COMPILE_OPTIONS
-)

@@ -12,81 +12,9 @@
 # Please refer to the build instructions in the repository for more information about manual
 # changes in this file.
 
-find_package(linux-headers-generic REQUIRED)
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64" AND NOT HAVE_CUDA)
+  include(CMakeLists.linux-aarch64.txt)
+elseif (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64" AND NOT HAVE_CUDA)
+  include(CMakeLists.linux-x86_64.txt)
+endif()
 
-add_executable(yt-yt-client-api-unittests)
-
-
-target_compile_options(yt-yt-client-api-unittests PRIVATE
-  -Wdeprecated-this-capture
-  -Wimplicit-fallthrough
-  -Wparentheses
-  -Wno-logical-op-parentheses
-  -Wno-bitwise-op-parentheses
-  -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
-)
-
-target_link_libraries(yt-yt-client-api-unittests PUBLIC
-  linux-headers-generic::linux-headers-generic
-  contrib-libs-cxxsupp
-  yutil
-  build-cow-on
-  library-cpp-cpuid_check
-  cpp-testing-gtest
-  cpp-testing-gtest_main
-  cpp-testing-common
-  yt-yt-client
-)
-
-target_allocator(yt-yt-client-api-unittests
-  cpp-malloc-tcmalloc
-  libs-tcmalloc-no_percpu_cache
-)
-
-target_link_options(yt-yt-client-api-unittests PRIVATE
-  -ldl
-  -lrt
-  -Wl,--no-as-needed
-  -fPIC
-  -fPIC
-  -lrt
-  -ldl
-  -lutil
-)
-
-target_sources(yt-yt-client-api-unittests PRIVATE
-  ${PROJECT_SOURCE_DIR}/yt/yt/client/api/unittests/options_ut.cpp
-)
-
-
-add_test(
-  NAME
-  yt-yt-client-api-unittests
-  COMMAND
-  yt-yt-client-api-unittests
-)
-
-set_property(
-  TEST
-  yt-yt-client-api-unittests
-  PROPERTY
-  LABELS
-  SMALL
-)
-
-set_property(
-  TEST
-  yt-yt-client-api-unittests
-  PROPERTY
-  ENVIRONMENT
-)
-
-vcs_info(yt-yt-client-api-unittests)
-
-set_property(
-  TEST
-  yt-yt-client-api-unittests
-  PROPERTY
-  PROCESSORS
-  1
-)

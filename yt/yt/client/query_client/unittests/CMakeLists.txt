@@ -12,80 +12,9 @@
 # Please refer to the build instructions in the repository for more information about manual
 # changes in this file.
 
-find_package(linux-headers-generic REQUIRED)
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64" AND NOT HAVE_CUDA)
+  include(CMakeLists.linux-aarch64.txt)
+elseif (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64" AND NOT HAVE_CUDA)
+  include(CMakeLists.linux-x86_64.txt)
+endif()
 
-add_executable(unittester-client-query-client)
-
-
-target_compile_options(unittester-client-query-client PRIVATE
-  -Wdeprecated-this-capture
-  -Wimplicit-fallthrough
-  -Wparentheses
-  -Wno-logical-op-parentheses
-  -Wno-bitwise-op-parentheses
-  -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
-)
-
-target_link_libraries(unittester-client-query-client PUBLIC
-  linux-headers-generic::linux-headers-generic
-  contrib-libs-cxxsupp
-  yutil
-  build-cow-on
-  library-cpp-cpuid_check
-  cpp-testing-gtest
-  cpp-testing-gtest_main
-  yt-yt-client
-)
-
-target_allocator(unittester-client-query-client
-  cpp-malloc-tcmalloc
-  libs-tcmalloc-no_percpu_cache
-)
-
-target_link_options(unittester-client-query-client PRIVATE
-  -ldl
-  -lrt
-  -Wl,--no-as-needed
-  -fPIC
-  -fPIC
-  -lrt
-  -ldl
-  -lutil
-)
-
-target_sources(unittester-client-query-client PRIVATE
-  ${PROJECT_SOURCE_DIR}/yt/yt/client/query_client/unittests/query_builder_ut.cpp
-)
-
-
-add_test(
-  NAME
-  unittester-client-query-client
-  COMMAND
-  unittester-client-query-client
-)
-
-set_property(
-  TEST
-  unittester-client-query-client
-  PROPERTY
-  LABELS
-  SMALL
-)
-
-set_property(
-  TEST
-  unittester-client-query-client
-  PROPERTY
-  ENVIRONMENT
-)
-
-vcs_info(unittester-client-query-client)
-
-set_property(
-  TEST
-  unittester-client-query-client
-  PROPERTY
-  PROCESSORS
-  1
-)

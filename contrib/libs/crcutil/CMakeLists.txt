@@ -12,37 +12,9 @@
 # Please refer to the build instructions in the repository for more information about manual
 # changes in this file.
 
-find_package(linux-headers-generic REQUIRED)
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64" AND NOT HAVE_CUDA)
+  include(CMakeLists.linux-aarch64.txt)
+elseif (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64" AND NOT HAVE_CUDA)
+  include(CMakeLists.linux-x86_64.txt)
+endif()
 
-add_library(contrib-libs-crcutil)
-
-
-target_compile_options(contrib-libs-crcutil PRIVATE
-  -DCRCUTIL_USE_MM_CRC32=1
-  $<IF:$<CXX_COMPILER_ID:MSVC>,,-Wno-everything>
-)
-
-target_link_libraries(contrib-libs-crcutil PUBLIC
-  linux-headers-generic::linux-headers-generic
-  contrib-libs-cxxsupp
-)
-
-target_sources(contrib-libs-crcutil PRIVATE
-  ${PROJECT_SOURCE_DIR}/contrib/libs/crcutil/multiword_64_64_gcc_i386_mmx.cc
-  ${PROJECT_SOURCE_DIR}/contrib/libs/crcutil/multiword_128_64_gcc_amd64_sse2.cc
-  ${PROJECT_SOURCE_DIR}/contrib/libs/crcutil/multiword_64_64_gcc_amd64_asm.cc
-  ${PROJECT_SOURCE_DIR}/contrib/libs/crcutil/interface.cc
-  ${PROJECT_SOURCE_DIR}/contrib/libs/crcutil/multiword_64_64_intrinsic_i386_mmx.cc
-)
-
-
-target_sources_custom(contrib-libs-crcutil
-  .sse4
-  SRCS
-  ${PROJECT_SOURCE_DIR}/contrib/libs/crcutil/crc32c_sse4.cc
-  CUSTOM_FLAGS
-  -msse4.1
-  -msse4.2
-  -mpopcnt
-  -mcx16
-)

@@ -12,76 +12,9 @@
 # Please refer to the build instructions in the repository for more information about manual
 # changes in this file.
 
-find_package(linux-headers-generic REQUIRED)
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64" AND NOT HAVE_CUDA)
+  include(CMakeLists.linux-aarch64.txt)
+elseif (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64" AND NOT HAVE_CUDA)
+  include(CMakeLists.linux-x86_64.txt)
+endif()
 
-add_executable(yt-cpp-mapreduce-http_client-ut)
-
-
-target_compile_options(yt-cpp-mapreduce-http_client-ut PRIVATE
-  -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
-)
-
-target_link_libraries(yt-cpp-mapreduce-http_client-ut PUBLIC
-  linux-headers-generic::linux-headers-generic
-  contrib-libs-cxxsupp
-  yutil
-  build-cow-on
-  library-cpp-cpuid_check
-  cpp-testing-gtest
-  cpp-testing-gtest_main
-  cpp-mapreduce-http_client
-)
-
-target_allocator(yt-cpp-mapreduce-http_client-ut
-  cpp-malloc-tcmalloc
-  libs-tcmalloc-no_percpu_cache
-)
-
-target_link_options(yt-cpp-mapreduce-http_client-ut PRIVATE
-  -ldl
-  -lrt
-  -Wl,--no-as-needed
-  -fPIC
-  -fPIC
-  -lrt
-  -ldl
-  -lutil
-)
-
-target_sources(yt-cpp-mapreduce-http_client-ut PRIVATE
-  ${PROJECT_SOURCE_DIR}/yt/cpp/mapreduce/http_client/ut/raw_batch_request_ut.cpp
-  ${PROJECT_SOURCE_DIR}/yt/cpp/mapreduce/http_client/ut/raw_requests_ut.cpp
-)
-
-
-add_test(
-  NAME
-  yt-cpp-mapreduce-http_client-ut
-  COMMAND
-  yt-cpp-mapreduce-http_client-ut
-)
-
-set_property(
-  TEST
-  yt-cpp-mapreduce-http_client-ut
-  PROPERTY
-  LABELS
-  SMALL
-)
-
-set_property(
-  TEST
-  yt-cpp-mapreduce-http_client-ut
-  PROPERTY
-  ENVIRONMENT
-)
-
-vcs_info(yt-cpp-mapreduce-http_client-ut)
-
-set_property(
-  TEST
-  yt-cpp-mapreduce-http_client-ut
-  PROPERTY
-  PROCESSORS
-  1
-)
