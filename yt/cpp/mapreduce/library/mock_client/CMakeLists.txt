@@ -23,6 +23,7 @@ target_compile_options(mapreduce-library-mock_client PRIVATE
   -Wparentheses
   -Wno-logical-op-parentheses
   -Wno-bitwise-op-parentheses
+  -Wswitch
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 

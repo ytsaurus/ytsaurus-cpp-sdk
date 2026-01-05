@@ -23,6 +23,7 @@ target_compile_options(cpp-yt-global PRIVATE
   -Wparentheses
   -Wno-logical-op-parentheses
   -Wno-bitwise-op-parentheses
+  -Wswitch
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 

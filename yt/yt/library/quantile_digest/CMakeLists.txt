@@ -25,6 +25,7 @@ target_compile_options(yt-library-quantile_digest PRIVATE
   -Wparentheses
   -Wno-logical-op-parentheses
   -Wno-bitwise-op-parentheses
+  -Wswitch
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 

@@ -25,6 +25,7 @@ target_compile_options(tests-native-proto_lib PRIVATE
   -Wparentheses
   -Wno-logical-op-parentheses
   -Wno-bitwise-op-parentheses
+  -Wswitch
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 

@@ -23,6 +23,7 @@ target_compile_options(yt-library-skiff_ext PRIVATE
   -Wparentheses
   -Wno-logical-op-parentheses
   -Wno-bitwise-op-parentheses
+  -Wswitch
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 
