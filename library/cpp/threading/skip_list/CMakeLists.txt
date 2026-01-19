@@ -25,7 +25,6 @@ target_link_libraries(cpp-threading-skip_list PUBLIC
   linux-headers-generic::linux-headers-generic
   contrib-libs-cxxsupp
   yutil
-  cpp-deprecated-atomic
 )
 
 target_sources(cpp-threading-skip_list PRIVATE
