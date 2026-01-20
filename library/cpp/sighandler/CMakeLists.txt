@@ -25,7 +25,6 @@ target_link_libraries(library-cpp-sighandler PUBLIC
   linux-headers-generic::linux-headers-generic
   contrib-libs-cxxsupp
   yutil
-  cpp-deprecated-atomic
 )
 
 target_sources(library-cpp-sighandler PRIVATE
