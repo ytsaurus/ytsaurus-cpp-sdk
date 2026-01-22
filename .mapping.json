@@ -220,8 +220,6 @@
   "library/cpp/cppparser/CMakeLists.txt":"",
   "library/cpp/cpuid_check/CMakeLists.txt":"",
   "library/cpp/cron_expression/CMakeLists.txt":"",
-  "library/cpp/deprecated/CMakeLists.txt":"",
-  "library/cpp/deprecated/atomic/CMakeLists.txt":"",
   "library/cpp/digest/CMakeLists.txt":"",
   "library/cpp/digest/crc32c/CMakeLists.txt":"",
   "library/cpp/digest/md5/CMakeLists.txt":"",
