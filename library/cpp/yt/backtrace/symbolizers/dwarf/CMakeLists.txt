@@ -14,31 +14,39 @@
 
 find_package(linux-headers-generic REQUIRED)
 
-add_subdirectory(cursors)
-add_subdirectory(symbolizers)
-
-add_library(cpp-yt-backtrace)
+add_library(backtrace-symbolizers-dwarf INTERFACE)
 
 
-target_compile_options(cpp-yt-backtrace PRIVATE
-  -Wdeprecated-this-capture
-  -Wimplicit-fallthrough
-  -Wparentheses
-  -Wno-logical-op-parentheses
-  -Wno-bitwise-op-parentheses
-  -Wswitch
+target_compile_options(backtrace-symbolizers-dwarf INTERFACE
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 
-target_link_libraries(cpp-yt-backtrace PUBLIC
+target_link_libraries(backtrace-symbolizers-dwarf INTERFACE
   linux-headers-generic::linux-headers-generic
   contrib-libs-cxxsupp
   yutil
-  cpp-yt-string
+  library-cpp-dwarf_backtrace
+  cpp-yt-backtrace
 )
 
-target_sources(cpp-yt-backtrace PRIVATE
-  ${PROJECT_SOURCE_DIR}/library/cpp/yt/backtrace/backtrace.cpp
-  ${PROJECT_SOURCE_DIR}/library/cpp/yt/backtrace/symbolizers/dynload/dynload_symbolizer.cpp
+
+add_global_library_for(backtrace-symbolizers-dwarf.global
+  backtrace-symbolizers-dwarf)
+
+
+target_compile_options(backtrace-symbolizers-dwarf.global PRIVATE
+  -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
+)
+
+target_link_libraries(backtrace-symbolizers-dwarf.global PUBLIC
+  linux-headers-generic::linux-headers-generic
+  contrib-libs-cxxsupp
+  yutil
+  library-cpp-dwarf_backtrace
+  cpp-yt-backtrace
+)
+
+target_sources(backtrace-symbolizers-dwarf.global PRIVATE
+  ${PROJECT_SOURCE_DIR}/library/cpp/yt/backtrace/symbolizers/dwarf/dwarf_symbolizer.cpp
 )
 

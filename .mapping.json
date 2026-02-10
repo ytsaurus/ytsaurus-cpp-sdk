@@ -300,6 +300,8 @@
   "library/cpp/yt/backtrace/CMakeLists.txt":"",
   "library/cpp/yt/backtrace/cursors/CMakeLists.txt":"",
   "library/cpp/yt/backtrace/cursors/libunwind/CMakeLists.txt":"",
+  "library/cpp/yt/backtrace/symbolizers/CMakeLists.txt":"",
+  "library/cpp/yt/backtrace/symbolizers/dwarf/CMakeLists.txt":"",
   "library/cpp/yt/coding/CMakeLists.txt":"",
   "library/cpp/yt/compact_containers/CMakeLists.txt":"",
   "library/cpp/yt/containers/CMakeLists.txt":"",

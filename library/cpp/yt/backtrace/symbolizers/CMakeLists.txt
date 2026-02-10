@@ -12,33 +12,4 @@
 # Please refer to the build instructions in the repository for more information about manual
 # changes in this file.
 
-find_package(linux-headers-generic REQUIRED)
-
-add_subdirectory(cursors)
-add_subdirectory(symbolizers)
-
-add_library(cpp-yt-backtrace)
-
-
-target_compile_options(cpp-yt-backtrace PRIVATE
-  -Wdeprecated-this-capture
-  -Wimplicit-fallthrough
-  -Wparentheses
-  -Wno-logical-op-parentheses
-  -Wno-bitwise-op-parentheses
-  -Wswitch
-  -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
-)
-
-target_link_libraries(cpp-yt-backtrace PUBLIC
-  linux-headers-generic::linux-headers-generic
-  contrib-libs-cxxsupp
-  yutil
-  cpp-yt-string
-)
-
-target_sources(cpp-yt-backtrace PRIVATE
-  ${PROJECT_SOURCE_DIR}/library/cpp/yt/backtrace/backtrace.cpp
-  ${PROJECT_SOURCE_DIR}/library/cpp/yt/backtrace/symbolizers/dynload/dynload_symbolizer.cpp
-)
-
+add_subdirectory(dwarf)
