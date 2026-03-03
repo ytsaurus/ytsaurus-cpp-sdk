@@ -26,6 +26,7 @@ target_compile_options(yt-client-arrow PRIVATE
   -Wno-logical-op-parentheses
   -Wno-bitwise-op-parentheses
   -Wswitch
+  -Wreturn-type
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 

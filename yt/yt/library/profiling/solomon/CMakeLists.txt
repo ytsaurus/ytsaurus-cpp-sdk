@@ -26,6 +26,7 @@ target_compile_options(library-profiling-solomon PRIVATE
   -Wno-logical-op-parentheses
   -Wno-bitwise-op-parentheses
   -Wswitch
+  -Wreturn-type
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 
@@ -92,6 +93,7 @@ target_compile_options(library-profiling-solomon.global PRIVATE
   -Wno-logical-op-parentheses
   -Wno-bitwise-op-parentheses
   -Wswitch
+  -Wreturn-type
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 

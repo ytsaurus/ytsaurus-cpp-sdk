@@ -27,6 +27,7 @@ target_compile_options(mapreduce-library-parallel_io PRIVATE
   -Wno-logical-op-parentheses
   -Wno-bitwise-op-parentheses
   -Wswitch
+  -Wreturn-type
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 

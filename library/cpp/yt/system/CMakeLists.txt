@@ -24,6 +24,7 @@ target_compile_options(cpp-yt-system PRIVATE
   -Wno-logical-op-parentheses
   -Wno-bitwise-op-parentheses
   -Wswitch
+  -Wreturn-type
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 

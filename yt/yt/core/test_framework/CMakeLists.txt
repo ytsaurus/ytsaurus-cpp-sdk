@@ -31,6 +31,7 @@ target_compile_options(yt-core-test_framework PRIVATE
   -Wno-logical-op-parentheses
   -Wno-bitwise-op-parentheses
   -Wswitch
+  -Wreturn-type
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 
@@ -68,6 +69,7 @@ target_compile_options(yt-core-test_framework.global PRIVATE
   -Wno-logical-op-parentheses
   -Wno-bitwise-op-parentheses
   -Wswitch
+  -Wreturn-type
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 
