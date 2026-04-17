@@ -33,6 +33,7 @@ target_link_libraries(cpp-mapreduce-rpc_client PUBLIC
   contrib-libs-cxxsupp
   yutil
   cpp-yson-node
+  cpp-mapreduce-common
   cpp-mapreduce-interface
   yt-yt-client
 )
