@@ -23,6 +23,7 @@ target_compile_options(contrib-libs-libunwind PRIVATE
   -fno-exceptions
   -fno-rtti
   -funwind-tables
+  -D_LIBUNWIND_HAVE_GETAUXVAL
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 
