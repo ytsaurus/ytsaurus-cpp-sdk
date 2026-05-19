@@ -177,7 +177,6 @@
   "contrib/restricted/boost/ratio/CMakeLists.txt":"",
   "contrib/restricted/boost/regex/CMakeLists.txt":"",
   "contrib/restricted/boost/smart_ptr/CMakeLists.txt":"",
-  "contrib/restricted/boost/static_assert/CMakeLists.txt":"",
   "contrib/restricted/boost/system/CMakeLists.txt":"",
   "contrib/restricted/boost/thread/CMakeLists.txt":"",
   "contrib/restricted/boost/throw_exception/CMakeLists.txt":"",
