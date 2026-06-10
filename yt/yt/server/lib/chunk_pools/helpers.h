@@ -1,0 +1,63 @@
+#pragma once
+
+#include <yt/yt/ytlib/chunk_pools/chunk_stripe.h>
+#include <yt/yt/ytlib/chunk_pools/public.h>
+
+#include <yt/yt/ytlib/chunk_client/public.h>
+
+#include <yt/yt/client/table_client/chunk_stripe_statistics.h>
+
+namespace NYT::NChunkPools {
+
+////////////////////////////////////////////////////////////////////////////////
+
+// TODO(apollo1321): Move to methods of TChunkStripeList.
+std::vector<NChunkClient::TInputChunkPtr> GetStripeListChunks(const TChunkStripeListPtr& stripeList);
+
+////////////////////////////////////////////////////////////////////////////////
+
+class TSuspendableStripe
+{
+public:
+    DEFINE_BYVAL_RW_PROPERTY(bool, Teleport, false);
+
+public:
+    //! Used only for persistence.
+    TSuspendableStripe() = default;
+
+    explicit TSuspendableStripe(TChunkStripePtr stripe);
+
+    const TChunkStripePtr& GetStripe() const;
+    const NTableClient::TChunkStripeStatistics& GetStatistics() const;
+    // Increase suspended stripe count by one and return true if 0 -> 1 transition happened.
+    bool Suspend();
+    // Decrease suspended stripe count by one and return true if 1 -> 0 transition happened.
+    bool Resume();
+    bool IsSuspended() const;
+    void Reset(TChunkStripePtr stripe);
+
+private:
+    TChunkStripePtr Stripe_;
+    int SuspendedStripeCount_ = 0;
+    TPersistentChunkStripeStatistics Statistics_;
+
+    PHOENIX_DECLARE_TYPE(TSuspendableStripe, 0x14cdc54f);
+};
+
+////////////////////////////////////////////////////////////////////////////////
+
+//! A helper function for chunk pool logger validation.
+//! Yes, we are that serious when it comes to logging.
+void ValidateLogger(const NLogging::TLogger& logger);
+
+////////////////////////////////////////////////////////////////////////////////
+
+// Merges multiple stripe lists into a single stripe list.
+// If partition tags are present, deduplicates chunks and accumulates partition tags and statistics.
+// If partition tags are absent, preserves all stripes without deduplication (for testing purposes).
+// All input stripe lists must either have partition tags or all must not have them.
+NChunkPools::TChunkStripeListPtr MergeStripeLists(const std::vector<NChunkPools::TChunkStripeListPtr>& stripeList);
+
+////////////////////////////////////////////////////////////////////////////////
+
+} // namespace NYT::NChunkPools

@@ -1,0 +1,20 @@
+#pragma once
+
+#include "public.h"
+
+#include <yt/yt/core/misc/public.h>
+
+namespace NYT::NLsm {
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct THunkChunk
+{
+    NChunkClient::TChunkId Id;
+    i64 TotalHunkLength;
+    i64 ReferencedTotalHunkLength;
+};
+
+////////////////////////////////////////////////////////////////////////////////
+
+} // namespace NYT::NLsm

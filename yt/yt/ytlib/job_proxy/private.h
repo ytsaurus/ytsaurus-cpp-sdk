@@ -1,0 +1,15 @@
+#pragma once
+
+#include <yt/yt/core/logging/log.h>
+
+namespace NYT::NJobProxy {
+
+////////////////////////////////////////////////////////////////////////////////
+
+DECLARE_REFCOUNTED_CLASS(TAnyToYsonConverter)
+
+YT_DEFINE_GLOBAL(const NLogging::TLogger, JobProxyClientLogger, "JobProxyClient");
+
+////////////////////////////////////////////////////////////////////////////////
+
+} // namespace NYT::NJobProxy

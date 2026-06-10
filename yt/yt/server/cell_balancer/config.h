@@ -1,0 +1,205 @@
+#pragma once
+
+#include "private.h"
+
+#include <yt/yt/server/master/tablet_server/config.h>
+
+#include <yt/yt/server/lib/misc/config.h>
+
+#include <yt/yt/ytlib/api/native/config.h>
+
+#include <yt/yt/client/node_tracker_client/public.h>
+
+#include <yt/yt/library/cypress_election/config.h>
+
+#include <yt/yt/library/dynamic_config/public.h>
+
+#include <yt/yt/library/server_program/config.h>
+
+namespace NYT::NCellBalancer {
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct TCellBalancerConfig
+    : public NYTree::TYsonStruct
+{
+    NTabletServer::TDynamicTabletManagerConfigPtr TabletManager;
+
+    REGISTER_YSON_STRUCT(TCellBalancerConfig);
+
+    static void Register(TRegistrar registrar);
+};
+
+DEFINE_REFCOUNTED_TYPE(TCellBalancerConfig)
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct TChaosConfig
+    : public NYTree::TYsonStruct
+{
+    std::vector<std::string> TabletCellClusters;
+    std::vector<std::string> ChaosCellClusters;
+    NObjectClient::TCellTag ClockClusterTag;
+
+    std::string AlphaChaosCluster;
+    std::string BetaChaosCluster;
+
+    REGISTER_YSON_STRUCT(TChaosConfig);
+
+    static void Register(TRegistrar registrar);
+};
+
+DEFINE_REFCOUNTED_TYPE(TChaosConfig)
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct TBundleControllerConfig
+    : public NYTree::TYsonStruct
+{
+    std::string Cluster;
+    bool UseDedicatedUserName;
+    TDuration BundleScanPeriod;
+    TDuration BundleScanTransactionTimeout;
+    // TODO(grachevkirill): Rename to AllocatorRequestTimeout
+    TDuration HulkRequestTimeout;
+    TDuration CellRemovalTimeout;
+    TDuration NodeAssignmentTimeout;
+    TDuration MuteTabletCellsCheckGracePeriod;
+    TDuration DecommissionedNodeDrainTimeout;
+
+    NYPath::TYPath RootPath;
+
+    bool HasInstanceAllocatorService;
+    NYPath::TYPath HulkAllocationsPath;
+    NYPath::TYPath HulkAllocationsHistoryPath;
+    NYPath::TYPath HulkDeallocationsPath;
+    NYPath::TYPath HulkDeallocationsHistoryPath;
+
+    bool DecommissionReleasedNodes;
+    bool EnableSpareNodeAssignment;
+
+    int NodeCountPerCell;
+    int ChunkCountPerCell;
+    i64 JournalDiskSpacePerCell;
+    i64 SnapshotDiskSpacePerCell;
+    int MinNodeCount;
+    int MinChunkCount;
+
+    int ReallocateInstanceBudget;
+
+    TDuration RemoveInstanceCypressNodeAfter;
+    TDuration OfflineInstanceGracePeriod;
+
+    bool EnableNetworkLimits;
+
+    bool SkipJailedBundles;
+
+    bool EnableChaosBundleManagement;
+    TChaosConfigPtr ChaosConfig;
+
+    bool AnnotateNewNodes;
+    bool AnnotateNewProxies;
+
+    REGISTER_YSON_STRUCT(TBundleControllerConfig);
+
+    static void Register(TRegistrar registrar);
+};
+
+DEFINE_REFCOUNTED_TYPE(TBundleControllerConfig)
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct TNodeTrackerDynamicConfig
+    : public NYTree::TYsonStruct
+{
+    bool Enable;
+
+    TDuration HeartbeatTimeout;
+
+    REGISTER_YSON_STRUCT(TNodeTrackerDynamicConfig);
+
+    static void Register(TRegistrar registrar);
+};
+
+DEFINE_REFCOUNTED_TYPE(TNodeTrackerDynamicConfig)
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct TBundleControllerDynamicConfig
+    : public TSingletonsDynamicConfig
+{
+    std::optional<TDuration> BundleScanPeriod;
+
+    TNodeTrackerDynamicConfigPtr NodeTracker;
+
+    bool RemoveTagsFromOfflineNodes;
+
+    std::optional<TDuration> RemoveInstanceCypressNodeAfter;
+    std::optional<TDuration> OfflineInstanceGracePeriod;
+
+    int MaxConcurrentCypressWriteRequests;
+
+    // Limits the number of nodes which are released via decommission.
+    // Used to throttle tablet cell restart rate.
+    int MaxReleasedNodesPerIteration;
+
+    // For unittests.
+    bool FlushLogAfterMutations;
+
+    std::optional<bool> EnableChaosBundleManagement;
+
+    TDuration ForeignClusterRequestTimeout;
+
+    std::optional<bool> AnnotateNewNodes;
+    std::optional<bool> AnnotateNewProxies;
+
+    bool UseDataNodeRacks;
+
+    REGISTER_YSON_STRUCT(TBundleControllerDynamicConfig);
+
+    static void Register(TRegistrar registrar);
+};
+
+DEFINE_REFCOUNTED_TYPE(TBundleControllerDynamicConfig)
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct TCellBalancerBootstrapConfig
+    : public NServer::TNativeServerBootstrapConfig
+{
+    bool AbortOnUnrecognizedOptions;
+    NCypressElection::TCypressElectionManagerConfigPtr ElectionManager;
+    NNodeTrackerClient::TNetworkAddressList Addresses;
+
+    bool EnableCellBalancer;
+    TCellBalancerConfigPtr CellBalancer;
+
+    bool EnableBundleController;
+    TBundleControllerConfigPtr BundleController;
+
+    NDynamicConfig::TDynamicConfigManagerConfigPtr DynamicConfigManager;
+    TString DynamicConfigPath;
+
+    REGISTER_YSON_STRUCT(TCellBalancerBootstrapConfig);
+
+    static void Register(TRegistrar registrar);
+};
+
+DEFINE_REFCOUNTED_TYPE(TCellBalancerBootstrapConfig)
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct TCellBalancerProgramConfig
+    : public TCellBalancerBootstrapConfig
+    , public TServerProgramConfig
+{
+    REGISTER_YSON_STRUCT(TCellBalancerProgramConfig);
+
+    static void Register(TRegistrar registrar);
+};
+
+DEFINE_REFCOUNTED_TYPE(TCellBalancerProgramConfig)
+
+////////////////////////////////////////////////////////////////////////////////
+
+} // namespace NYT::NCellBalancer

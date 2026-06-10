@@ -1,0 +1,57 @@
+#pragma once
+
+#include "public.h"
+#include "cypress_bindings.h"
+#include "spare_instances.h"
+
+namespace NYT::NCellBalancer {
+
+////////////////////////////////////////////////////////////////////////////////
+
+void ScheduleBundles(TSchedulerInputState& input, TSchedulerMutations* mutations, const INodeTrackerPtr& nodeTracker = nullptr);
+
+////////////////////////////////////////////////////////////////////////////////
+
+NBundleControllerClient::TCpuLimitsPtr GetBundleEffectiveCpuLimits(
+    const std::string& bundleName,
+    const TBundleInfoPtr& bundleInfo,
+    const TSchedulerInputState& input);
+
+std::string GetSpareBundleName(const TZoneInfoPtr& zoneInfo);
+
+void InitializeZoneToSpareProxies(TSchedulerInputState& input, TSchedulerMutations* mutations);
+void ManageRpcProxyRoles(TSchedulerInputState& input, TSpareInstanceAllocator<TSpareProxiesInfo>& spareProxiesAllocator, TSchedulerMutations* mutations);
+
+DEFINE_ENUM(EGracePeriodBehaviour,
+    ((Wait)         (0))
+    ((Immediately)  (1))
+);
+
+THashMap<std::string, THashSet<std::string>> GetAliveNodes(
+    const std::string& bundleName,
+    const TDataCenterToInstanceMap& bundleNodes,
+    const TSchedulerInputState& input,
+    const TBundleControllerStatePtr& bundleState,
+    EGracePeriodBehaviour gracePeriodBehaviour);
+
+THashMap<std::string, THashSet<std::string>> GetAliveProxies(
+    const TDataCenterToInstanceMap& bundleProxies,
+    const TSchedulerInputState& input,
+    EGracePeriodBehaviour gracePeriodBehaviour);
+
+TIndexedEntries<TBundleControllerState> MergeBundleStates(
+    const TSchedulerInputState& schedulerState,
+    const TSchedulerMutations& mutations);
+
+std::string GetInstanceSize(const NBundleControllerClient::TInstanceResourcesPtr& resource);
+
+// TODO(capone212): remove after
+THashSet<std::string> FlattenAliveInstances(const THashMap<std::string, THashSet<std::string>>& instances);
+std::vector<std::string> FlattenBundleInstances(const THashMap<std::string, std::vector<std::string>>& instances);
+
+std::string GetDrillsNodeTagFilter(const TBundleInfoPtr& bundleInfo, const std::string& bundleName);
+std::string GetReleasedProxyRole(const std::string& rpcProxyRole);
+
+////////////////////////////////////////////////////////////////////////////////
+
+} // namespace NYT::NCellBalancer

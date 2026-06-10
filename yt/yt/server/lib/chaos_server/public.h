@@ -1,0 +1,14 @@
+#pragma once
+
+#include <library/cpp/yt/memory/ref_counted.h>
+
+namespace NYT::NChaosServer {
+
+////////////////////////////////////////////////////////////////////////////////
+
+DECLARE_REFCOUNTED_STRUCT(TChaosPeerConfig)
+DECLARE_REFCOUNTED_STRUCT(TChaosHydraConfig)
+
+////////////////////////////////////////////////////////////////////////////////
+
+} // namespace NYT::NChaosServer

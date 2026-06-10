@@ -1,0 +1,15 @@
+#pragma once
+
+#include "chunk_reader.h"
+
+namespace NYT::NChunkClient {
+
+////////////////////////////////////////////////////////////////////////////////
+
+IChunkReaderPtr CreateBlockTrackingChunkReader(
+    IChunkReaderPtr underlying,
+    IMemoryUsageTrackerPtr tracker);
+
+////////////////////////////////////////////////////////////////////////////////
+
+} // namespace NYT::NChunkClient

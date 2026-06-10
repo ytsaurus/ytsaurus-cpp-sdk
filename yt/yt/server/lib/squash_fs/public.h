@@ -1,0 +1,14 @@
+#pragma once
+
+#include <library/cpp/yt/memory/ref_counted.h>
+
+namespace NYT::NSquashFS {
+
+////////////////////////////////////////////////////////////////////////////////
+
+DECLARE_REFCOUNTED_CLASS(TSquashFSLayout)
+DECLARE_REFCOUNTED_STRUCT(ISquashFSLayoutBuilder)
+
+////////////////////////////////////////////////////////////////////////////////
+
+} // namespace NYT::NSquashFS

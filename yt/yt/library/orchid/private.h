@@ -1,0 +1,16 @@
+#pragma once
+
+#include <yt/yt/core/misc/public.h>
+
+#include <yt/yt/core/logging/log.h>
+
+namespace NYT::NOrchid {
+
+////////////////////////////////////////////////////////////////////////////////
+
+YT_DEFINE_GLOBAL(const NLogging::TLogger, OrchidLogger, "Orchid");
+
+////////////////////////////////////////////////////////////////////////////////
+
+} // namespace NYT::NOrchid
+

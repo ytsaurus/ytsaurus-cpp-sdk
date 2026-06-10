@@ -1,0 +1,569 @@
+#include "ground_update_queue_manager.h"
+
+#include "private.h"
+#include "config.h"
+
+#include <yt/yt/server/master/cell_master/automaton.h>
+#include <yt/yt/server/master/cell_master/bootstrap.h>
+#include <yt/yt/server/master/cell_master/hydra_facade.h>
+#include <yt/yt/server/master/cell_master/config_manager.h>
+#include <yt/yt/server/master/cell_master/serialize.h>
+#include <yt/yt/server/master/cell_master/config.h>
+
+#include <yt/yt/server/master/cypress_server/cypress_manager.h>
+
+#include <yt/yt/server/master/transaction_server/transaction.h>
+#include <yt/yt/server/master/transaction_server/transaction_manager.h>
+
+#include <yt/yt/server/master/sequoia_server/proto/ground_update_queue_manager.pb.h>
+
+#include <yt/yt/server/lib/hydra/mutation_context.h>
+
+#include <yt/yt/ytlib/transaction_client/action.h>
+#include <yt/yt/ytlib/transaction_client/transaction_manager.h>
+
+#include <yt/yt/ytlib/sequoia_client/connection.h>
+#include <yt/yt/ytlib/sequoia_client/client.h>
+#include <yt/yt/ytlib/sequoia_client/transaction.h>
+
+#include <yt/yt/client/table_client/unversioned_row.h>
+
+#include <yt/yt/library/profiling/producer.h>
+
+#include <yt/yt/library/numeric/algorithm_helpers.h>
+
+namespace NYT::NSequoiaServer {
+
+using namespace NCellMaster;
+using namespace NConcurrency;
+using namespace NHydra;
+using namespace NTransactionServer;
+using namespace NYTree;
+using namespace NProto;
+using namespace NSequoiaClient;
+using namespace NTableClient;
+using namespace NProfiling;
+using namespace NYson;
+using namespace NObjectServer;
+
+////////////////////////////////////////////////////////////////////////////////
+
+constinit const auto Logger = SequoiaServerLogger;
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct TTableUpdateQueueRecord
+{
+    NSequoiaClient::ESequoiaTable Table;
+    NTableClient::TUnversionedOwningRow Row;
+    i64 SequenceNumber;
+    EGroundUpdateAction Action;
+    TPromise<void> SyncPromise;
+
+    void Persist(const NCellMaster::TPersistenceContext& context)
+    {
+        using NYT::Persist;
+
+        Persist(context, Table);
+        Persist(context, Row);
+        Persist(context, SequenceNumber);
+        Persist(context, Action);
+    }
+};
+
+struct TTableUpdateQueueState
+{
+    std::deque<TTableUpdateQueueRecord> Records;
+    TTransactionId OngoingFlushTransactionId;
+    i64 NextRecordSequenceNumber = 0;
+    i64 LastFlushedSequenceNumber = 0;
+
+    bool IsFlushNeeded() const
+    {
+        return !Records.empty() && !OngoingFlushTransactionId;
+    }
+
+    void Persist(const NCellMaster::TPersistenceContext& context)
+    {
+        using NYT::Persist;
+
+        Persist(context, Records);
+        Persist(context, OngoingFlushTransactionId);
+        Persist(context, NextRecordSequenceNumber);
+        Persist(context, LastFlushedSequenceNumber);
+    }
+};
+
+////////////////////////////////////////////////////////////////////////////////
+
+class TGroundUpdateQueueManager
+    : public IGroundUpdateQueueManager
+    , public TMasterAutomatonPart
+{
+public:
+    explicit TGroundUpdateQueueManager(TBootstrap* bootstrap)
+        : TMasterAutomatonPart(bootstrap, EAutomatonThreadQueue::GroundUpdateQueueManager)
+    {
+        RegisterLoader(
+            "GroundUpdateQueueManager",
+            BIND_NO_PROPAGATE(&TGroundUpdateQueueManager::Load, Unretained(this)));
+        RegisterSaver(
+            ESyncSerializationPriority::Values,
+            "GroundUpdateQueueManager",
+            BIND_NO_PROPAGATE(&TGroundUpdateQueueManager::Save, Unretained(this)));
+    }
+
+    void Initialize() override
+    {
+        const auto& transactionManager = Bootstrap_->GetTransactionManager();
+        YT_VERIFY(transactionManager);
+        transactionManager->RegisterTransactionActionHandlers<TReqFlushGroundUpdateQueue>({
+            .Prepare = BIND_NO_PROPAGATE(&TGroundUpdateQueueManager::HydraPrepareFlushTableUpdateQueue, Unretained(this)),
+            .Commit = BIND_NO_PROPAGATE(&TGroundUpdateQueueManager::HydraCommitFlushTableUpdateQueue, Unretained(this)),
+            .Abort = BIND_NO_PROPAGATE(&TGroundUpdateQueueManager::HydraAbortFlushTableUpdateQueue, Unretained(this)),
+        });
+
+        const auto& configManager = Bootstrap_->GetConfigManager();
+        configManager->SubscribeConfigChanged(BIND_NO_PROPAGATE(&TGroundUpdateQueueManager::OnDynamicConfigChanged, MakeWeak(this)));
+
+        BufferedProducer_ = New<TBufferedProducer>();
+        SequoiaServerProfiler()
+            .WithGlobal()
+            .WithPrefix("/ground_update_queue_manager")
+            .WithTag("cell_tag", ToString(Bootstrap_->GetMulticellManager()->GetCellTag()))
+            .AddProducer("", BufferedProducer_);
+
+        ProfilingExecutor_ = New<TPeriodicExecutor>(
+            Bootstrap_->GetHydraFacade()->GetAutomatonInvoker(EAutomatonThreadQueue::Periodic),
+            BIND(&TGroundUpdateQueueManager::OnProfiling, MakeWeak(this)),
+            TDynamicGroundUpdateQueueManagerConfig::DefaultProfilingPeriod);
+        ProfilingExecutor_->Start();
+    }
+
+    IYPathServicePtr GetOrchidService() override
+    {
+        YT_ASSERT_THREAD_AFFINITY_ANY();
+
+        return IYPathService::FromProducer(BIND(&TGroundUpdateQueueManager::BuildOrchid, MakeStrong(this)))
+            ->Via(Bootstrap_->GetHydraFacade()->GetGuardedAutomatonInvoker(EAutomatonThreadQueue::GroundUpdateQueueManager));
+    }
+
+    void BuildOrchid(IYsonConsumer* consumer) const
+    {
+        YT_ASSERT_THREAD_AFFINITY(AutomatonThread);
+
+        BuildYsonFluently(consumer)
+            .DoMapFor(TEnumTraits<EGroundUpdateQueue>::GetDomainValues(), [&] (TFluentMap fluent, const auto& queue) {
+                const auto& state = QueueStates_[queue];
+                fluent.Item(FormatEnum(queue)).BeginMap()
+                    .Item("record_count").Value(state.Records.size())
+                    .Item("ongoing_flush_transaction_id").Value(state.OngoingFlushTransactionId)
+                    .Item("next_record_sequence_number").Value(state.NextRecordSequenceNumber)
+                    .Item("last_flushed_sequence_number").Value(state.LastFlushedSequenceNumber)
+                .EndMap();
+            });
+    }
+
+    void EnqueueRow(
+        EGroundUpdateQueue queue,
+        ESequoiaTable table,
+        TUnversionedOwningRow row,
+        EGroundUpdateAction action) override
+    {
+        YT_VERIFY(HasMutationContext());
+
+        const auto& config = Bootstrap_->GetConfigManager()->GetConfig()->SequoiaManager;
+        if (!config->EnableGroundUpdateQueues) {
+            return;
+        }
+
+        auto& queueState = QueueStates_[queue];
+
+        TTableUpdateQueueRecord record{
+            .Table = table,
+            .Row = std::move(row),
+            .SequenceNumber = queueState.NextRecordSequenceNumber,
+            .Action = action,
+        };
+
+        YT_LOG_DEBUG("Table update queue record enqueued (Queue: %v, SequenceNumber: %v, Table: %v, Action: %v, Row: %v)",
+            queue,
+            record.SequenceNumber,
+            record.Table,
+            record.Action,
+            record.Row);
+
+        queueState.Records.push_back(std::move(record));
+
+        auto* mutationContext = GetCurrentMutationContext();
+        mutationContext->SetGroundUpdateQueueSequenceNumber(queueState.NextRecordSequenceNumber);
+        queueState.NextRecordSequenceNumber++;
+    }
+
+    i64 GetLastRecordSequenceNumber(EGroundUpdateQueue queue) const override
+    {
+        VerifyPersistentStateRead();
+
+        const auto& queueState = QueueStates_[queue];
+        // Turns into -1 if no records were ever enqueued, seems OK.
+        return queueState.NextRecordSequenceNumber - 1;
+    }
+
+    i64 GetLastFlushedSequenceNumber(EGroundUpdateQueue queue) const override
+    {
+        VerifyPersistentStateRead();
+
+        const auto& queueState = QueueStates_[queue];
+        return queueState.LastFlushedSequenceNumber;
+    }
+
+    TFuture<void> Sync(
+        EGroundUpdateQueue queue,
+        std::optional<i64> recordSequenceNumber) override
+    {
+        VerifyPersistentStateRead();
+
+        YT_LOG_DEBUG("Ground update queue sync requested (RecordSequenceNumberToSync: %v)",
+            recordSequenceNumber);
+
+        auto& queueState = QueueStates_[queue];
+        if (queueState.Records.empty()) {
+            return OKFuture;
+        }
+
+        if (recordSequenceNumber && queueState.Records.front().SequenceNumber > *recordSequenceNumber) {
+            return OKFuture;
+        }
+
+        auto it = recordSequenceNumber
+            ? BinarySearch(
+                queueState.Records.begin(),
+                queueState.Records.end(),
+                [recordSequenceNumber] (const auto& record) {
+                    return record->SequenceNumber <= recordSequenceNumber;
+                })
+            : queueState.Records.end();
+        it = std::prev(it);
+
+        YT_LOG_DEBUG("Actually syncing ground update queue (AskedSequenceNumber: %v, RecordSequenceNumberToSync: %v, LastSequenceNumber: %v)",
+            recordSequenceNumber,
+            it->SequenceNumber,
+            queueState.Records.back().SequenceNumber);
+
+        auto& syncPromise = it->SyncPromise;
+        if (!syncPromise) {
+            syncPromise = NewPromise<void>();
+        }
+        return syncPromise.ToFuture().ToUncancelable();
+    }
+
+private:
+    TEnumIndexedArray<EGroundUpdateQueue, TPeriodicExecutorPtr> FlushExecutors_;
+    TEnumIndexedArray<EGroundUpdateQueue, TTableUpdateQueueState> QueueStates_;
+
+    TPeriodicExecutorPtr ProfilingExecutor_;
+    TBufferedProducerPtr BufferedProducer_;
+
+    DECLARE_THREAD_AFFINITY_SLOT(AutomatonThread);
+
+    void HydraPrepareFlushTableUpdateQueue(
+        TTransaction* transaction,
+        TReqFlushGroundUpdateQueue* request,
+        const NTransactionSupervisor::TTransactionPrepareOptions& /*options*/)
+    {
+        auto queue = FromProto<EGroundUpdateQueue>(request->queue());
+        auto& queueState = QueueStates_[queue];
+        auto& queueRecords = queueState.Records;
+
+        if (queueState.OngoingFlushTransactionId) {
+            THROW_ERROR_EXCEPTION("Queue is already being flushed by transaction %v", queueState.OngoingFlushTransactionId);
+        }
+
+        if (queueRecords.empty()) {
+            auto error = TError("There are no updates to flush");
+            YT_LOG_DEBUG(error);
+            THROW_ERROR_EXCEPTION(error);
+        }
+        if (queueRecords.front().SequenceNumber != request->start_sequence_number()) {
+            auto error = TError("First record sequence number %v is different from requested sequence number %v",
+                queueRecords.front().SequenceNumber,
+                request->start_sequence_number());
+            YT_LOG_DEBUG(error);
+            THROW_ERROR_EXCEPTION(error);
+        }
+        if (queueRecords.back().SequenceNumber < request->end_sequence_number()) {
+            auto error = TError("Last queue sequence number %v is less than requested sequence number %v",
+                queueRecords.back().SequenceNumber,
+                request->end_sequence_number());
+            // This is still alert, looks weird.
+            YT_LOG_ALERT(error);
+            THROW_ERROR_EXCEPTION(error);
+        }
+
+        queueState.OngoingFlushTransactionId = transaction->GetId();
+
+        YT_LOG_DEBUG("Table update queue flush prepared (Queue: %v, TransactionId: %v)",
+            queue,
+            queueState.OngoingFlushTransactionId);
+    }
+
+    void HydraCommitFlushTableUpdateQueue(
+        TTransaction* transaction,
+        TReqFlushGroundUpdateQueue* request,
+        const NTransactionSupervisor::TTransactionCommitOptions& /*options*/)
+    {
+        auto queue = FromProto<EGroundUpdateQueue>(request->queue());
+        auto& queueState = QueueStates_[queue];
+        auto& queueRecords = queueState.Records;
+
+        YT_VERIFY(queueState.OngoingFlushTransactionId == transaction->GetId());
+        queueState.OngoingFlushTransactionId = {};
+
+        auto startSequenceNumber = request->start_sequence_number();
+        auto endSequenceNumber = request->end_sequence_number();
+        YT_VERIFY(startSequenceNumber <= endSequenceNumber);
+
+        YT_VERIFY(!queueRecords.empty() && queueRecords.front().SequenceNumber == startSequenceNumber);
+
+        i64 lastSequenceNumber = -1;
+        int recordCount = 0;
+
+        while (!queueRecords.empty() && queueRecords.front().SequenceNumber <= endSequenceNumber) {
+            lastSequenceNumber = queueRecords.front().SequenceNumber;
+            ++recordCount;
+            if (const auto& syncPromise = queueRecords.front().SyncPromise) {
+                YT_LOG_DEBUG("Ground update queue sync completed (SequenceNumber: %v)", lastSequenceNumber);
+                syncPromise.Set();
+            }
+            queueRecords.pop_front();
+        }
+
+        // Ensure we actually have all requested records in queue.
+        YT_VERIFY(lastSequenceNumber == endSequenceNumber);
+        YT_VERIFY(queueState.LastFlushedSequenceNumber <= endSequenceNumber);
+        queueState.LastFlushedSequenceNumber = endSequenceNumber;
+
+        YT_LOG_DEBUG("Table update queue records flushed (Queue: %v, TransactionId: %v, StartSequenceNumber: %v, EndSequenceNumber: %v, RecordCount: %v)",
+            queue,
+            transaction->GetId(),
+            startSequenceNumber,
+            endSequenceNumber,
+            recordCount);
+
+        // I don't like it here.
+        if (queue == EGroundUpdateQueue::Sequoia) {
+            const auto& cypressManager = Bootstrap_->GetCypressManager();
+            cypressManager->DrainGroundUpdateQueueManagerSequenceNumber(endSequenceNumber);
+        }
+    }
+
+    void HydraAbortFlushTableUpdateQueue(
+        TTransaction* transaction,
+        TReqFlushGroundUpdateQueue* request,
+        const NTransactionSupervisor::TTransactionAbortOptions& /*options*/)
+    {
+        auto queue = FromProto<EGroundUpdateQueue>(request->queue());
+        auto& queueState = QueueStates_[queue];
+
+        if (queueState.OngoingFlushTransactionId == transaction->GetId()) {
+            queueState.OngoingFlushTransactionId = {};
+            YT_LOG_DEBUG("Table update queue flush aborted (Queue: %v, TransactionId: %v)",
+                queue,
+                transaction->GetId());
+        } else {
+            YT_LOG_DEBUG("Table update queue flush abort ignored (Queue: %v, TransactionId: %v, OngoingFlushTransactionId: %v)",
+                queue,
+                transaction->GetId(),
+                queueState.OngoingFlushTransactionId);
+        }
+    }
+
+    void OnLeaderActive() override
+    {
+        TMasterAutomatonPart::OnLeaderActive();
+
+        if (Bootstrap_->IsSequoiaConfigured()) {
+            const auto& config = GetDynamicConfig();
+            for (auto queue : TEnumTraits<EGroundUpdateQueue>::GetDomainValues()) {
+                const auto& queueConfig = config->GetQueueConfig(queue);
+                auto executor = New<TPeriodicExecutor>(
+                    Bootstrap_->GetHydraFacade()->GetEpochAutomatonInvoker(EAutomatonThreadQueue::GroundUpdateQueueManager),
+                    BIND(&TGroundUpdateQueueManager::OnQueueFlush, MakeWeak(this), queue),
+                    queueConfig->FlushPeriod);
+                executor->Start();
+                FlushExecutors_[queue] = std::move(executor);
+            }
+        }
+    }
+
+    void OnStopLeading() override
+    {
+        TMasterAutomatonPart::OnStopLeading();
+
+        for (auto queue : TEnumTraits<EGroundUpdateQueue>::GetDomainValues()) {
+            if (auto& executor = FlushExecutors_[queue]) {
+                YT_UNUSED_FUTURE(executor->Stop());
+            }
+        }
+        FlushExecutors_ = {};
+    }
+
+    void OnQueueFlush(EGroundUpdateQueue queue)
+    {
+        const auto& config = GetDynamicConfig();
+        const auto& queueConfig = config->GetQueueConfig(queue);
+
+        if (queueConfig->PauseFlush) {
+            return;
+        }
+
+        auto& queueState = QueueStates_[queue];
+
+        if (!queueState.IsFlushNeeded()) {
+            return;
+        }
+
+        Y_UNUSED(WaitFor(Bootstrap_
+            ->GetSequoiaConnection()
+            ->CreateClient(NRpc::GetRootAuthenticationIdentity())
+            ->StartTransaction(ESequoiaTransactionType::GroundUpdateQueueFlush)
+            .Apply(BIND([queue, this, this_ = MakeStrong(this)] (const ISequoiaTransactionPtr& transaction) {
+                auto& queueState = QueueStates_[queue];
+
+                if (!queueState.IsFlushNeeded()) {
+                    return OKFuture;
+                }
+
+                const auto& config = GetDynamicConfig();
+                const auto& queueConfig = config->GetQueueConfig(queue);
+
+                auto startSequenceNumber = queueState.Records.front().SequenceNumber;
+                auto recordsToFlush = std::min<int>(std::size(queueState.Records), queueConfig->FlushBatchSize);
+                // If there are several records from one mutation this might not actually be
+                // the last record to flush.
+                const auto& lastRecordToFlush = queueState.Records[recordsToFlush - 1];
+                auto endSequenceNumber = lastRecordToFlush.SequenceNumber;
+
+                TReqFlushGroundUpdateQueue request;
+                request.set_queue(ToProto(queue));
+                request.set_start_sequence_number(startSequenceNumber);
+                request.set_end_sequence_number(endSequenceNumber);
+
+                YT_LOG_DEBUG("Started flushing table update queue records (Queue: %v, StartSequenceNumber: %v, EndSequenceNumber: %v)",
+                    queue,
+                    startSequenceNumber,
+                    endSequenceNumber);
+
+                for (const auto& record : queueState.Records) {
+                    if (record.SequenceNumber > endSequenceNumber) {
+                        break;
+                    }
+
+                    // TODO(aleksandra-zh): remove this logging when sequoia queues are stable.
+                    YT_LOG_DEBUG("Flushing table update queue row (Queue: %v, SequenceNumber: %v, Action: %v, Row: %v)",
+                        queue,
+                        record.SequenceNumber,
+                        record.Action,
+                        record.Row.Get());
+
+                    switch (record.Action) {
+                        case EGroundUpdateAction::Write:
+                            transaction->WriteRow(
+                                record.Table,
+                                record.Row.Get());
+                            break;
+
+                        case EGroundUpdateAction::Delete:
+                            transaction->DeleteRow(
+                                record.Table,
+                                record.Row.Get());
+                            break;
+
+                        default:
+                            YT_ABORT();
+                    }
+                }
+
+                transaction->AddTransactionAction(
+                    Bootstrap_->GetCellTag(),
+                    NTransactionClient::MakeTransactionActionData(request));
+
+                transaction->AddBarrierTags({NApi::NNative::SequoiaCypressOrderingTag});
+                transaction->AddStrongOrderingTags({NApi::NNative::SequoiaCypressOrderingTag});
+                NApi::TTransactionCommitOptions commitOptions{
+                    .CoordinatorCellId = Bootstrap_->GetCellId(),
+                    .CoordinatorPrepareMode = NApi::ETransactionCoordinatorPrepareMode::Late,
+                };
+                return transaction->Commit(std::move(commitOptions));
+            }).AsyncVia(EpochAutomatonInvoker_))));
+    }
+
+    void OnProfiling()
+    {
+        if (!IsLeader()) {
+            BufferedProducer_->SetEnabled(false);
+            return;
+        }
+
+        BufferedProducer_->SetEnabled(true);
+
+        TSensorBuffer buffer;
+        for (auto queue : TEnumTraits<EGroundUpdateQueue>::GetDomainValues()) {
+            TWithTagGuard tagGuard(&buffer, "queue", FormatEnum(queue));
+
+            const auto& queueState = QueueStates_[queue];
+            buffer.AddGauge("/record_count", queueState.Records.size());
+        }
+
+        BufferedProducer_->Update(buffer);
+    }
+
+    void OnDynamicConfigChanged(TDynamicClusterConfigPtr /*oldConfig*/)
+    {
+        const auto& config = GetDynamicConfig();
+
+        ProfilingExecutor_->SetPeriod(GetDynamicConfig()->ProfilingPeriod);
+
+        for (auto queue : TEnumTraits<EGroundUpdateQueue>::GetDomainValues()) {
+            const auto& queueConfig = config->GetQueueConfig(queue);
+            if (const auto& executor = FlushExecutors_[queue]) {
+                executor->SetPeriod(queueConfig->FlushPeriod);
+            }
+        }
+    }
+
+    const TDynamicGroundUpdateQueueManagerConfigPtr& GetDynamicConfig() const
+    {
+        return Bootstrap_->GetConfigManager()->GetConfig()->GroundUpdateQueueManager;
+    }
+
+    void Clear() override
+    {
+        QueueStates_ = {};
+    }
+
+    void Save(NCellMaster::TSaveContext& context) const
+    {
+        using NYT::Save;
+
+        Save(context, QueueStates_);
+    }
+
+    void Load(NCellMaster::TLoadContext& context)
+    {
+        using NYT::Load;
+
+        Load(context, QueueStates_);
+    }
+};
+
+////////////////////////////////////////////////////////////////////////////////
+
+IGroundUpdateQueueManagerPtr CreateGroundUpdateQueueManager(TBootstrap* bootstrap)
+{
+    return New<TGroundUpdateQueueManager>(bootstrap);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+} // namespace NYT::NSequoiaServer

@@ -1,0 +1,255 @@
+#include "structs.h"
+
+#include <yt/yt/ytlib/controller_agent/serialize.h>
+
+#include <yt/yt/core/misc/statistics.h>
+#include <yt/yt/core/misc/statistic_path.h>
+#include <yt/yt/core/misc/protobuf_helpers.h>
+
+namespace NYT::NJobAgent {
+
+using namespace NYTree;
+
+using NYT::ToProto;
+using NYT::FromProto;
+
+////////////////////////////////////////////////////////////////////////////////
+
+void ToProto(NProto::TJobProfile* protoProfile, const TJobProfile& profile)
+{
+    protoProfile->set_profiling_binary(ToProto(profile.ProfilingBinary));
+    protoProfile->set_profiler_type(ToProto(profile.ProfilerType));
+    protoProfile->set_blob(profile.Blob);
+    protoProfile->set_profiling_probability(profile.ProfilingProbability);
+}
+
+void FromProto(TJobProfile* profile, const NProto::TJobProfile& protoProfile)
+{
+    profile->ProfilingBinary = GetOrCrash(TryCheckedEnumCast<NScheduler::EProfilingBinary>(protoProfile.profiling_binary()));
+    profile->ProfilerType = GetOrCrash(TryCheckedEnumCast<NScheduler::EProfilerType>(protoProfile.profiler_type()));
+    profile->Blob = protoProfile.blob();
+    profile->ProfilingProbability = protoProfile.profiling_probability();
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+std::string TJobProfile::GetType() const
+{
+    return Format("%lv_%lv", ProfilingBinary, ProfilerType);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+void TTimeStatistics::AddSamplesTo(TStatistics* statistics) const
+{
+    using namespace NStatisticPath;
+
+    if (WaitingForResourcesDuration) {
+        statistics->AddSample("/time/wait_for_resources"_SP, WaitingForResourcesDuration->MilliSeconds());
+    }
+    if (PrepareDuration) {
+        statistics->AddSample("/time/prepare"_SP, PrepareDuration->MilliSeconds());
+    }
+    if (ArtifactsCachingDuration) {
+        statistics->AddSample("/time/artifacts_caching"_SP, ArtifactsCachingDuration->MilliSeconds());
+        // COMPAT(krasovav): Remove this statistic after it's no longer used
+        statistics->AddSample("/time/artifacts_download"_SP, ArtifactsCachingDuration->MilliSeconds());
+    }
+    if (PrepareLayersDuration) {
+        statistics->AddSample("/time/prepare_layers"_SP, PrepareLayersDuration->MilliSeconds());
+    }
+    if (PrepareRootFSDuration) {
+        statistics->AddSample("/time/prepare_root_fs"_SP, PrepareRootFSDuration->MilliSeconds());
+    }
+    if (ValidateRootFSDuration) {
+        statistics->AddSample("/time/validate_root_fs"_SP, ValidateRootFSDuration->MilliSeconds());
+    }
+    if (PrepareGpuCheckFSDuration) {
+        statistics->AddSample("/time/prepare_gpu_check_fs"_SP, PrepareGpuCheckFSDuration->MilliSeconds());
+    }
+    if (PrepareNonRootVolumesDuration) {
+        statistics->AddSample("/time/prepare_non_root_volumes"_SP, PrepareNonRootVolumesDuration->MilliSeconds());
+        // COMPAT(krasovav): Remove this statistic after it's no longer used
+        statistics->AddSample("/time/prepare_tmpfs"_SP, PrepareNonRootVolumesDuration->MilliSeconds());
+    }
+    if (LinkVolumesDuration) {
+        statistics->AddSample("/time/link_volumes"_SP, LinkVolumesDuration->MilliSeconds());
+    }
+    if (ExecDuration) {
+        statistics->AddSample("/time/exec"_SP, ExecDuration->MilliSeconds());
+    }
+    if (GpuCheckDuration) {
+        statistics->AddSample("/time/gpu_check"_SP, GpuCheckDuration->MilliSeconds());
+    }
+}
+
+bool TTimeStatistics::IsEmpty() const
+{
+    return
+        !WaitingForResourcesDuration &&
+        !PrepareDuration &&
+        !ArtifactsCachingDuration &&
+        !PrepareLayersDuration &&
+        !PrepareRootFSDuration &&
+        !ValidateRootFSDuration &&
+        !PrepareNonRootVolumesDuration &&
+        !LinkVolumesDuration &&
+        !ExecDuration &&
+        !PrepareGpuCheckFSDuration &&
+        !GpuCheckDuration;
+}
+
+// TODO(pogorelov): Move TTimeStatistics to NControllerAgent.
+void TTimeStatistics::RegisterMetadata(auto&& registrar)
+{
+    PHOENIX_REGISTER_FIELD(1, PrepareDuration);
+    PHOENIX_REGISTER_FIELD(2, ArtifactsCachingDuration);
+    PHOENIX_REGISTER_FIELD(3, PrepareRootFSDuration);
+    PHOENIX_REGISTER_FIELD(4, ExecDuration);
+    PHOENIX_REGISTER_FIELD(7, PrepareGpuCheckFSDuration,
+        .SinceVersion(NControllerAgent::ESnapshotVersion::PrepareGpuCheckFSDuration));
+    PHOENIX_REGISTER_FIELD(5, GpuCheckDuration);
+
+    PHOENIX_REGISTER_FIELD(6, WaitingForResourcesDuration,
+        .SinceVersion(NControllerAgent::ESnapshotVersion::WaitingForResourcesDuration));
+
+    PHOENIX_REGISTER_FIELD(8, PrepareNonRootVolumesDuration,
+        .SinceVersion(NControllerAgent::ESnapshotVersion::PrepareTmpfsVolumes));
+
+    PHOENIX_REGISTER_FIELD(9, ValidateRootFSDuration,
+        .SinceVersion(NControllerAgent::ESnapshotVersion::ValidateRootFS));
+
+    PHOENIX_REGISTER_FIELD(10, LinkVolumesDuration,
+        .SinceVersion(NControllerAgent::ESnapshotVersion::LinkVolumes));
+
+    PHOENIX_REGISTER_FIELD(11, PrepareLayersDuration,
+        .SinceVersion(NControllerAgent::ESnapshotVersion::PrepareLayersDuration));
+}
+
+void ToProto(
+    NControllerAgent::NProto::TTimeStatistics* timeStatisticsProto,
+    const TTimeStatistics& timeStatistics)
+{
+    if (timeStatistics.WaitingForResourcesDuration) {
+        timeStatisticsProto->set_waiting_for_resources_duration(ToProto(*timeStatistics.WaitingForResourcesDuration));
+    }
+    if (timeStatistics.PrepareDuration) {
+        timeStatisticsProto->set_prepare_duration(ToProto(*timeStatistics.PrepareDuration));
+    }
+    if (timeStatistics.ArtifactsCachingDuration) {
+        timeStatisticsProto->set_artifacts_caching_duration(ToProto(*timeStatistics.ArtifactsCachingDuration));
+    }
+    if (timeStatistics.PrepareLayersDuration) {
+        timeStatisticsProto->set_prepare_layers_duration(ToProto(*timeStatistics.PrepareLayersDuration));
+    }
+    if (timeStatistics.PrepareRootFSDuration) {
+        timeStatisticsProto->set_prepare_root_fs_duration(ToProto(*timeStatistics.PrepareRootFSDuration));
+    }
+    if (timeStatistics.ValidateRootFSDuration) {
+        timeStatisticsProto->set_validate_root_fs_duration(ToProto(*timeStatistics.ValidateRootFSDuration));
+    }
+    if (timeStatistics.PrepareNonRootVolumesDuration) {
+        timeStatisticsProto->set_prepare_non_root_volumes_duration(ToProto(*timeStatistics.PrepareNonRootVolumesDuration));
+    }
+    if (timeStatistics.LinkVolumesDuration) {
+        timeStatisticsProto->set_link_volumes_duration(ToProto(*timeStatistics.LinkVolumesDuration));
+    }
+    if (timeStatistics.PrepareGpuCheckFSDuration) {
+        timeStatisticsProto->set_prepare_gpu_check_fs_duration(ToProto(*timeStatistics.PrepareGpuCheckFSDuration));
+    }
+    if (timeStatistics.ExecDuration) {
+        timeStatisticsProto->set_exec_duration(ToProto(*timeStatistics.ExecDuration));
+    }
+    if (timeStatistics.GpuCheckDuration) {
+        timeStatisticsProto->set_gpu_check_duration(ToProto(*timeStatistics.GpuCheckDuration));
+    }
+}
+
+void FromProto(
+    TTimeStatistics* timeStatistics,
+    const NControllerAgent::NProto::TTimeStatistics& timeStatisticsProto)
+{
+    if (timeStatisticsProto.has_waiting_for_resources_duration()) {
+        timeStatistics->WaitingForResourcesDuration = FromProto<TDuration>(timeStatisticsProto.waiting_for_resources_duration());
+    }
+    if (timeStatisticsProto.has_prepare_duration()) {
+        timeStatistics->PrepareDuration = FromProto<TDuration>(timeStatisticsProto.prepare_duration());
+    }
+    if (timeStatisticsProto.has_artifacts_caching_duration()) {
+        timeStatistics->ArtifactsCachingDuration = FromProto<TDuration>(timeStatisticsProto.artifacts_caching_duration());
+    }
+    if (timeStatisticsProto.has_prepare_layers_duration()) {
+        timeStatistics->PrepareLayersDuration = FromProto<TDuration>(timeStatisticsProto.prepare_layers_duration());
+    }
+    if (timeStatisticsProto.has_prepare_root_fs_duration()) {
+        timeStatistics->PrepareRootFSDuration = FromProto<TDuration>(timeStatisticsProto.prepare_root_fs_duration());
+    }
+    if (timeStatisticsProto.has_validate_root_fs_duration()) {
+        timeStatistics->ValidateRootFSDuration = FromProto<TDuration>(timeStatisticsProto.validate_root_fs_duration());
+    }
+    if (timeStatisticsProto.has_prepare_non_root_volumes_duration()) {
+        timeStatistics->PrepareNonRootVolumesDuration = FromProto<TDuration>(timeStatisticsProto.prepare_non_root_volumes_duration());
+    }
+    if (timeStatisticsProto.has_link_volumes_duration()) {
+        timeStatistics->LinkVolumesDuration = FromProto<TDuration>(timeStatisticsProto.link_volumes_duration());
+    }
+    if (timeStatisticsProto.has_prepare_gpu_check_fs_duration()) {
+        timeStatistics->PrepareGpuCheckFSDuration = FromProto<TDuration>(timeStatisticsProto.prepare_gpu_check_fs_duration());
+    }
+    if (timeStatisticsProto.has_exec_duration()) {
+        timeStatistics->ExecDuration = FromProto<TDuration>(timeStatisticsProto.exec_duration());
+    }
+    if (timeStatisticsProto.has_gpu_check_duration()) {
+        timeStatistics->GpuCheckDuration = FromProto<TDuration>(timeStatisticsProto.gpu_check_duration());
+    }
+}
+
+void Serialize(const TTimeStatistics& timeStatistics, NYson::IYsonConsumer* consumer)
+{
+    BuildYsonFluently(consumer)
+        .BeginMap()
+            .DoIf(static_cast<bool>(timeStatistics.WaitingForResourcesDuration), [&] (auto fluent) {
+                fluent.Item("wait_for_resources").Value(*timeStatistics.WaitingForResourcesDuration);
+            })
+            .DoIf(static_cast<bool>(timeStatistics.PrepareDuration), [&] (auto fluent) {
+                fluent.Item("prepare").Value(*timeStatistics.PrepareDuration);
+            })
+            .DoIf(static_cast<bool>(timeStatistics.ArtifactsCachingDuration), [&] (auto fluent) {
+                fluent.Item("artifacts_caching").Value(*timeStatistics.ArtifactsCachingDuration);
+                // COMPAT(krasovav): Remove this field after it's no longer used
+                fluent.Item("artifacts_download").Value(*timeStatistics.ArtifactsCachingDuration);
+            })
+            .DoIf(static_cast<bool>(timeStatistics.PrepareLayersDuration), [&] (auto fluent) {
+                fluent.Item("prepare_layers").Value(*timeStatistics.PrepareLayersDuration);
+            })
+            .DoIf(static_cast<bool>(timeStatistics.PrepareRootFSDuration), [&] (auto fluent) {
+                fluent.Item("prepare_root_fs").Value(*timeStatistics.PrepareRootFSDuration);
+            })
+            .DoIf(static_cast<bool>(timeStatistics.ValidateRootFSDuration), [&] (auto fluent) {
+                fluent.Item("validate_root_fs").Value(*timeStatistics.ValidateRootFSDuration);
+            })
+            .DoIf(static_cast<bool>(timeStatistics.PrepareNonRootVolumesDuration), [&] (auto fluent) {
+                fluent.Item("prepare_non_root_volumes").Value(*timeStatistics.PrepareNonRootVolumesDuration);
+                // COMPAT(krasovav): Remove this field after it's no longer used
+                fluent.Item("prepare_tmpfs").Value(*timeStatistics.PrepareNonRootVolumesDuration);
+            })
+            .DoIf(static_cast<bool>(timeStatistics.LinkVolumesDuration), [&] (auto fluent) {
+                fluent.Item("link_volumes").Value(*timeStatistics.LinkVolumesDuration);
+            })
+            .DoIf(static_cast<bool>(timeStatistics.PrepareGpuCheckFSDuration), [&] (auto fluent) {
+                fluent.Item("prepare_gpu_check_fs").Value(*timeStatistics.PrepareGpuCheckFSDuration);
+            })
+            .DoIf(static_cast<bool>(timeStatistics.ExecDuration), [&] (auto fluent) {
+                fluent.Item("exec").Value(*timeStatistics.ExecDuration);
+            })
+            .DoIf(static_cast<bool>(timeStatistics.GpuCheckDuration), [&] (auto fluent) {
+                fluent.Item("gpu_check").Value(*timeStatistics.GpuCheckDuration);
+            })
+        .EndMap();
+}
+
+PHOENIX_DEFINE_TYPE(TTimeStatistics);
+
+////////////////////////////////////////////////////////////////////////////////
+
+} // namespace NYT::NJobAgent

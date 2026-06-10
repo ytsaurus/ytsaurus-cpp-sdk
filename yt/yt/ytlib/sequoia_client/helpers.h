@@ -1,0 +1,89 @@
+#pragma once
+
+#include "public.h"
+
+#include <yt/yt/core/ypath/public.h>
+
+#include <library/cpp/yt/misc/property.h>
+
+#include <library/cpp/yt/farmhash/farm_hash.h>
+
+namespace NYT::NSequoiaClient {
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct TSelectRowsQuery
+{
+    std::vector<std::string> WhereConjuncts;
+    std::vector<std::string> OrderBy;
+    std::optional<int> Limit;
+};
+
+void FormatValue(TStringBuilderBase* builder, const TSelectRowsQuery& query, TStringBuf /*spec*/);
+
+////////////////////////////////////////////////////////////////////////////////
+
+inline const char MangledPathSeparator = '\0';
+
+////////////////////////////////////////////////////////////////////////////////
+
+TMangledSequoiaPath MangleSequoiaPath(const TRealPath& realPath);
+
+TRealPath DemangleSequoiaPath(const TMangledSequoiaPath& mangledPath);
+
+//! Unescapes special characters.
+TString ToStringLiteral(NYPath::TYPathBuf key);
+
+// TODO(danilalexeev): YT-20675. This method is for the time being until the validation
+// is global across all components.
+NYPath::TYPath ValidateAndMakeYPath(TRawYPath&& path);
+
+TFingerprint GetObjectIdFingerprint(NObjectClient::TObjectId id);
+
+////////////////////////////////////////////////////////////////////////////////
+
+inline constexpr TErrorCode RetriableSequoiaErrorCodes[] = {
+    NTabletClient::EErrorCode::TransactionLockConflict,
+    NTabletClient::EErrorCode::BlockedRowWaitTimeout,
+    NTabletClient::EErrorCode::NoSuchTablet,
+    NTabletClient::EErrorCode::ChunkIsNotPreloaded,
+    NTabletClient::EErrorCode::TabletNotMounted,
+};
+
+bool IsRetriableSequoiaError(const TError& error);
+
+void ThrowOnSequoiaReplicasError(const TError& error, const std::vector<TErrorCode>& retriableErrorCodes);
+
+////////////////////////////////////////////////////////////////////////////////
+
+//! Does two things: wraps the error into SequoiaRetriableError if the error is,
+//! in fact, retriable and strips certain internal errors to hide extraneous
+//! implementation details from the user in order to avoid confusing them.
+// NB: We want to use AsUnique().Apply() almost everywhere but TFuture<void> doesn't
+// have this method. So |void| is a special case.
+template <class T>
+TErrorOr<T> TransformSequoiaTransactionCommitError(
+    std::conditional_t<std::is_void_v<T>, const TError&, TErrorOr<T>&&> result);
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct TParsedChunkReplica
+{
+    NNodeTrackerClient::TNodeId NodeId = NNodeTrackerClient::InvalidNodeId;
+    int ReplicaIndex = NChunkClient::GenericChunkReplicaIndex;
+    NNodeTrackerClient::TChunkLocationIndex LocationIndex = NNodeTrackerClient::InvalidChunkLocationIndex;
+    NChunkClient::EChunkReplicaState ReplicaState = NChunkClient::EChunkReplicaState::Generic;
+};
+
+template <class TOnReplica>
+void ParseChunkReplicas(
+    NYson::TYsonStringBuf replicasYson,
+    const TOnReplica& onReplica);
+
+////////////////////////////////////////////////////////////////////////////////
+
+} // namespace NYT::NSequoiaClient
+
+#define HELPERS_INL_H_
+#include "helpers-inl.h"
+#undef HELPERS_INL_H_

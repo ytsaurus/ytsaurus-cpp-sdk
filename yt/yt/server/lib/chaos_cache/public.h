@@ -1,0 +1,14 @@
+#pragma once
+
+#include <library/cpp/yt/memory/intrusive_ptr.h>
+
+namespace NYT::NChaosCache {
+
+////////////////////////////////////////////////////////////////////////////////
+
+DECLARE_REFCOUNTED_CLASS(TChaosCache)
+DECLARE_REFCOUNTED_STRUCT(TChaosCacheConfig)
+
+////////////////////////////////////////////////////////////////////////////////
+
+} // namespace NYT::NChaosCache

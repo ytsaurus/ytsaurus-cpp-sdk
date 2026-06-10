@@ -1,0 +1,15 @@
+#pragma once
+
+#include "public.h"
+
+#include <yt/yt/core/logging/log.h>
+
+namespace NYT::NJobProberClient {
+
+////////////////////////////////////////////////////////////////////////////////
+
+YT_DEFINE_GLOBAL(const NLogging::TLogger, JobProberClientLogger, "JobProberClient");
+
+////////////////////////////////////////////////////////////////////////////////
+
+} // namespace NYT::NJobProberClient

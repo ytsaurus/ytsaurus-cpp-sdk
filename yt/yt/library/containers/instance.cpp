@@ -1,0 +1,1009 @@
+#ifdef __linux__
+
+#include "instance.h"
+
+#include "porto_executor.h"
+#include "private.h"
+#include "porto_helpers.h"
+
+#include <yt/yt/library/cgroup/statistics.h>
+
+#include <yt/yt/library/containers/config.h>
+
+#include <yt/yt/library/re2/re2.h>
+
+#include <yt/yt/core/concurrency/scheduler.h>
+
+#include <yt/yt/core/logging/log.h>
+
+#include <yt/yt/core/misc/collection_helpers.h>
+#include <yt/yt/core/misc/error.h>
+#include <yt/yt/core/misc/fs.h>
+#include <yt/yt/core/misc/proc.h>
+
+#include <library/cpp/porto/libporto.hpp>
+
+#include <util/stream/file.h>
+
+#include <util/string/cast.h>
+#include <util/string/split.h>
+
+#include <util/system/env.h>
+
+#include <initializer_list>
+#include <string>
+
+namespace NYT::NContainers {
+
+using namespace NCGroups;
+using namespace NConcurrency;
+using namespace NNet;
+
+////////////////////////////////////////////////////////////////////////////////
+
+namespace NDetail {
+
+// Porto passes command string to wordexp, where quota (') symbol
+// is delimiter. So we must replace it with concatenation ('"'"').
+std::string EscapeForWordexp(const char* in)
+{
+    std::string buffer;
+    while (*in) {
+        if (*in == '\'') {
+            buffer.append(R"('"'"')");
+        } else {
+            buffer.push_back(*in);
+        }
+        in++;
+    }
+    return buffer;
+}
+
+i64 Extract(
+    const std::string& input,
+    const std::string& pattern,
+    const std::string& terminator = "\n")
+{
+    auto start = input.find(pattern) + pattern.length();
+    auto end = input.find(terminator, start);
+    return std::stol(input.substr(start, (end == input.npos) ? end : end - start));
+}
+
+i64 ExtractSum(
+    const std::string& input,
+    const std::string& pattern,
+    const std::string& delimiter,
+    const std::string& terminator = "\n")
+{
+    i64 sum = 0;
+    std::string::size_type pos = 0;
+    while (pos < input.length()) {
+        pos = input.find(pattern, pos);
+        if (pos == input.npos) {
+            break;
+        }
+        pos += pattern.length();
+
+        pos = input.find(delimiter, pos);
+        if (pos == input.npos) {
+            break;
+        }
+
+        pos++;
+        auto end = input.find(terminator, pos);
+        sum += std::stol(input.substr(pos, (end == input.npos) ? end : end - pos));
+    }
+    return sum;
+}
+
+std::vector<TResourceUsage::TTaggedStat> ExtractIOStatsPerDevice(
+    const std::string& input)
+{
+    // Example of input: 'hw: 34843530298; sdb: 618096087; sdi: 9284833908'.
+    static const NRe2::RE2 regex("([a-z]+) *: *([0-9]+)");
+
+    std::vector<TResourceUsage::TTaggedStat> result;
+    std::string_view inputView{input.c_str(), input.length()};
+
+    std::string deviceName;
+    int statisticsValue;
+
+    while (NRe2::RE2::FindAndConsume(&inputView, regex, &deviceName, &statisticsValue)) {
+        // hw - total statistic for all devices.
+        // In that function we extract only per device statistic, because of that we skip hw.
+        if (deviceName != "hw") {
+            result.emplace_back(
+                std::move(deviceName),
+                statisticsValue);
+        }
+    }
+
+    return result;
+}
+
+using TPortoStatRule = std::pair<std::string, std::function<i64(const std::string& input)>>;
+
+using TPortoTaggedStatRule = std::pair<std::string, std::function<std::vector<TResourceUsage::TTaggedStat>(const std::string& input)>>;
+
+static const std::function<i64(const std::string&)> LongExtractor = [] (const std::string& in) {
+    return std::stol(in);
+};
+
+static const std::function<i64(const std::string&)> CoreNsPerSecondExtractor = [] (const std::string& in) {
+    int pos = in.find("c", 0);
+    return (std::stod(in.substr(0, pos))) * 1'000'000'000;
+};
+
+static const std::function<std::vector<TResourceUsage::TTaggedStat>(const std::string&)> GetIOTaggedStatExtractor()
+{
+    return [] (const std::string& in) -> std::vector<TResourceUsage::TTaggedStat> {
+        return ExtractIOStatsPerDevice(in);
+    };
+}
+
+static const std::function<i64(const std::string&)> GetIOStatExtractor(const std::string& rwMode = "")
+{
+    return [rwMode] (const std::string& in) {
+        return ExtractSum(in, "hw", rwMode + ":",  ";");
+    };
+}
+
+static const std::function<i64(const std::string&)> GetStatByKeyExtractor(const std::string& statKey, const std::string& terminator = "\n")
+{
+    return [statKey, terminator] (const std::string& in) {
+        return Extract(in, statKey, terminator);
+    };
+}
+
+static const std::function<i64(const std::string&)> GetStatByCGroupVersionedKeyExtractor(const std::string& statKeyV1, const std::string& statKeyV2)
+{
+    return [statKeyV1, statKeyV2] (const std::string& in) {
+        // NB(pavook): IsV2() called for every statistics extraction to guard against a potential SIOF.
+        // It's quite cheap though (a cached ptr load and a virtual call).
+        const auto& key = NCGroups::TSelfCGroupsStatisticsFetcher::Get()->IsV2() ? statKeyV2 : statKeyV1;
+        return Extract(in, key);
+    };
+}
+
+const THashMap<EStatField, TPortoStatRule> PortoStatRules = {
+    {EStatField::CpuBurstUsage, {"cpu_burst_usage", LongExtractor}},
+    {EStatField::CpuUsage, {"cpu_usage", LongExtractor}},
+    {EStatField::CpuSystemUsage, {"cpu_usage_system", LongExtractor}},
+    {EStatField::CpuWait, {"cpu_wait", LongExtractor}},
+    {EStatField::CpuThrottled, {"cpu_throttled", LongExtractor}},
+    {EStatField::CpuCfsThrottled, {"cpu.stat", GetStatByKeyExtractor("h_throttled_time")}},
+    {EStatField::ThreadCount, {"thread_count", LongExtractor}},
+    {EStatField::CpuLimit, {"cpu_limit_bound", CoreNsPerSecondExtractor}},
+    {EStatField::CpuGuarantee, {"cpu_guarantee_bound", CoreNsPerSecondExtractor}},
+    {EStatField::ResidentAnon, {"memory.stat", GetStatByCGroupVersionedKeyExtractor("total_rss", "anon")}},
+    {EStatField::TmpfsUsage, {"memory.stat", GetStatByCGroupVersionedKeyExtractor("total_shmem", "shmem")}},
+    {EStatField::MappedFile, {"memory.stat", GetStatByCGroupVersionedKeyExtractor("total_mapped_file", "file_mapped")}},
+    {EStatField::MinorPageFaults, {"minor_faults", LongExtractor}},
+    {EStatField::MajorPageFaults, {"major_faults", LongExtractor}},
+    {EStatField::FileCacheUsage, {"cache_usage", LongExtractor}},
+    {EStatField::AnonMemoryUsage, {"anon_usage", LongExtractor}},
+    {EStatField::AnonMemoryLimit, {"anon_limit_total", LongExtractor}},
+    {EStatField::MemoryUsage, {"memory_usage", LongExtractor}},
+    {EStatField::MemoryGuarantee, {"memory_guarantee", LongExtractor}},
+    {EStatField::MemoryLimit, {"memory_limit_total", LongExtractor}},
+    {EStatField::MaxMemoryUsage, {"memory.max_usage_in_bytes", LongExtractor}},
+    {EStatField::OomKills, {"oom_kills", LongExtractor}},
+    {EStatField::OomKillsTotal, {"oom_kills_total", LongExtractor}},
+
+    {EStatField::IOReadByte, {"io_read", GetIOStatExtractor()}},
+    {EStatField::IOWriteByte, {"io_write", GetIOStatExtractor()}},
+    {EStatField::IOBytesLimit, {"io_limit", GetIOStatExtractor()}},
+    {EStatField::IOReadOps, {"io_read_ops", GetIOStatExtractor()}},
+    {EStatField::IOWriteOps, {"io_write_ops", GetIOStatExtractor()}},
+    {EStatField::IOOps, {"io_ops", GetIOStatExtractor()}},
+    {EStatField::IOOpsLimit, {"io_ops_limit", GetIOStatExtractor()}},
+    {EStatField::IOTotalTime, {"io_time", GetIOStatExtractor()}},
+    {EStatField::IOWaitTime, {"io_wait", GetIOStatExtractor()}},
+
+    // Example of net_limit_soft_stat:
+    //   BytesForcedToFB: 0; BytesUntouched: 0; ConnectionMarks: 0; ConnectionUnmarks: 0; PacketsAboveGuarantee: 0; PacketsForcedToFB: 0; PacketsUntouched: 0
+    {EStatField::NetSoftLimitBytesForcedToFb, {"net_limit_soft_stat", GetStatByKeyExtractor("BytesForcedToFb:", ";")}},
+    {EStatField::NetSoftLimitBytesUntouched, {"net_limit_soft_stat", GetStatByKeyExtractor("BytesUntouched:", ";")}},
+    {EStatField::NetSoftLimitPacketsAboveGuarantee, {"net_limit_soft_stat", GetStatByKeyExtractor("PacketsAboveGuarantee:", ";")}},
+};
+
+const THashMap<EStatField, TPortoStatRule> PortoNetworkStatRules = {
+    {EStatField::NetTxBytes, {"net_tx_bytes", LongExtractor}},
+    {EStatField::NetTxPackets, {"net_tx_packets", LongExtractor}},
+    {EStatField::NetTxDrops, {"net_tx_drops", LongExtractor}},
+    {EStatField::NetTxLimit, {"net_limit", LongExtractor}},
+    {EStatField::NetRxBytes, {"net_rx_bytes", LongExtractor}},
+    {EStatField::NetRxPackets, {"net_rx_packets", LongExtractor}},
+    {EStatField::NetRxDrops, {"net_rx_drops", LongExtractor}},
+    {EStatField::NetRxLimit, {"net_rx_limit", LongExtractor}},
+};
+
+const THashMap<EStatField, TPortoTaggedStatRule> PortoTaggedStatRules = {
+    {EStatField::IOReadByte, {"io_read", GetIOTaggedStatExtractor()}},
+    {EStatField::IOWriteByte, {"io_write", GetIOTaggedStatExtractor()}},
+    {EStatField::IOBytesLimit, {"io_limit", GetIOTaggedStatExtractor()}},
+    {EStatField::IOReadOps, {"io_read_ops", GetIOTaggedStatExtractor()}},
+    {EStatField::IOWriteOps, {"io_write_ops", GetIOTaggedStatExtractor()}},
+    {EStatField::IOOps, {"io_ops", GetIOTaggedStatExtractor()}},
+    {EStatField::IOOpsLimit, {"io_ops_limit", GetIOTaggedStatExtractor()}},
+    {EStatField::IOTotalTime, {"io_time", GetIOTaggedStatExtractor()}},
+    {EStatField::IOWaitTime, {"io_wait", GetIOTaggedStatExtractor()}},
+};
+
+std::optional<std::string> GetParentName(const std::string& name)
+{
+    if (name.empty()) {
+        return std::nullopt;
+    }
+
+    auto slashPosition = name.rfind('/');
+    if (slashPosition == std::string::npos) {
+        return "";
+    }
+
+    return name.substr(0, slashPosition);
+}
+
+std::optional<std::string> GetRootName(const std::string& name)
+{
+    if (name.empty()) {
+        return std::nullopt;
+    }
+
+    if (name == "/") {
+        return name;
+    }
+
+    auto slashPosition = name.find('/');
+    if (slashPosition == std::string::npos) {
+        return name;
+    }
+
+    return name.substr(0, slashPosition);
+}
+
+} // namespace NDetail
+
+////////////////////////////////////////////////////////////////////////////////
+
+class TPortoInstanceLauncher
+    : public IInstanceLauncher
+{
+public:
+    TPortoInstanceLauncher(std::string_view name, IPortoExecutorPtr executor)
+        : Executor_(std::move(executor))
+        , Logger(ContainersLogger().WithTag("Container: %v", name))
+    {
+        Spec_.Name = name;
+        Spec_.CGroupControllers = {
+            "freezer",
+            "cpu",
+            "cpuacct",
+            "net_cls",
+            "blkio",
+            "devices",
+            "pids"
+        };
+    }
+
+    const std::string& GetName() const override
+    {
+        return Spec_.Name;
+    }
+
+    bool HasRoot() const override
+    {
+        return static_cast<bool>(Spec_.RootFS);
+    }
+
+    void SetStdIn(const std::string& inputPath) override
+    {
+        Spec_.StdinPath = inputPath;
+    }
+
+    void SetStdOut(const std::string& outPath) override
+    {
+        Spec_.StdoutPath = outPath;
+    }
+
+    void SetStdErr(const std::string& errorPath) override
+    {
+        Spec_.StderrPath = errorPath;
+    }
+
+    void SetCwd(const std::string& pwd) override
+    {
+        Spec_.CurrentWorkingDirectory = pwd;
+    }
+
+    void SetCoreDumpHandler(const std::optional<std::string>& handler) override
+    {
+        if (handler) {
+            Spec_.CoreCommand = *handler;
+            Spec_.EnableCoreDumps = true;
+        } else {
+            Spec_.EnableCoreDumps = false;
+        }
+    }
+
+    void SetRoot(const TRootFS& rootFS) override
+    {
+        Spec_.RootFS = rootFS;
+    }
+
+    void SetBinds(const std::vector<TBind>& binds) override
+    {
+        Spec_.Binds = binds;
+    }
+
+    void SetCpuWeight(double cpuWeight) override
+    {
+        Spec_.CpuWeight = cpuWeight;
+    }
+
+    void SetThreadLimit(i64 threadLimit) override
+    {
+        Spec_.ThreadLimit = threadLimit;
+    }
+
+    void SetDevices(const std::vector<TDevice>& devices) override
+    {
+        Spec_.Devices = devices;
+    }
+
+    void SetEnablePorto(EEnablePorto enablePorto) override
+    {
+        Spec_.EnablePorto = enablePorto;
+    }
+
+    void SetIsolate(bool isolate) override
+    {
+        Spec_.Isolate = isolate;
+    }
+
+    void SetEnableFuse(bool enableFuse) override
+    {
+        Spec_.EnableFuse = enableFuse;
+    }
+
+    void EnableMemoryTracking() override
+    {
+        Spec_.CGroupControllers.push_back("memory");
+    }
+
+    void SetGroup(int groupId) override
+    {
+        Spec_.GroupId = groupId;
+    }
+
+    void SetUser(const std::string& user) override
+    {
+        Spec_.User = user;
+    }
+
+    void SetNetworkInterface(const std::string& networkInterface) override
+    {
+        Spec_.NetworkInterface = networkInterface;
+    }
+
+    void SetIPAddresses(const std::vector<NNet::TIP6Address>& addresses, bool enableNat64) override
+    {
+        Spec_.IPAddresses = addresses;
+        Spec_.EnableNat64 = enableNat64;
+        Spec_.DisableNetwork = false;
+    }
+
+    void DisableNetwork() override
+    {
+        Spec_.DisableNetwork = true;
+        Spec_.IPAddresses.clear();
+        Spec_.EnableNat64 = false;
+    }
+
+    void SetHostName(const std::string& hostName) override
+    {
+        Spec_.HostName = hostName;
+    }
+
+    void SetPlaces(const std::vector<std::string>& places) override
+    {
+        Spec_.Places = places;
+    }
+
+    TFuture<IInstancePtr> Launch(
+        const std::string& path,
+        const std::vector<std::string>& args,
+        const THashMap<std::string, std::string>& env) override
+    {
+        TStringBuilder commandBuilder;
+        auto append = [&] (const auto& value) {
+            commandBuilder.AppendString("'");
+            commandBuilder.AppendString(NDetail::EscapeForWordexp(value.c_str()));
+            commandBuilder.AppendString("' ");
+        };
+
+        append(path);
+        for (const auto& arg : args) {
+            append(arg);
+        }
+
+        Spec_.Command = commandBuilder.Flush();
+        YT_LOG_DEBUG("Executing Porto container (Name: %v, Command: %v)",
+            Spec_.Name,
+            Spec_.Command);
+
+        Spec_.Env = env;
+
+        auto onContainerCreated = [this, this_ = MakeStrong(this)] (const TError& error) -> IInstancePtr {
+            if (!error.IsOK()) {
+                THROW_ERROR_EXCEPTION(NContainers::EErrorCode::FailedToStartContainer, "Unable to start container")
+                    << error;
+            }
+
+            return GetPortoInstance(Executor_, Spec_.Name, Spec_.NetworkInterface);
+        };
+
+        return Executor_->CreateContainer(Spec_, /*start*/ true)
+            .Apply(BIND(onContainerCreated));
+    }
+
+    TFuture<IInstancePtr> LaunchMeta(const THashMap<std::string, std::string>& env) override
+    {
+        Spec_.Env = env;
+
+        auto onContainerCreated = [this, this_ = MakeStrong(this)] (const TError& error) -> IInstancePtr {
+            if (!error.IsOK()) {
+                THROW_ERROR_EXCEPTION(NContainers::EErrorCode::FailedToStartContainer, "Unable to create container")
+                    << error;
+            }
+
+            return GetPortoInstance(Executor_, Spec_.Name, Spec_.NetworkInterface);
+        };
+
+        return Executor_->CreateContainer(Spec_, /*start*/ true)
+            .Apply(BIND(onContainerCreated));
+    }
+
+private:
+    IPortoExecutorPtr Executor_;
+    TRunnableContainerSpec Spec_;
+    const NLogging::TLogger Logger;
+};
+
+IInstanceLauncherPtr CreatePortoInstanceLauncher(std::string_view name, IPortoExecutorPtr executor)
+{
+    return New<TPortoInstanceLauncher>(name, std::move(executor));
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+class TPortoInstance
+    : public IInstance
+{
+public:
+    static IInstancePtr GetSelf(IPortoExecutorPtr executor)
+    {
+        return New<TPortoInstance>(GetSelfContainerName(executor), executor);
+    }
+
+    static IInstancePtr GetInstance(IPortoExecutorPtr executor, const std::string& name)
+    {
+        return New<TPortoInstance>(name, executor);
+    }
+
+    static IInstancePtr GetInstance(IPortoExecutorPtr executor, const std::string& name, const std::optional<std::string>& networkInterface)
+    {
+        return New<TPortoInstance>(
+            name,
+            networkInterface.value_or(std::string(DefaultPortoNetworkInterface)),
+            executor);
+    }
+
+
+    void Kill(int signal) override
+    {
+        auto error = WaitFor(Executor_->KillContainer(Name_, signal));
+        // Killing already finished process is not an error.
+        if (error.FindMatching(EPortoErrorCode::InvalidState)) {
+            return;
+        }
+        if (!error.IsOK()) {
+            THROW_ERROR_EXCEPTION("Failed to send signal to Porto instance")
+                << TErrorAttribute("signal", signal)
+                << TErrorAttribute("container", Name_)
+                << error;
+        }
+    }
+
+    void Destroy() override
+    {
+        WaitFor(Executor_->DestroyContainer(Name_))
+            .ThrowOnError();
+        Destroyed_ = true;
+    }
+
+    void Stop() override
+    {
+        WaitFor(Executor_->StopContainer(Name_))
+            .ThrowOnError();
+    }
+
+    void Respawn() override
+    {
+        WaitFor(Executor_->RespawnContainer(Name_))
+            .ThrowOnError();
+    }
+
+    TErrorOr<i64> CalculateCpuUserUsage(
+        TErrorOr<i64>& cpuUsage,
+        TErrorOr<i64>& cpuSystemUsage) const
+    {
+        if (cpuUsage.IsOK() && cpuSystemUsage.IsOK()) {
+            return cpuUsage.Value() > cpuSystemUsage.Value() ? cpuUsage.Value() - cpuSystemUsage.Value() : 0;
+        } else if (cpuUsage.IsOK()) {
+            return TError("Missing property %Qlv in Porto response", EStatField::CpuSystemUsage)
+                << TErrorAttribute("container", Name_);
+        } else {
+            return TError("Missing property %Qlv in Porto response", EStatField::CpuUsage)
+                << TErrorAttribute("container", Name_);
+        }
+    }
+
+    TResourceUsage GetResourceUsage(
+        const std::vector<EStatField>& fields) const override
+    {
+        std::vector<std::string> properties;
+        properties.push_back("absolute_name");
+
+        bool userTimeRequested = false;
+        bool contextSwitchesRequested = false;
+        bool volumeCountRequested = false;
+        bool layerCountRequested = false;
+
+        auto makeNetworkProperty = [&] (const std::string& name) {
+            return Format("%v[%v]", name, NetworkInterface_);
+        };
+
+        for (auto field : fields) {
+            if (auto it = NDetail::PortoStatRules.find(field)) {
+                const auto& rule = it->second;
+                properties.push_back(rule.first);
+            } else if (auto it = NDetail::PortoNetworkStatRules.find(field)) {
+                const auto& rule = it->second;
+                properties.push_back(makeNetworkProperty(rule.first));
+            } else if (auto it = NDetail::PortoTaggedStatRules.find(field)) {
+                const auto& rule = it->second;
+                properties.push_back(rule.first);
+            } else if (field == EStatField::ContextSwitchesDelta || field == EStatField::ContextSwitches) {
+                contextSwitchesRequested = true;
+            } else if (field == EStatField::CpuUserUsage) {
+                userTimeRequested = true;
+            } else if (field == EStatField::VolumeCounts) {
+                volumeCountRequested = true;
+            } else if (field == EStatField::LayerCounts) {
+                layerCountRequested = true;
+            } else {
+                THROW_ERROR_EXCEPTION("Unknown resource field %Qlv requested", field)
+                    << TErrorAttribute("container", Name_);
+            }
+        }
+
+        auto propertyMap = WaitFor(Executor_->GetContainerProperties(Name_, properties))
+            .ValueOrThrow();
+
+        TResourceUsage result;
+
+        auto handleProperties = [&] (const auto& statRules, auto makePropertyName, auto& outputContainer) {
+            for (auto field : fields) {
+                auto ruleIt = statRules.find(field);
+                if (ruleIt == statRules.end()) {
+                    continue;
+                }
+
+                const auto& [property, callback] = ruleIt->second;
+                auto& record = outputContainer[field];
+                auto propertyName = makePropertyName(property);
+                if (auto responseIt = propertyMap.find(propertyName); responseIt != propertyMap.end()) {
+                    const auto& valueOrError = responseIt->second;
+                    if (valueOrError.IsOK()) {
+                        const auto& value = valueOrError.Value();
+
+                        try {
+                            record = callback(value);
+                        } catch (const std::exception& ex) {
+                            record = TError("Error parsing Porto property %Qlv", field)
+                                << TErrorAttribute("container", Name_)
+                                << TErrorAttribute("property_value", value)
+                                << ex;
+                        }
+                    } else {
+                        record = TError("Error getting Porto property %Qlv", field)
+                            << TErrorAttribute("container", Name_)
+                            << valueOrError;
+                    }
+                } else {
+                    record = TError("Missing property %Qlv in Porto response", field)
+                        << TErrorAttribute("container", Name_);
+                }
+            }
+        };
+
+        handleProperties(NDetail::PortoStatRules, [] (const std::string& name) { return name; }, result.ContainerStats);
+        handleProperties(NDetail::PortoNetworkStatRules, makeNetworkProperty, result.ContainerStats);
+        handleProperties(NDetail::PortoTaggedStatRules, [] (const std::string& name) { return name; }, result.ContainerTaggedStats);
+
+        // We should maintain context switch information even if this field
+        // is not requested since metrics of individual containers can go up and down.
+        auto subcontainers = WaitFor(Executor_->ListSubcontainers(Name_, /*includeRoot*/ true))
+            .ValueOrThrow();
+
+        auto metricMap = WaitFor(Executor_->GetContainerMetrics(subcontainers, "ctxsw"))
+            .ValueOrThrow();
+
+        // TODO(don-dron): remove diff calculation from GetResourceUsage, because GetResourceUsage must return only snapshot stat.
+        {
+            auto guard = Guard(ContextSwitchMapLock_);
+
+            for (const auto& [container, newValue] : metricMap) {
+                auto& prevValue = ContextSwitchMap_[container];
+                TotalContextSwitches_ += std::max<i64>(0LL, newValue - prevValue);
+                prevValue = newValue;
+            }
+
+            if (contextSwitchesRequested) {
+                result.ContainerStats[EStatField::ContextSwitchesDelta] = TotalContextSwitches_;
+            }
+        }
+
+        if (volumeCountRequested) {
+            auto volumeList = WaitFor(Executor_->GetVolumes());
+
+            THashMap<std::string, i64> volumeCounts;
+
+            if (volumeList.IsOK()) {
+                for (const auto& volume : volumeList.Value()) {
+                    volumeCounts[volume.Backend] += 1;
+                }
+            }
+
+            auto& volumeCountsErrorOr = result.ContainerTaggedStats[EStatField::VolumeCounts];
+            auto& volumeCountsVec = volumeCountsErrorOr.Value();
+            volumeCountsVec.reserve(volumeCounts.size());
+
+            for (const auto& [deviceName, value] : volumeCounts) {
+                volumeCountsVec.emplace_back(deviceName, value);
+            }
+        }
+
+        if (layerCountRequested) {
+            auto layerList = WaitFor(Executor_->ListLayers(""));
+
+            if (layerList.IsOK()) {
+                result.ContainerStats[EStatField::LayerCounts] = layerList.Value().size();
+            } else {
+                result.ContainerStats[EStatField::LayerCounts] = layerList.Wrap();
+            }
+        }
+
+        if (contextSwitchesRequested) {
+            i64 totalContextSwitches = 0;
+
+            for (const auto& [container, newValue] : metricMap) {
+                totalContextSwitches += std::max<i64>(0UL, newValue);
+            }
+
+            result.ContainerStats[EStatField::ContextSwitches] = totalContextSwitches;
+        }
+
+        if (userTimeRequested) {
+            result.ContainerStats[EStatField::CpuUserUsage] = CalculateCpuUserUsage(
+                result.ContainerStats[EStatField::CpuUsage],
+                result.ContainerStats[EStatField::CpuSystemUsage]);
+        }
+
+        return result;
+    }
+
+    TResourceLimits GetResourceLimits() const override
+    {
+        std::vector<std::string> properties;
+        static std::string memoryLimitProperty = "memory_limit_total";
+        static std::string cpuLimitProperty = "cpu_limit_bound";
+        static std::string cpuGuaranteeProperty = "cpu_guarantee_bound";
+        properties.push_back(memoryLimitProperty);
+        properties.push_back(cpuLimitProperty);
+        properties.push_back(cpuGuaranteeProperty);
+
+        auto responseOrError = WaitFor(Executor_->GetContainerProperties(Name_, properties));
+        THROW_ERROR_EXCEPTION_IF_FAILED(responseOrError, "Failed to get Porto container resource limits");
+
+        const auto& response = responseOrError.Value();
+
+        const auto& memoryLimitRsp = response.at(memoryLimitProperty);
+        THROW_ERROR_EXCEPTION_IF_FAILED(memoryLimitRsp, "Failed to get memory limit from Porto");
+
+        i64 memoryLimit;
+        if (!TryFromString<i64>(memoryLimitRsp.Value(), memoryLimit)) {
+            THROW_ERROR_EXCEPTION("Failed to parse memory limit value from Porto")
+                << TErrorAttribute(memoryLimitProperty, memoryLimitRsp.Value());
+        }
+
+        const auto& cpuLimitRsp = response.at(cpuLimitProperty);
+        THROW_ERROR_EXCEPTION_IF_FAILED(cpuLimitRsp, "Failed to get CPU limit from Porto");
+
+        double cpuLimit;
+        YT_VERIFY(cpuLimitRsp.Value().ends_with('c'));
+        auto cpuLimitValue = TStringBuf(cpuLimitRsp.Value().begin(), cpuLimitRsp.Value().size() - 1);
+        if (!TryFromString<double>(cpuLimitValue, cpuLimit)) {
+            THROW_ERROR_EXCEPTION("Failed to parse CPU limit value from Porto")
+                << TErrorAttribute(cpuLimitProperty, cpuLimitRsp.Value());
+        }
+
+        const auto& cpuGuaranteeRsp = response.at(cpuGuaranteeProperty);
+        THROW_ERROR_EXCEPTION_IF_FAILED(cpuGuaranteeRsp, "Failed to get CPU guarantee from Porto");
+
+        double cpuGuarantee;
+        if (cpuGuaranteeRsp.Value().empty()) {
+            // XXX(ignat): hack for missing response from Porto.
+            cpuGuarantee = 0.0;
+        } else {
+            YT_VERIFY(cpuGuaranteeRsp.Value().ends_with('c'));
+            auto cpuGuaranteeValue = TStringBuf(cpuGuaranteeRsp.Value().begin(), cpuGuaranteeRsp.Value().size() - 1);
+            if (!TryFromString<double>(cpuGuaranteeValue, cpuGuarantee)) {
+                THROW_ERROR_EXCEPTION("Failed to parse CPU guarantee value from Porto")
+                    << TErrorAttribute(cpuGuaranteeProperty, cpuGuaranteeRsp.Value());
+            }
+        }
+
+        return TResourceLimits{
+            .CpuLimit = cpuLimit,
+            .CpuGuarantee = cpuGuarantee,
+            .Memory = memoryLimit,
+        };
+    }
+
+    void SetCpuGuarantee(double cores) override
+    {
+        SetProperty("cpu_guarantee", ToString(cores) + "c");
+    }
+
+    void SetCpuLimit(double cores) override
+    {
+        SetProperty("cpu_limit", ToString(cores) + "c");
+    }
+
+    void SetCpuWeight(double weight) override
+    {
+        SetProperty("cpu_weight", weight);
+    }
+
+    void SetMemoryGuarantee(i64 memoryGuarantee) override
+    {
+        SetProperty("memory_guarantee", memoryGuarantee);
+    }
+
+    void SetIOWeight(double weight) override
+    {
+        SetProperty("io_weight", weight);
+    }
+
+    void SetIOThrottle(i64 operations) override
+    {
+        SetProperty("io_ops_limit", operations);
+    }
+
+    std::string GetStdout() const override
+    {
+        return *WaitFor(Executor_->GetContainerProperty(Name_, "stdout"))
+            .ValueOrThrow();
+    }
+
+    std::string GetStderr() const override
+    {
+        return *WaitFor(Executor_->GetContainerProperty(Name_, "stderr"))
+            .ValueOrThrow();
+    }
+
+    std::string GetName() const override
+    {
+        return Name_;
+    }
+
+    std::optional<std::string> GetParentName() const override
+    {
+        return NDetail::GetParentName(Name_);
+    }
+
+    std::optional<std::string> GetRootName() const override
+    {
+        return NDetail::GetRootName(Name_);
+    }
+
+    pid_t GetPid() const override
+    {
+        auto pid = *WaitFor(Executor_->GetContainerProperty(Name_, "root_pid"))
+            .ValueOrThrow();
+        return std::stoi(pid);
+    }
+
+    i64 GetMajorPageFaultCount() const override
+    {
+        auto faults = WaitFor(Executor_->GetContainerProperty(Name_, "major_faults"))
+            .ValueOrThrow();
+        return faults
+            ? std::stoll(*faults)
+            : 0;
+    }
+
+    double GetCpuGuarantee() const override
+    {
+        auto result = WaitFor(Executor_->GetContainerProperty(Name_, "cpu_guarantee"))
+            .ValueOrThrow();
+        return result
+            ? std::stod(*result)
+            : 0;
+    }
+
+    std::vector<pid_t> GetPids() const override
+    {
+        auto getPidCgroup = [&] (const std::string& cgroups) {
+            for (TStringBuf cgroup : StringSplitter(cgroups).SplitByString("; ")) {
+                if (cgroup.StartsWith("pids:")) {
+                    auto startPosition = cgroup.find('/');
+                    YT_VERIFY(startPosition != std::string::npos);
+                    return cgroup.substr(startPosition);
+                }
+            }
+            THROW_ERROR_EXCEPTION("Pids cgroup not found for container %Qv", GetName())
+                << TErrorAttribute("cgroups", cgroups);
+        };
+
+        auto cgroups = *WaitFor(Executor_->GetContainerProperty(Name_, "cgroups"))
+            .ValueOrThrow();
+        // Porto returns full cgroup name, with mount prefix, such as "/sys/fs/cgroup/pids".
+        auto instanceCgroup = getPidCgroup(cgroups);
+
+        std::vector<pid_t> pids;
+        for (auto pid : ListPids()) {
+            THashMap<std::string, std::string> cgroups;
+            try {
+                cgroups = GetProcessCGroups(pid);
+            } catch (const std::exception& ex) {
+                YT_LOG_DEBUG(ex, "Failed to get CGroups for process (Pid: %v)", pid);
+                continue;
+            }
+
+            // Pid cgroups are returned in short form.
+            auto processPidCgroup = cgroups["pids"];
+            if (!processPidCgroup.empty() && instanceCgroup.EndsWith(processPidCgroup)) {
+                pids.push_back(pid);
+            }
+        }
+
+        return pids;
+    }
+
+    TFuture<void> Wait() override
+    {
+        return Executor_->PollContainer(Name_)
+            .Apply(BIND([] (int status) {
+                StatusToError(status)
+                    .ThrowOnError();
+            }));
+    }
+
+private:
+    const std::string Name_;
+    const std::string NetworkInterface_;
+    const IPortoExecutorPtr Executor_;
+    const NLogging::TLogger Logger;
+
+    bool Destroyed_ = false;
+
+    YT_DECLARE_SPIN_LOCK(NThreading::TSpinLock, ContextSwitchMapLock_);
+    mutable i64 TotalContextSwitches_ = 0;
+    mutable THashMap<std::string, i64> ContextSwitchMap_;
+
+    TPortoInstance(std::string name, IPortoExecutorPtr executor)
+        : TPortoInstance(name, std::string(DefaultPortoNetworkInterface), executor)
+    { }
+
+    TPortoInstance(std::string name, std::string networkInterface, IPortoExecutorPtr executor)
+        : Name_(std::move(name))
+        , NetworkInterface_(std::move(networkInterface))
+        , Executor_(std::move(executor))
+        , Logger(ContainersLogger().WithTag("Container: %v", Name_))
+    { }
+
+    void SetProperty(const std::string& key, const std::string& value)
+    {
+        WaitFor(Executor_->SetContainerProperty(Name_, key, value))
+            .ThrowOnError();
+    }
+
+    void SetProperty(const std::string& key, i64 value)
+    {
+        SetProperty(key, ToString(value));
+    }
+
+    void SetProperty(const std::string& key, double value)
+    {
+        SetProperty(key, ToString(value));
+    }
+
+    DECLARE_NEW_FRIEND()
+};
+
+////////////////////////////////////////////////////////////////////////////////
+
+std::string GetSelfContainerName(const IPortoExecutorPtr& executor)
+{
+    try {
+        auto properties = WaitFor(executor->GetContainerProperties(
+            "self",
+            std::vector<std::string>{"absolute_name", "absolute_namespace"}))
+            .ValueOrThrow();
+
+        auto absoluteName = properties.at("absolute_name")
+            .ValueOrThrow();
+        auto absoluteNamespace = properties.at("absolute_namespace")
+            .ValueOrThrow();
+
+        if (absoluteName == "/") {
+            return absoluteName;
+        }
+
+        if (absoluteName.length() < absoluteNamespace.length()) {
+            YT_VERIFY(absoluteName + "/" == absoluteNamespace);
+            return "";
+        } else {
+            YT_VERIFY(absoluteName.starts_with(absoluteNamespace));
+            return absoluteName.substr(absoluteNamespace.length());
+        }
+    } catch (const std::exception& ex) {
+        THROW_ERROR_EXCEPTION("Failed to get name for container \"self\"")
+            << ex;
+    }
+}
+
+IInstancePtr GetSelfPortoInstance(IPortoExecutorPtr executor)
+{
+    return TPortoInstance::GetSelf(executor);
+}
+
+IInstancePtr GetPortoInstance(IPortoExecutorPtr executor, const std::string& name, const std::optional<std::string>& networkInterface)
+{
+    return TPortoInstance::GetInstance(executor, name, networkInterface);
+}
+
+IInstancePtr GetRootPortoInstance(IPortoExecutorPtr executor)
+{
+    auto self = GetSelfPortoInstance(executor);
+    return TPortoInstance::GetInstance(executor, *self->GetRootName());
+}
+
+double GetSelfPortoInstanceVCpuFactor()
+{
+    // DEPLOY_VCPU_LIMIT stores value in millicores.
+    std::string vcpuLimitStr = GetEnv("DEPLOY_VCPU_LIMIT");
+    if (vcpuLimitStr.empty()) {
+        THROW_ERROR_EXCEPTION("Failed to get vcpu limit from env variable");
+    }
+    double vcpuLimit = FromString<double>(vcpuLimitStr) / 1000.0;
+
+    auto config = New<TPortoExecutorDynamicConfig>();
+    auto executorPtr = CreatePortoExecutor(config, "");
+    auto currentContainer = GetSelfPortoInstance(executorPtr);
+    double cpuLimit = currentContainer->GetResourceLimits().CpuLimit;
+    if (cpuLimit <= 0) {
+        THROW_ERROR_EXCEPTION("Cpu limit must be greater than 0");
+    }
+
+    return vcpuLimit / cpuLimit;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+} // namespace NYT::NContainers
+
+#endif

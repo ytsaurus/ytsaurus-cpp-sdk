@@ -1,0 +1,117 @@
+#pragma once
+
+#include "public.h"
+
+#include <yt/yt/server/scheduler/common/public.h>
+
+#include <yt/yt/server/lib/scheduler/public.h>
+
+#include <yt/yt/ytlib/scheduler/disk_resources.h>
+#include <yt/yt/ytlib/scheduler/job_resources_with_quota.h>
+
+namespace NYT::NScheduler::NStrategy::NPolicy {
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct TScheduleAllocationsStatistics
+    : public TRefCounted
+{
+    int ControllerScheduleAllocationCount = 0;
+    int ControllerScheduleAllocationTimedOutCount = 0;
+    int PreemptibleAllocationCount = 0;
+    TJobResources ResourceLimits;
+    TJobResources ResourceUsage;
+};
+
+using TScheduleAllocationsStatisticsPtr = TIntrusivePtr<TScheduleAllocationsStatistics>;
+
+void BuildScheduleAllocationsStatisticsCommon(const TScheduleAllocationsStatisticsPtr& statistics, NYTree::TFluentMap fluent);
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct TStartedAllocation
+{
+    TAllocationPtr Allocation;
+    EAllocationSchedulingStage SchedulingStage = EAllocationSchedulingStage::RegularMediumPriority;
+};
+
+struct TPreemptedAllocation
+{
+    TAllocationPtr Allocation;
+    TDuration PreemptionTimeout;
+    EAllocationPreemptionReason PreemptionReason = EAllocationPreemptionReason::Preemption;
+};
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct ISchedulingHeartbeatContext
+    : public virtual TRefCounted
+{
+    virtual int GetNodeShardId() const = 0;
+
+    virtual const TExecNodeDescriptorPtr& GetNodeDescriptor() const = 0;
+
+    virtual const TJobResources& ResourceLimits() const = 0;
+    virtual TJobResources& ResourceUsage() = 0;
+    virtual const TDiskResources& DiskResources() const = 0;
+    virtual const std::vector<TDiskQuota>& DiskRequests() const = 0;
+
+    //! Discounts are used during preemption to allow second-chance scheduling.
+    using TOperationIndex = int;
+
+    virtual void ResetDiscount() = 0;
+    virtual TJobResourcesWithQuota GetDiscount() const = 0;
+    virtual void IncreaseDiscount(const TJobResourcesWithQuota& allocationResources) = 0;
+
+    virtual TJobResources GetNodeFreeResourcesWithoutDiscount() const = 0;
+
+    virtual TJobResources GetNodeFreeResourcesWithDiscount() const = 0;
+    virtual TDiskResources GetNodeFreeDiskResourcesWithDiscount(const TJobResources& allocationResources) const = 0;
+
+    virtual const std::vector<TStartedAllocation>& StartedAllocations() const = 0;
+    virtual const std::vector<TAllocationPtr>& RunningAllocations() const = 0;
+    virtual const std::vector<TPreemptedAllocation>& PreemptedAllocations() const = 0;
+
+    //! Returns |true| if node has enough resources to start allocation with given limits.
+    virtual bool CanStartAllocation(
+        const TJobResourcesWithQuota& allocationResources,
+        TEnumIndexedArray<EJobResourceWithDiskQuotaType, bool>* unsatisfiedResources) const = 0;
+    //! Returns |true| if any more new allocations can be scheduled at this node.
+    virtual bool CanStartMoreAllocations(
+        const std::optional<TJobResources>& customMinSpareAllocationResources = {}) const = 0;
+    //! Returns |true| if the node can handle allocations demanding a certain #tag.
+    virtual bool CanSchedule(const TSchedulingTagFilter& filter) const = 0;
+
+    //! Returns |true| if strategy should abort allocations since resources overcommit.
+    virtual bool ShouldAbortAllocationsSinceResourcesOvercommit() const = 0;
+
+    virtual void StartAllocation(
+        const std::string& treeId,
+        TOperationId operationId,
+        TIncarnationId incarnationId,
+        TControllerEpoch controllerEpoch,
+        const TAllocationStartDescriptor& startDescriptor,
+        EPreemptionMode preemptionMode,
+        int schedulingIndex,
+        EAllocationSchedulingStage schedulingStage,
+        std::optional<TNetworkPriority> networkPriority) = 0;
+
+    virtual void PreemptAllocation(const TAllocationPtr& allocation, TDuration preemptionTimeout, EAllocationPreemptionReason preemptionReason) = 0;
+
+    virtual NProfiling::TCpuInstant GetNow() const = 0;
+
+    virtual TScheduleAllocationsStatisticsPtr GetSchedulingStatistics() const = 0;
+    virtual void SetSchedulingStatistics(TScheduleAllocationsStatisticsPtr statistics) = 0;
+
+    virtual void StoreScheduleAllocationExecDurationEstimate(TDuration duration) = 0;
+    virtual TDuration ExtractScheduleAllocationExecDurationEstimate() = 0;
+
+    virtual bool IsHeartbeatTimeoutExpired() const = 0;
+    virtual void SetHeartbeatTimeoutExpired() = 0;
+};
+
+DEFINE_REFCOUNTED_TYPE(ISchedulingHeartbeatContext)
+
+////////////////////////////////////////////////////////////////////////////////
+
+} // namespace NYT::NScheduler::NStrategy::NPolicy

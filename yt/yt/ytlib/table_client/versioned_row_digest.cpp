@@ -1,0 +1,166 @@
+#include "versioned_row_digest.h"
+#include "config.h"
+
+#include <yt/yt/client/table_client/versioned_row.h>
+
+#include <yt/yt/client/transaction_client/helpers.h>
+
+#include <yt_proto/yt/client/table_chunk_format/proto/chunk_meta.pb.h>
+
+#include <yt/yt/core/misc/protobuf_helpers.h>
+
+#include <yt/yt/library/quantile_digest/quantile_digest.h>
+
+namespace NYT::NTableClient {
+
+using namespace NTransactionClient;
+
+////////////////////////////////////////////////////////////////////////////////
+
+TVersionedRowDigest::TVersionedRowDigest(const TTDigestConfigPtr& config)
+    : LastTimestampDigest(CreateTDigest(config))
+    , AllButLastTimestampDigest(CreateTDigest(config))
+    , FirstTimestampDigest(CreateTDigest(config))
+{ }
+
+void TVersionedRowDigest::MergeWith(const TVersionedRowDigestPtr& other)
+{
+    LastTimestampDigest->MergeWith(other->LastTimestampDigest);
+    AllButLastTimestampDigest->MergeWith(other->AllButLastTimestampDigest);
+    if (FirstTimestampDigest && other->FirstTimestampDigest) {
+        FirstTimestampDigest->MergeWith(other->FirstTimestampDigest);
+    }
+
+    EarliestNthTimestamp.reserve(other->EarliestNthTimestamp.size());
+    for (int index = 0; index < ssize(other->EarliestNthTimestamp); ++index) {
+        if (ssize(EarliestNthTimestamp) > index) {
+            EarliestNthTimestamp[index] = std::min(EarliestNthTimestamp[index], other->EarliestNthTimestamp[index]);
+        } else {
+            EarliestNthTimestamp.push_back(other->EarliestNthTimestamp[index]);
+        }
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+class TVersionedRowDigestBuilder
+    : public IVersionedRowDigestBuilder
+{
+public:
+    explicit TVersionedRowDigestBuilder(const TTDigestConfigPtr& config)
+        : Digest_(New<TVersionedRowDigest>(config))
+    { }
+
+    void OnRow(TVersionedRow row) override
+    {
+        auto* currentValueBegin = row.BeginValues();
+        auto* currentValueEnd = row.BeginValues();
+        while (currentValueBegin != row.EndValues()) {
+            while (currentValueEnd != row.EndValues() &&
+                currentValueBegin->Id == currentValueEnd->Id)
+            {
+                ++currentValueEnd;
+            }
+
+            Digest_->LastTimestampDigest->AddValue(TimestampToSecond(currentValueBegin->Timestamp));
+            for (auto* value = currentValueBegin + 1; value < currentValueEnd; ++value) {
+                Digest_->AllButLastTimestampDigest->AddValue(TimestampToSecond(value->Timestamp));
+            }
+            Digest_->FirstTimestampDigest->AddValue(TimestampToSecond(std::prev(currentValueEnd)->Timestamp));
+
+            int timestampCount = currentValueEnd - currentValueBegin;
+            for (int logIndex = 0; (1 << logIndex) - 1 < timestampCount; ++logIndex) {
+                if (logIndex == ssize(Digest_->EarliestNthTimestamp)) {
+                    Digest_->EarliestNthTimestamp.push_back(TimestampToSecond(MaxTimestamp));
+                }
+                Digest_->EarliestNthTimestamp[logIndex] = std::min(
+                    Digest_->EarliestNthTimestamp[logIndex],
+                    TimestampToSecond(currentValueBegin[(1 << logIndex) - 1].Timestamp));
+            }
+
+            currentValueBegin = currentValueEnd;
+        }
+
+        for (int logIndex = 0; (1 << logIndex) - 1 < row.GetDeleteTimestampCount(); ++logIndex) {
+            if (logIndex == ssize(Digest_->EarliestNthTimestamp)) {
+                Digest_->EarliestNthTimestamp.push_back(TimestampToSecond(MaxTimestamp));
+            }
+            Digest_->EarliestNthTimestamp[logIndex] = std::min(
+                Digest_->EarliestNthTimestamp[logIndex],
+                TimestampToSecond(row.DeleteTimestamps()[(1 << logIndex) - 1]));
+        }
+    }
+
+    TVersionedRowDigestPtr FlushDigest() override
+    {
+        return std::move(Digest_);
+    }
+
+private:
+    TVersionedRowDigestPtr Digest_;
+
+    static i64 TimestampToSecond(TTimestamp timestamp)
+    {
+        return TimestampToInstant(timestamp).first.Seconds();
+    }
+};
+
+////////////////////////////////////////////////////////////////////////////////
+
+IVersionedRowDigestBuilderPtr CreateVersionedRowDigestBuilder(
+    const TTDigestConfigPtr& config)
+{
+    if (!config) {
+        return nullptr;
+    }
+
+    return New<TVersionedRowDigestBuilder>(config);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+void ToProto(NProto::TVersionedRowDigestExt* protoDigest, const TVersionedRowDigest& digest)
+{
+    using NYT::ToProto;
+
+    ToProto(protoDigest->mutable_earliest_nth_timestamp(), digest.EarliestNthTimestamp);
+    ToProto(
+        protoDigest->mutable_last_timestamp_digest(),
+        digest.LastTimestampDigest->Serialize());
+    ToProto(
+        protoDigest->mutable_all_but_last_timestamp_digest(),
+        digest.AllButLastTimestampDigest->Serialize());
+    ToProto(
+        protoDigest->mutable_first_timestamp_digest(),
+        digest.FirstTimestampDigest->Serialize());
+}
+
+void FromProto(TVersionedRowDigest* digest, const NProto::TVersionedRowDigestExt& protoDigest)
+{
+    using NYT::FromProto;
+
+    FromProto(&digest->EarliestNthTimestamp, protoDigest.earliest_nth_timestamp());
+
+    {
+        auto serialized = TStringBuf(
+            protoDigest.last_timestamp_digest().begin(),
+            protoDigest.last_timestamp_digest().end());
+        digest->LastTimestampDigest = LoadQuantileDigest(serialized);
+    }
+    {
+        auto serialized = TStringBuf(
+            protoDigest.all_but_last_timestamp_digest().begin(),
+            protoDigest.all_but_last_timestamp_digest().end());
+        digest->AllButLastTimestampDigest = LoadQuantileDigest(serialized);
+    }
+    if (protoDigest.has_first_timestamp_digest()) {
+        auto serialized = TStringBuf(
+            protoDigest.first_timestamp_digest().begin(),
+            protoDigest.first_timestamp_digest().end());
+        digest->FirstTimestampDigest = LoadQuantileDigest(serialized);
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+} // namespace NYT::NTableClient

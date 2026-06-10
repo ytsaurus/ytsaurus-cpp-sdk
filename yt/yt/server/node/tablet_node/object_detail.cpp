@@ -1,0 +1,20 @@
+#include "object_detail.h"
+
+namespace NYT::NTabletNode {
+
+using namespace NObjectClient;
+
+////////////////////////////////////////////////////////////////////////////////
+
+TObjectId TObjectBase::GetId() const
+{
+    return Id_;
+}
+
+TObjectBase::TObjectBase(TObjectId id)
+    : Id_(id)
+{ }
+
+////////////////////////////////////////////////////////////////////////////////
+
+} // namespace NYT::NTabletNode

@@ -1,0 +1,636 @@
+#pragma once
+
+#include "public.h"
+
+#include <yt/yt/core/crypto/config.h>
+
+#include <yt/yt/core/http/public.h>
+
+#include <yt/yt/core/https/public.h>
+
+#include <yt/yt/core/misc/cache_config.h>
+
+#include <yt/yt/library/re2/public.h>
+
+#include <yt/yt/library/tvm/service/config.h>
+
+#include <yt/yt/core/ytree/yson_struct.h>
+
+namespace NYT::NAuth {
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct TAuthCacheConfig
+    : public virtual NYTree::TYsonStruct
+{
+    //! Time between last update time and entry update for correct entries.
+    TDuration CacheTtl;
+    //! Time between last access time and entry eviction.
+    TDuration OptimisticCacheTtl;
+    //! Jitter factor for #OptimisticCacheTtl.
+    double OptimisticCacheTtlJitter;
+    //! Time between last update time and entry update for error entries.
+    TDuration ErrorTtl;
+
+    REGISTER_YSON_STRUCT(TAuthCacheConfig);
+
+    static void Register(TRegistrar registrar);
+};
+
+DEFINE_REFCOUNTED_TYPE(TAuthCacheConfig)
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct TBlackboxServiceConfig
+    : public virtual NYTree::TYsonStruct
+{
+    NHttps::TClientConfigPtr HttpClient;
+    std::string Host;
+    int Port;
+    bool Secure;
+    std::string BlackboxServiceId;
+
+    int ConcurrencyLimit;
+    TDuration RequestTimeout;
+    TDuration AttemptTimeout;
+    TDuration BackoffTimeout;
+    bool UseLowercaseLogin;
+
+    bool UsePostRequests;
+
+    REGISTER_YSON_STRUCT(TBlackboxServiceConfig);
+
+    static void Register(TRegistrar registrar);
+};
+
+DEFINE_REFCOUNTED_TYPE(TBlackboxServiceConfig)
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct TBlackboxTokenAuthenticatorConfig
+    : public virtual NYTree::TYsonStruct
+{
+    std::string Scope;
+    bool EnableScopeCheck;
+    bool GetUserTicket;
+
+    REGISTER_YSON_STRUCT(TBlackboxTokenAuthenticatorConfig);
+
+    static void Register(TRegistrar registrar);
+};
+
+DEFINE_REFCOUNTED_TYPE(TBlackboxTokenAuthenticatorConfig)
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct TBlackboxTicketAuthenticatorConfig
+    : public virtual NYTree::TYsonStruct
+{
+    THashSet<std::string> Scopes;
+    bool EnableScopeCheck;
+
+    REGISTER_YSON_STRUCT(TBlackboxTicketAuthenticatorConfig);
+
+    static void Register(TRegistrar registrar);
+};
+
+DEFINE_REFCOUNTED_TYPE(TBlackboxTicketAuthenticatorConfig)
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct TCachingTokenAuthenticatorConfig
+    : public virtual NYTree::TYsonStruct
+{
+    TAuthCacheConfigPtr Cache;
+    EBlackboxCacheKeyMode CacheKeyMode;
+
+    REGISTER_YSON_STRUCT(TCachingTokenAuthenticatorConfig);
+
+    static void Register(TRegistrar registrar);
+};
+
+DEFINE_REFCOUNTED_TYPE(TCachingTokenAuthenticatorConfig)
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct TCachingBlackboxTokenAuthenticatorConfig
+    : public TBlackboxTokenAuthenticatorConfig
+    , public TCachingTokenAuthenticatorConfig
+{
+    REGISTER_YSON_STRUCT(TCachingBlackboxTokenAuthenticatorConfig);
+
+    static void Register(TRegistrar);
+};
+
+DEFINE_REFCOUNTED_TYPE(TCachingBlackboxTokenAuthenticatorConfig)
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct TCypressTokenAuthenticatorConfig
+    : public virtual NYTree::TYsonStruct
+{
+    std::optional<NYPath::TYPath> RootPath;
+    std::string Realm;
+
+    bool Secure;
+
+    REGISTER_YSON_STRUCT(TCypressTokenAuthenticatorConfig);
+
+    static void Register(TRegistrar registrar);
+};
+
+DEFINE_REFCOUNTED_TYPE(TCypressTokenAuthenticatorConfig)
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct TCachingCypressTokenAuthenticatorConfig
+    : public TCachingTokenAuthenticatorConfig
+    , public TCypressTokenAuthenticatorConfig
+{
+    REGISTER_YSON_STRUCT(TCachingCypressTokenAuthenticatorConfig);
+
+    static void Register(TRegistrar);
+};
+
+DEFINE_REFCOUNTED_TYPE(TCachingCypressTokenAuthenticatorConfig)
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct TOAuthAuthenticatorConfig
+    : public virtual NYTree::TYsonStruct
+{
+    //! Creates a new user if it doesn't exist. User name is taken from the "Login" field.
+    bool CreateUserIfNotExists;
+    std::vector<std::string> DefaultUserTags;
+
+    REGISTER_YSON_STRUCT(TOAuthAuthenticatorConfig);
+
+    static void Register(TRegistrar registrar);
+};
+
+DEFINE_REFCOUNTED_TYPE(TOAuthAuthenticatorConfig)
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct TOAuthTokenAuthenticatorConfig
+    : public TOAuthAuthenticatorConfig
+{
+    REGISTER_YSON_STRUCT(TOAuthTokenAuthenticatorConfig);
+
+    static void Register(TRegistrar);
+};
+
+DEFINE_REFCOUNTED_TYPE(TOAuthTokenAuthenticatorConfig)
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct TCachingOAuthTokenAuthenticatorConfig
+    : public TOAuthTokenAuthenticatorConfig
+    , public TCachingTokenAuthenticatorConfig
+{
+    REGISTER_YSON_STRUCT(TCachingOAuthTokenAuthenticatorConfig);
+
+    static void Register(TRegistrar);
+};
+
+DEFINE_REFCOUNTED_TYPE(TCachingOAuthTokenAuthenticatorConfig)
+
+////////////////////////////////////////////////////////////////////////////////
+
+static const auto DefaultCsrfTokenTtl = TDuration::Days(7);
+
+struct TBlackboxCookieAuthenticatorConfig
+    : public virtual NYTree::TYsonStruct
+{
+    // If set to true, sessguard cookie is checked.
+    bool EnableSessguard;
+
+    std::string Domain;
+
+    std::optional<std::string> CsrfSecret;
+    TDuration CsrfTokenTtl;
+
+    bool GetUserTicket;
+
+    REGISTER_YSON_STRUCT(TBlackboxCookieAuthenticatorConfig);
+
+    static void Register(TRegistrar registrar);
+};
+
+DEFINE_REFCOUNTED_TYPE(TBlackboxCookieAuthenticatorConfig)
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct TOAuthCookieAuthenticatorConfig
+    : public TOAuthAuthenticatorConfig
+{
+    REGISTER_YSON_STRUCT(TOAuthCookieAuthenticatorConfig);
+
+    static void Register(TRegistrar);
+};
+
+DEFINE_REFCOUNTED_TYPE(TOAuthCookieAuthenticatorConfig)
+
+////////////////////////////////////////////////////////////////////////////////
+
+// TODO(achulkov2): Replace with polymorphic YSON struct in 24.2+.
+struct TStringReplacementConfig
+    : public NYTree::TYsonStruct
+{
+    //! NB: The three transformations options below are mutually exclusive.
+
+    //! If set, replaces all non-overlapping matches of this pattern with the replacement string.
+    NRe2::TRe2Ptr MatchPattern;
+    std::string Replacement;
+
+    //! If set, uppercase characters are replaced with lowercase.
+    bool ToLower;
+
+    //! If true, lowercase characters are replaced with uppercase.
+    bool ToUpper;
+
+    REGISTER_YSON_STRUCT(TStringReplacementConfig);
+
+    static void Register(TRegistrar registrar);
+};
+
+DEFINE_REFCOUNTED_TYPE(TStringReplacementConfig)
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct TOAuthServiceConfig
+    : public virtual NYTree::TYsonStruct
+{
+    NHttp::TRetryingClientConfigPtr RetryingClient;
+    NHttps::TClientConfigPtr HttpClient;
+
+    std::string Host;
+    int Port;
+    bool Secure;
+
+    std::string AuthorizationHeaderPrefix;
+    std::string UserInfoEndpoint;
+    std::string UserInfoLoginField;
+    std::optional<std::string> UserInfoSubjectField;
+    std::optional<std::string> UserInfoErrorField;
+
+    //! Configures a list of transformations to be applied to the contents of the login field.
+    //! Transformations are applied consecutively in order they are listed.
+    //! Each transformation will replace all non-overlapping matches of its match pattern
+    //! with the replacement string. You can use \1-\9 for captured match groups in the
+    //! replacement string, and \0 for the whole match.
+    //! Regex must follow RE2 syntax, which is a subset of that accepted by PCRE, roughly
+    //! speaking, and with various caveats.
+    std::vector<TStringReplacementConfigPtr> LoginTransformations;
+
+    REGISTER_YSON_STRUCT(TOAuthServiceConfig);
+
+    static void Register(TRegistrar registrar);
+};
+
+DEFINE_REFCOUNTED_TYPE(TOAuthServiceConfig)
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct TCypressUserManagerConfig
+    : public virtual NYTree::TYsonStruct
+{
+    REGISTER_YSON_STRUCT(TCypressUserManagerConfig);
+
+    static void Register(TRegistrar);
+};
+
+DEFINE_REFCOUNTED_TYPE(TCypressUserManagerConfig)
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct TCachingCookieAuthenticatorConfig
+    : public virtual NYTree::TYsonStruct
+{
+    TAuthCacheConfigPtr Cache;
+    EBlackboxCacheKeyMode CacheKeyMode;
+
+    REGISTER_YSON_STRUCT(TCachingCookieAuthenticatorConfig);
+
+    static void Register(TRegistrar registrar);
+};
+
+DEFINE_REFCOUNTED_TYPE(TCachingCookieAuthenticatorConfig)
+
+////////////////////////////////////////////////////////////////////////////////
+
+// COMPAT(psushin): replace with TAsyncExpiringCache after migration.
+struct TUserExistenceCheckCacheConfig
+    : public virtual NYTree::TYsonStruct
+{
+    TDuration ExpireAfterAccessTime;
+    TDuration ExpireAfterSuccessfulUpdateTime;
+
+    REGISTER_YSON_STRUCT(TUserExistenceCheckCacheConfig);
+
+    static void Register(TRegistrar registrar);
+
+public:
+    TAsyncExpiringCacheConfigPtr ToAsyncExpiringCacheConfig() const;
+};
+
+DEFINE_REFCOUNTED_TYPE(TUserExistenceCheckCacheConfig)
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct TCachingCypressUserManagerConfig
+    : public TCypressUserManagerConfig
+{
+    // COMPAT(psushin): replace with TAsyncExpiringCache after migration.
+    TUserExistenceCheckCacheConfigPtr Cache;
+
+    REGISTER_YSON_STRUCT(TCachingCypressUserManagerConfig);
+
+    static void Register(TRegistrar registrar);
+};
+
+DEFINE_REFCOUNTED_TYPE(TCachingCypressUserManagerConfig)
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct TCachingBlackboxCookieAuthenticatorConfig
+    : public TBlackboxCookieAuthenticatorConfig
+    , public TCachingCookieAuthenticatorConfig
+{
+    REGISTER_YSON_STRUCT(TCachingBlackboxCookieAuthenticatorConfig);
+
+    static void Register(TRegistrar);
+};
+
+DEFINE_REFCOUNTED_TYPE(TCachingBlackboxCookieAuthenticatorConfig)
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct TCachingOAuthCookieAuthenticatorConfig
+    : public TOAuthCookieAuthenticatorConfig
+    , public TCachingCookieAuthenticatorConfig
+{
+    REGISTER_YSON_STRUCT(TCachingOAuthCookieAuthenticatorConfig);
+
+    static void Register(TRegistrar);
+};
+
+DEFINE_REFCOUNTED_TYPE(TCachingOAuthCookieAuthenticatorConfig)
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct TDefaultSecretVaultServiceConfig
+    : public virtual NYT::NYTree::TYsonStruct
+{
+    std::string Host;
+    int Port;
+    bool Secure;
+    NHttps::TClientConfigPtr HttpClient;
+    TDuration RequestTimeout;
+    std::string VaultServiceId;
+    std::string Consumer;
+    bool EnableRevocation;
+    std::optional<TTvmId> DefaultTvmIdForNewTokens;
+    std::optional<TTvmId> DefaultTvmIdForExistingTokens;
+
+    REGISTER_YSON_STRUCT(TDefaultSecretVaultServiceConfig);
+
+    static void Register(TRegistrar registrar);
+};
+
+DEFINE_REFCOUNTED_TYPE(TDefaultSecretVaultServiceConfig)
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct TBatchingSecretVaultServiceConfig
+    : public virtual NYT::NYTree::TYsonStruct
+{
+    TDuration BatchDelay;
+    int MaxSubrequestsPerRequest;
+    NConcurrency::TThroughputThrottlerConfigPtr RequestsThrottler;
+
+    REGISTER_YSON_STRUCT(TBatchingSecretVaultServiceConfig);
+
+    static void Register(TRegistrar registrar);
+};
+
+DEFINE_REFCOUNTED_TYPE(TBatchingSecretVaultServiceConfig)
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct TCachingSecretVaultServiceConfig
+    : public TAsyncExpiringCacheConfig
+{
+    TAsyncExpiringCacheConfigPtr Cache;
+
+    REGISTER_YSON_STRUCT(TCachingSecretVaultServiceConfig);
+
+    static void Register(TRegistrar registrar);
+};
+
+DEFINE_REFCOUNTED_TYPE(TCachingSecretVaultServiceConfig)
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct TCypressPasswordAuthenticatorConfig
+    : public virtual NYTree::TYsonStruct
+{
+    bool Enabled;
+
+    REGISTER_YSON_STRUCT(TCypressPasswordAuthenticatorConfig);
+
+    static void Register(TRegistrar registrar);
+};
+
+DEFINE_REFCOUNTED_TYPE(TCypressPasswordAuthenticatorConfig)
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct TLdapServiceConfig
+    : public virtual NYTree::TYsonStruct
+{
+    //! LDAP server hostname.
+    std::string Host;
+
+    //! LDAP server port. Defaults to 636 for Ldaps, 389 for None/StartTls.
+    std::optional<int> Port;
+
+    //! TLS mode: None (plain ldap://), Ldaps (ldaps://, port 636), StartTls (upgrade, port 389).
+    ELdapEncryption Encryption;
+
+    //! CA certificate for TLS verification. Only FileName is supported for LDAP.
+    NCrypto::TPemBlobConfigPtr CertificateAuthority;
+
+    //! DN used for admin bind (search phase).
+    std::string AdminDn;
+
+    //! Path to a file containing the admin bind password (one line, no trailing newline required).
+    std::optional<std::string> AdminPasswordPath;
+
+    //! Name of the environment variable holding the admin bind password.
+    std::optional<std::string> AdminPasswordEnvVar;
+
+    //! LDAP search base DN.
+    std::string SearchBase;
+
+    //! LDAP search filter template. Use {login} as placeholder for the username.
+    //! Example: "(sAMAccountName={login})" or "(uid={login})"
+    std::string SearchFilter;
+
+    //! Timeout for LDAP network and request operations.
+    TDuration RequestTimeout;
+
+    //! Resolves the admin password from the configured source. Throws if none is set.
+    std::string GetAdminPassword() const;
+
+    REGISTER_YSON_STRUCT(TLdapServiceConfig);
+
+    static void Register(TRegistrar registrar);
+};
+
+DEFINE_REFCOUNTED_TYPE(TLdapServiceConfig)
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct TCypressCookieStoreConfig
+    : public NYTree::TYsonStruct
+{
+    //! Store will renew cookie list with this frequency.
+    TDuration FullFetchPeriod;
+
+    //! Errors are cached for this period of time.
+    TDuration ErrorEvictionTime;
+
+    REGISTER_YSON_STRUCT(TCypressCookieStoreConfig);
+
+    static void Register(TRegistrar registrar);
+};
+
+DEFINE_REFCOUNTED_TYPE(TCypressCookieStoreConfig)
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct TCypressCookieGeneratorConfig
+    : public NYTree::TYsonStruct
+{
+    //! Used to form ExpiresAt parameter.
+    TDuration CookieExpirationTimeout;
+
+    //! If cookie will expire within this period,
+    //! authenticator will try to renew it.
+    TDuration CookieRenewalPeriod;
+
+    //! Controls Secure parameter of a cookie.
+    //! If true, cookie will be used by user only
+    //! in https requests which prevents cookie
+    //! stealing because of unsecured connection,
+    //! so this field should be set to true in production
+    //! environments.
+    bool Secure;
+
+    //! Controls HttpOnly parameter of a cookie.
+    bool HttpOnly;
+
+    //! Domain parameter of generated cookies.
+    std::optional<std::string> Domain;
+
+    //! Path parameter of generated cookies.
+    std::string Path;
+
+    //! Cookie expiration timeout for LDAP-authenticated users.
+    TDuration LdapCookieExpirationTimeout;
+
+    //! If set and if cookie is generated via login page,
+    //! will redirect user to this page.
+    std::optional<std::string> RedirectUrl;
+
+    REGISTER_YSON_STRUCT(TCypressCookieGeneratorConfig);
+
+    static void Register(TRegistrar registrar);
+};
+
+DEFINE_REFCOUNTED_TYPE(TCypressCookieGeneratorConfig)
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct TCypressCookieManagerConfig
+    : public NYTree::TYsonStruct
+{
+    TCypressCookieStoreConfigPtr CookieStore;
+    TCypressCookieGeneratorConfigPtr CookieGenerator;
+    TCachingBlackboxCookieAuthenticatorConfigPtr CookieAuthenticator;
+
+    REGISTER_YSON_STRUCT(TCypressCookieManagerConfig);
+
+    static void Register(TRegistrar registrar);
+};
+
+DEFINE_REFCOUNTED_TYPE(TCypressCookieManagerConfig)
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct TYCAuthenticatorConfig
+    : public NYTree::TYsonStruct
+{
+    NHttp::TRetryingClientConfigPtr RetryingClient;
+    NHttps::TClientConfigPtr HttpClient;
+
+    std::string Host;
+    int Port;
+    bool Secure;
+
+    bool CheckUserExists;
+    bool CreateUserIfNotExists;
+    bool AddUserToGroups;
+
+    std::vector<std::string> DefaultUserTags;
+
+    bool RetryAllServerErrors;
+    std::vector<int> RetryStatusCodes;
+
+    REGISTER_YSON_STRUCT(TYCAuthenticatorConfig);
+
+    static void Register(TRegistrar registrar);
+};
+
+DEFINE_REFCOUNTED_TYPE(TYCAuthenticatorConfig)
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct TAuthenticationManagerConfig
+    : public virtual NYT::NYTree::TYsonStruct
+{
+    bool RequireAuthentication;
+    TCachingBlackboxTokenAuthenticatorConfigPtr BlackboxTokenAuthenticator;
+    TCachingBlackboxCookieAuthenticatorConfigPtr BlackboxCookieAuthenticator;
+    TBlackboxServiceConfigPtr BlackboxService;
+    TCachingCypressTokenAuthenticatorConfigPtr CypressTokenAuthenticator;
+    TTvmServiceConfigPtr TvmService;
+    TBlackboxTicketAuthenticatorConfigPtr BlackboxTicketAuthenticator;
+    TCachingOAuthCookieAuthenticatorConfigPtr OAuthCookieAuthenticator;
+    TCachingOAuthTokenAuthenticatorConfigPtr OAuthTokenAuthenticator;
+    TOAuthServiceConfigPtr OAuthService;
+    TYCAuthenticatorConfigPtr YCAuthenticator;
+
+    TCypressCookieManagerConfigPtr CypressCookieManager;
+    TCachingCypressUserManagerConfigPtr CypressUserManager;
+
+    TCypressPasswordAuthenticatorConfigPtr CypressPasswordAuthenticator;
+
+    //! If set, enables LDAP password authentication in the cookie login handler.
+    TLdapServiceConfigPtr LdapService;
+
+    std::string GetCsrfSecret() const;
+
+    TInstant GetCsrfTokenExpirationTime() const;
+
+    REGISTER_YSON_STRUCT(TAuthenticationManagerConfig);
+
+    static void Register(TRegistrar registrar);
+};
+
+DEFINE_REFCOUNTED_TYPE(TAuthenticationManagerConfig)
+
+////////////////////////////////////////////////////////////////////////////////
+
+} // namespace NYT::NAuth
