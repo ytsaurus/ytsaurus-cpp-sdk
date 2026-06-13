@@ -14,10 +14,10 @@
 
 find_package(linux-headers-generic REQUIRED)
 
-add_library(cpp-yt-system)
+add_library(cpp-yt-rseq)
 
 
-target_compile_options(cpp-yt-system PRIVATE
+target_compile_options(cpp-yt-rseq PRIVATE
   -Wdeprecated-this-capture
   -Wimplicit-fallthrough
   -Wparentheses
@@ -28,21 +28,14 @@ target_compile_options(cpp-yt-system PRIVATE
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 
-target_link_libraries(cpp-yt-system PUBLIC
+target_link_libraries(cpp-yt-rseq PUBLIC
   linux-headers-generic::linux-headers-generic
   contrib-libs-cxxsupp
   yutil
-  cpp-yt-exception
   cpp-yt-misc
-  cpp-yt-rseq
 )
 
-target_sources(cpp-yt-system PRIVATE
-  ${PROJECT_SOURCE_DIR}/library/cpp/yt/system/cpu_id.cpp
-  ${PROJECT_SOURCE_DIR}/library/cpp/yt/system/env.cpp
-  ${PROJECT_SOURCE_DIR}/library/cpp/yt/system/exit.cpp
-  ${PROJECT_SOURCE_DIR}/library/cpp/yt/system/process_id.cpp
-  ${PROJECT_SOURCE_DIR}/library/cpp/yt/system/thread_id.cpp
-  ${PROJECT_SOURCE_DIR}/library/cpp/yt/system/thread_name.cpp
+target_sources(cpp-yt-rseq PRIVATE
+  ${PROJECT_SOURCE_DIR}/library/cpp/yt/rseq/rseq.cpp
 )
 
