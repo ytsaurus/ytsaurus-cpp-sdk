@@ -14,22 +14,17 @@
 
 find_package(linux-headers-generic REQUIRED)
 
-add_library(cpp-containers-absl_flat_hash)
+add_library(cpp-containers-absl INTERFACE)
 
 
-target_compile_options(cpp-containers-absl_flat_hash PRIVATE
+target_compile_options(cpp-containers-absl INTERFACE
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 
-target_link_libraries(cpp-containers-absl_flat_hash PUBLIC
+target_link_libraries(cpp-containers-absl INTERFACE
   linux-headers-generic::linux-headers-generic
   contrib-libs-cxxsupp
   yutil
   contrib-restricted-abseil-cpp
-)
-
-target_sources(cpp-containers-absl_flat_hash PRIVATE
-  ${PROJECT_SOURCE_DIR}/library/cpp/containers/absl_flat_hash/flat_hash_map.cpp
-  ${PROJECT_SOURCE_DIR}/library/cpp/containers/absl_flat_hash/flat_hash_set.cpp
 )
 
