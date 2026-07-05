@@ -13,6 +13,5 @@
 # changes in this file.
 
 add_subdirectory(absl)
-add_subdirectory(cow_string)
 add_subdirectory(concurrent_hash)
 add_subdirectory(stack_array)
