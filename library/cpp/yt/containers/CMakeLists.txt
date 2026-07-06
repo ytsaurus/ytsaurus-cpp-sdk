@@ -33,5 +33,6 @@ target_link_libraries(cpp-yt-containers INTERFACE
   contrib-libs-cxxsupp
   yutil
   cpp-yt-assert
+  cpp-yt-misc
 )
 
