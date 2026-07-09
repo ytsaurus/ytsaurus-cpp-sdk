@@ -16,6 +16,8 @@ find_package(linux-headers-generic REQUIRED)
 
 add_subdirectory(resource_tracker)
 add_subdirectory(solomon)
+add_subdirectory(sensors_owner)
+add_subdirectory(tcmalloc)
 
 add_library(yt-library-profiling)
 

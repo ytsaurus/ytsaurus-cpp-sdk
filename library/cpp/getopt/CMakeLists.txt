@@ -12,4 +12,45 @@
 # Please refer to the build instructions in the repository for more information about manual
 # changes in this file.
 
+find_package(linux-headers-generic REQUIRED)
+
 add_subdirectory(small)
+
+add_library(library-cpp-getopt INTERFACE)
+
+
+target_compile_options(library-cpp-getopt INTERFACE
+  -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
+)
+
+target_link_libraries(library-cpp-getopt INTERFACE
+  linux-headers-generic::linux-headers-generic
+  contrib-libs-cxxsupp
+  yutil
+  cpp-getopt-small
+  library-cpp-svnversion
+  library-cpp-build_info
+)
+
+
+add_global_library_for(library-cpp-getopt.global
+  library-cpp-getopt)
+
+
+target_compile_options(library-cpp-getopt.global PRIVATE
+  -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
+)
+
+target_link_libraries(library-cpp-getopt.global PUBLIC
+  linux-headers-generic::linux-headers-generic
+  contrib-libs-cxxsupp
+  yutil
+  cpp-getopt-small
+  library-cpp-svnversion
+  library-cpp-build_info
+)
+
+target_sources(library-cpp-getopt.global PRIVATE
+  ${PROJECT_SOURCE_DIR}/library/cpp/getopt/print.cpp
+)
+

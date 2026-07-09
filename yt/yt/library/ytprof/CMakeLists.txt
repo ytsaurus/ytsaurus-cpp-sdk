@@ -12,4 +12,52 @@
 # Please refer to the build instructions in the repository for more information about manual
 # changes in this file.
 
+find_package(linux-headers-generic REQUIRED)
+
 add_subdirectory(api)
+add_subdirectory(proto)
+add_subdirectory(http)
+
+add_library(yt-library-ytprof)
+
+
+target_compile_options(yt-library-ytprof PRIVATE
+  -Wdeprecated-this-capture
+  -Wimplicit-fallthrough
+  -Wparentheses
+  -Wno-logical-op-parentheses
+  -Wno-bitwise-op-parentheses
+  -Wswitch
+  -Wreturn-type
+  [=[-DYTPROF_BUILD_TYPE="RELEASE"]=]
+  -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
+)
+
+target_link_libraries(yt-library-ytprof PUBLIC
+  linux-headers-generic::linux-headers-generic
+  contrib-libs-cxxsupp
+  yutil
+  cpp-yt-memory
+  cpp-yt-threading
+  backtrace-cursors-interop
+  backtrace-cursors-frame_pointer
+  backtrace-cursors-libunwind
+  library-ytprof-api
+  library-ytprof-proto
+  contrib-libs-libunwind
+  libs-tcmalloc-malloc_extension
+  library-cpp-svnversion
+  yt-yt-core
+)
+
+target_sources(yt-library-ytprof PRIVATE
+  ${PROJECT_SOURCE_DIR}/yt/yt/library/ytprof/signal_safe_profiler.cpp
+  ${PROJECT_SOURCE_DIR}/yt/yt/library/ytprof/cpu_profiler.cpp
+  ${PROJECT_SOURCE_DIR}/yt/yt/library/ytprof/heap_profiler.cpp
+  ${PROJECT_SOURCE_DIR}/yt/yt/library/ytprof/spinlock_profiler.cpp
+  ${PROJECT_SOURCE_DIR}/yt/yt/library/ytprof/profile.cpp
+  ${PROJECT_SOURCE_DIR}/yt/yt/library/ytprof/build_info.cpp
+  ${PROJECT_SOURCE_DIR}/yt/yt/library/ytprof/external_pprof.cpp
+  ${PROJECT_SOURCE_DIR}/yt/yt/library/ytprof/symbolize_linux.cpp
+)
+

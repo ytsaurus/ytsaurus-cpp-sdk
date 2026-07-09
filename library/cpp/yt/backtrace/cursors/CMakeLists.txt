@@ -13,3 +13,5 @@
 # changes in this file.
 
 add_subdirectory(libunwind)
+add_subdirectory(interop)
+add_subdirectory(frame_pointer)

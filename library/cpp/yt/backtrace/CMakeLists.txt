@@ -16,6 +16,7 @@ find_package(linux-headers-generic REQUIRED)
 
 add_subdirectory(cursors)
 add_subdirectory(symbolizers)
+add_subdirectory(absl_unwinder)
 
 add_library(cpp-yt-backtrace)
 

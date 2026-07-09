@@ -14,3 +14,4 @@
 
 add_subdirectory(cow)
 add_subdirectory(scripts)
+add_subdirectory(induced)

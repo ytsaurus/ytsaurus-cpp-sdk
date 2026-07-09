@@ -18,6 +18,8 @@ class App(ConanFile):
             self.requires("linux-headers-generic/6.5.9")
 
     def build_requirements(self):
+        self.tool_requires("bison/3.8.2")
+        self.tool_requires("m4/1.4.19")
         self.tool_requires("protobuf/3.20.3")
         self.tool_requires("ragel/6.10")
         self.tool_requires("yasm/1.3.0")
@@ -30,11 +32,17 @@ class App(ConanFile):
             for bindir in dep.cpp_info.bindirs:
                 copy(self, pattern="*yasm*", src=bindir, dst=self.build_folder + "../../../.././bin")
             for bindir in dep.cpp_info.bindirs:
+                copy(self, pattern="bison*", src=bindir, dst=self.build_folder + "../../../.././bin/bison/bin")
+            for bindir in dep.cpp_info.bindirs:
+                copy(self, pattern="m4*", src=bindir, dst=self.build_folder + "../../../.././bin/m4/bin")
+            for bindir in dep.cpp_info.bindirs:
                 copy(self, pattern="protoc*", src=bindir, dst=self.build_folder + "../../../.././bin")
             for bindir in dep.cpp_info.bindirs:
                 copy(self, pattern="ragel*", src=bindir, dst=self.build_folder + "../../../.././bin")
             for bindir in dep.cpp_info.bindirs:
                 copy(self, pattern="ytasm*", src=bindir, dst=self.build_folder + "../../../.././bin")
+            for resdir in dep.cpp_info.resdirs:
+                copy(self, pattern="*", src=resdir, dst=self.build_folder + "../../../.././bin/bison/res")
 
     def layout(self):
         cmake_layout(self)
