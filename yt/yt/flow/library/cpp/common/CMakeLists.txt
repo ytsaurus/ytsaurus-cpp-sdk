@@ -17,8 +17,8 @@ find_package(linux-headers-generic REQUIRED)
 add_subdirectory(proto)
 add_subdirectory(controller)
 add_subdirectory(worker)
-add_subdirectory(benchmarks)
 add_subdirectory(unittests)
+add_subdirectory(benchmarks)
 
 add_library(library-cpp-common)
 
