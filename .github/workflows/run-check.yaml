@@ -81,46 +81,28 @@ jobs:
         run: |
           docker exec build-container bash -c '
             set -ex
-            mkdir -p /build
-            cd /build
-            rm -rf *
-            cmake \
-              -G Ninja \
-              -DCMAKE_BUILD_TYPE=Release \
-              -DCMAKE_TOOLCHAIN_FILE=/ytsaurus-cpp-sdk/clang.toolchain \
-              -DCMAKE_C_COMPILER_LAUNCHER=ccache \
-              -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-              -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=/ytsaurus-cpp-sdk/cmake/conan_provider.cmake \
-              -DREQUIRED_LLVM_TOOLING_VERSION=18 \
-              -DCMAKE_CXX_FLAGS_INIT="-stdlib=libc++" \
-              /ytsaurus-cpp-sdk
-            export CCACHE_BASEDIR="/ytsaurus-cpp-sdk"
-            export CCACHE_REMOTE_ONLY=true
-            export CCACHE_REMOTE_STORAGE="${{ vars.CCACHE_REMOTE_STORAGE }}"
-            ninja
+            /ytsaurus-cpp-sdk/yt/yt/scripts/build_cmake.sh configure \
+              --source-path /ytsaurus-cpp-sdk \
+              --build-path /build \
+              --build-type Release \
+              --ccache-remote-storage "${{ vars.CCACHE_REMOTE_STORAGE }}" \
+              --ccache-base-dir /ytsaurus-cpp-sdk \
+              --cxx-flags-init "-stdlib=libc++"
+            /ytsaurus-cpp-sdk/yt/yt/scripts/build_cmake.sh build --build-path /build
           '
 
       - name: Build with libstdc++
         run: |
           docker exec build-container bash -c '
             set -ex
-            mkdir -p /build_gcc
-            cd /build_gcc
-            rm -rf *
-            cmake \
-              -G Ninja \
-              -DCMAKE_BUILD_TYPE=Release \
-              -DCMAKE_TOOLCHAIN_FILE=/ytsaurus-cpp-sdk/clang.toolchain \
-              -DCMAKE_C_COMPILER_LAUNCHER=ccache \
-              -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-              -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=/ytsaurus-cpp-sdk/cmake/conan_provider.cmake \
-              -DREQUIRED_LLVM_TOOLING_VERSION=18 \
-              -DCMAKE_CXX_FLAGS_INIT="-stdlib=libstdc++ -std=c++20" \
-              /ytsaurus-cpp-sdk
-            export CCACHE_BASEDIR="/ytsaurus-cpp-sdk"
-            export CCACHE_REMOTE_ONLY=true
-            export CCACHE_REMOTE_STORAGE="${{ vars.CCACHE_REMOTE_STORAGE }}"
-            ninja
+            /ytsaurus-cpp-sdk/yt/yt/scripts/build_cmake.sh configure \
+              --source-path /ytsaurus-cpp-sdk \
+              --build-path /build_gcc \
+              --build-type Release \
+              --ccache-remote-storage "${{ vars.CCACHE_REMOTE_STORAGE }}" \
+              --ccache-base-dir /ytsaurus-cpp-sdk \
+              --cxx-flags-init "-stdlib=libstdc++ -std=c++20"
+            /ytsaurus-cpp-sdk/yt/yt/scripts/build_cmake.sh build --build-path /build_gcc
           '
 
   stop-vm:

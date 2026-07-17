@@ -863,6 +863,7 @@
   "yt/yt/library/ytprof/api/CMakeLists.txt":"",
   "yt/yt/library/ytprof/http/CMakeLists.txt":"",
   "yt/yt/library/ytprof/proto/CMakeLists.txt":"",
+  "yt/yt/scripts/build_cmake.sh":"yt/opensource/repos/ytsaurus/github_toplevel/yt/yt/scripts/build_cmake.sh",
   "yt/yt_proto/CMakeLists.txt":"",
   "yt/yt_proto/yt/CMakeLists.txt":"",
   "yt/yt_proto/yt/client/CMakeLists.txt":"",
