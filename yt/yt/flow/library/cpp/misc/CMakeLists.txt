@@ -44,7 +44,7 @@ target_link_libraries(library-cpp-misc PUBLIC
   yt-yt-client
   yt-yt-core
   cpp-misc-proto
-  flow-lib-client
+  library-cpp-client
   yt-library-backtrace_introspector
 )
 
@@ -100,7 +100,7 @@ target_link_libraries(library-cpp-misc.global PUBLIC
   yt-yt-client
   yt-yt-core
   cpp-misc-proto
-  flow-lib-client
+  library-cpp-client
   yt-library-backtrace_introspector
 )
 
