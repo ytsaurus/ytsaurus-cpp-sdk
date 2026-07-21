@@ -685,6 +685,7 @@
   "yt/yt/core/rpc/CMakeLists.txt":"",
   "yt/yt/core/rpc/grpc/CMakeLists.txt":"",
   "yt/yt/core/test_framework/CMakeLists.txt":"",
+  "yt/yt/core/yaml/CMakeLists.txt":"",
   "yt/yt/flow/CMakeLists.txt":"",
   "yt/yt/flow/library/CMakeLists.txt":"",
   "yt/yt/flow/library/cpp/CMakeLists.txt":"",

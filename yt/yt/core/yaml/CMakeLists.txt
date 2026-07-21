@@ -14,10 +14,10 @@
 
 find_package(linux-headers-generic REQUIRED)
 
-add_library(yt-library-program)
+add_library(yt-core-yaml)
 
 
-target_compile_options(yt-library-program PRIVATE
+target_compile_options(yt-core-yaml PRIVATE
   -Wdeprecated-this-capture
   -Wimplicit-fallthrough
   -Wparentheses
@@ -28,30 +28,19 @@ target_compile_options(yt-library-program PRIVATE
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 
-target_link_libraries(yt-library-program PUBLIC
+target_link_libraries(yt-core-yaml PUBLIC
   linux-headers-generic::linux-headers-generic
   contrib-libs-cxxsupp
   yutil
   yt-yt-core
-  yt-core-yaml
-  library-profiling-tcmalloc
-  yt-library-ytprof
-  yt-library-tcmalloc
-  yt-library-signals
-  cpp-yt-string
-  cpp-yt-system
-  yt-backtrace-absl_unwinder
-  cpp-getopt-small
+  contrib-libs-yaml
+  contrib-libs-re2
 )
 
-target_sources(yt-library-program PRIVATE
-  ${PROJECT_SOURCE_DIR}/yt/yt/library/program/build_attributes.cpp
-  ${PROJECT_SOURCE_DIR}/yt/yt/library/program/config.cpp
-  ${PROJECT_SOURCE_DIR}/yt/yt/library/program/helpers.cpp
-  ${PROJECT_SOURCE_DIR}/yt/yt/library/program/program.cpp
-  ${PROJECT_SOURCE_DIR}/yt/yt/library/program/program_mixin.cpp
-  ${PROJECT_SOURCE_DIR}/yt/yt/library/program/program_config_mixin.cpp
-  ${PROJECT_SOURCE_DIR}/yt/yt/library/program/program_pdeathsig_mixin.cpp
-  ${PROJECT_SOURCE_DIR}/yt/yt/library/program/program_setsid_mixin.cpp
+target_sources(yt-core-yaml PRIVATE
+  ${PROJECT_SOURCE_DIR}/yt/yt/core/yaml/config.cpp
+  ${PROJECT_SOURCE_DIR}/yt/yt/core/yaml/helpers.cpp
+  ${PROJECT_SOURCE_DIR}/yt/yt/core/yaml/parser.cpp
+  ${PROJECT_SOURCE_DIR}/yt/yt/core/yaml/writer.cpp
 )
 

@@ -34,9 +34,9 @@ target_link_libraries(yt-library-formats PUBLIC
   yutil
   yt-yt-client
   yt-client-formats
+  yt-core-yaml
   yt-library-column_converters
   libs-apache-arrow_next
-  contrib-libs-yaml
 )
 
 target_sources(yt-library-formats PRIVATE
@@ -61,9 +61,6 @@ target_sources(yt-library-formats PRIVATE
   ${PROJECT_SOURCE_DIR}/yt/yt/library/formats/skiff_yson_converter.cpp
   ${PROJECT_SOURCE_DIR}/yt/yt/library/formats/unversioned_value_yson_writer.cpp
   ${PROJECT_SOURCE_DIR}/yt/yt/library/formats/web_json_writer.cpp
-  ${PROJECT_SOURCE_DIR}/yt/yt/library/formats/yaml_helpers.cpp
-  ${PROJECT_SOURCE_DIR}/yt/yt/library/formats/yaml_parser.cpp
-  ${PROJECT_SOURCE_DIR}/yt/yt/library/formats/yaml_writer.cpp
   ${PROJECT_SOURCE_DIR}/yt/yt/library/formats/yamred_dsv_parser.cpp
   ${PROJECT_SOURCE_DIR}/yt/yt/library/formats/yamred_dsv_writer.cpp
   ${PROJECT_SOURCE_DIR}/yt/yt/library/formats/yamr_parser_base.cpp
