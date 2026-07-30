@@ -14,6 +14,7 @@
 
 find_package(linux-headers-generic REQUIRED)
 
+add_subdirectory(unittests)
 add_subdirectory(tests)
 
 add_library(cpp-connectors-queue)
@@ -39,6 +40,7 @@ target_link_libraries(cpp-connectors-queue PUBLIC
   library-cpp-resources
   yt-yt-core
   yt-yt-client
+  library-query-engine_api
 )
 
 target_sources(cpp-connectors-queue PRIVATE
@@ -46,6 +48,8 @@ target_sources(cpp-connectors-queue PRIVATE
   ${PROJECT_SOURCE_DIR}/yt/yt/flow/library/cpp/connectors/queue/sink.cpp
   ${PROJECT_SOURCE_DIR}/yt/yt/flow/library/cpp/connectors/queue/source.cpp
   ${PROJECT_SOURCE_DIR}/yt/yt/flow/library/cpp/connectors/queue/spec.cpp
+  ${PROJECT_SOURCE_DIR}/yt/yt/flow/library/cpp/connectors/queue/tablet_index_evaluator.cpp
+  ${PROJECT_SOURCE_DIR}/yt/yt/flow/library/cpp/connectors/queue/tablet_router.cpp
 )
 
 
@@ -73,6 +77,7 @@ target_link_libraries(cpp-connectors-queue.global PUBLIC
   library-cpp-resources
   yt-yt-core
   yt-yt-client
+  library-query-engine_api
 )
 
 target_sources(cpp-connectors-queue.global PRIVATE
