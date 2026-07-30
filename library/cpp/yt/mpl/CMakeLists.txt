@@ -14,10 +14,10 @@
 
 find_package(linux-headers-generic REQUIRED)
 
-add_library(cpp-yt-error)
+add_library(cpp-yt-mpl INTERFACE)
 
 
-target_compile_options(cpp-yt-error PRIVATE
+target_compile_options(cpp-yt-mpl INTERFACE
   -Wdeprecated-this-capture
   -Wimplicit-fallthrough
   -Wparentheses
@@ -28,27 +28,10 @@ target_compile_options(cpp-yt-error PRIVATE
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 
-target_link_libraries(cpp-yt-error PUBLIC
+target_link_libraries(cpp-yt-mpl INTERFACE
   linux-headers-generic::linux-headers-generic
   contrib-libs-cxxsupp
   yutil
   cpp-yt-assert
-  cpp-yt-containers
-  cpp-yt-global
-  cpp-yt-memory
-  cpp-yt-misc
-  cpp-yt-mpl
-  cpp-yt-system
-  cpp-yt-threading
-  cpp-yt-string
-  cpp-yt-logging
-)
-
-target_sources(cpp-yt-error PRIVATE
-  ${PROJECT_SOURCE_DIR}/library/cpp/yt/error/error.cpp
-  ${PROJECT_SOURCE_DIR}/library/cpp/yt/error/error_attributes.cpp
-  ${PROJECT_SOURCE_DIR}/library/cpp/yt/error/error_code.cpp
-  ${PROJECT_SOURCE_DIR}/library/cpp/yt/error/origin_attributes.cpp
-  ${PROJECT_SOURCE_DIR}/library/cpp/yt/error/text_yson.cpp
 )
 
