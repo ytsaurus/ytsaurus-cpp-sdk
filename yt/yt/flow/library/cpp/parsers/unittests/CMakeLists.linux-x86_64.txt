@@ -14,14 +14,16 @@
 
 find_package(linux-headers-generic REQUIRED)
 
-add_executable(yt-flow-library-cpp-process_function-unittest)
+add_subdirectory(proto)
+
+add_executable(yt-flow-library-cpp-parsers-unittests)
 
 
-set_property(TARGET yt-flow-library-cpp-process_function-unittest PROPERTY OUTPUT_NAME
-  yt-yt-flow-library-cpp-process_function-unittest
+set_property(TARGET yt-flow-library-cpp-parsers-unittests PROPERTY OUTPUT_NAME
+  yt-yt-flow-library-cpp-parsers-unittests
 )
 
-target_compile_options(yt-flow-library-cpp-process_function-unittest PRIVATE
+target_compile_options(yt-flow-library-cpp-parsers-unittests PRIVATE
   -Wdeprecated-this-capture
   -Wimplicit-fallthrough
   -Wparentheses
@@ -32,7 +34,7 @@ target_compile_options(yt-flow-library-cpp-process_function-unittest PRIVATE
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 
-target_link_libraries(yt-flow-library-cpp-process_function-unittest PUBLIC
+target_link_libraries(yt-flow-library-cpp-parsers-unittests PUBLIC
   linux-headers-generic::linux-headers-generic
   contrib-libs-cxxsupp
   yutil
@@ -40,22 +42,16 @@ target_link_libraries(yt-flow-library-cpp-process_function-unittest PUBLIC
   library-cpp-cpuid_check
   cpp-testing-gtest
   cpp-testing-gtest_main
-  library-cpp-process_function
-  cpp-process_function-host
-  cpp-process_function-testing
-  library-cpp-common
-  library-cpp-misc
-  library-query-engine
-  yt-client-cache
-  client-unittests-mock
+  library-cpp-parsers
+  parsers-unittests-proto
 )
 
-target_allocator(yt-flow-library-cpp-process_function-unittest
+target_allocator(yt-flow-library-cpp-parsers-unittests
   cpp-malloc-tcmalloc
   libs-tcmalloc-no_percpu_cache
 )
 
-target_link_options(yt-flow-library-cpp-process_function-unittest PRIVATE
+target_link_options(yt-flow-library-cpp-parsers-unittests PRIVATE
   -ldl
   -lrt
   -Wl,--no-as-needed
@@ -66,22 +62,21 @@ target_link_options(yt-flow-library-cpp-process_function-unittest PRIVATE
   -lutil
 )
 
-target_sources(yt-flow-library-cpp-process_function-unittest PRIVATE
-  ${PROJECT_SOURCE_DIR}/yt/yt/flow/library/cpp/process_function/unittest/process_function_ut.cpp
-  ${PROJECT_SOURCE_DIR}/yt/yt/flow/library/cpp/process_function/unittest/transform_ordered_source_adapter_ut.cpp
+target_sources(yt-flow-library-cpp-parsers-unittests PRIVATE
+  ${PROJECT_SOURCE_DIR}/yt/yt/flow/library/cpp/parsers/unittests/proto_ut.cpp
 )
 
 
 add_test(
   NAME
-  yt-yt-flow-library-cpp-process_function-unittest
+  yt-yt-flow-library-cpp-parsers-unittests
   COMMAND
-  yt-yt-flow-library-cpp-process_function-unittest
+  yt-yt-flow-library-cpp-parsers-unittests
 )
 
 set_property(
   TEST
-  yt-yt-flow-library-cpp-process_function-unittest
+  yt-yt-flow-library-cpp-parsers-unittests
   PROPERTY
   LABELS
   SMALL
@@ -89,16 +84,16 @@ set_property(
 
 set_property(
   TEST
-  yt-yt-flow-library-cpp-process_function-unittest
+  yt-yt-flow-library-cpp-parsers-unittests
   PROPERTY
   ENVIRONMENT
 )
 
-vcs_info(yt-flow-library-cpp-process_function-unittest)
+vcs_info(yt-flow-library-cpp-parsers-unittests)
 
 set_property(
   TEST
-  yt-yt-flow-library-cpp-process_function-unittest
+  yt-yt-flow-library-cpp-parsers-unittests
   PROPERTY
   PROCESSORS
   1

@@ -14,33 +14,41 @@
 
 find_package(linux-headers-generic REQUIRED)
 
-add_subdirectory(unittests)
+find_package(Protobuf REQUIRED)
 
-add_library(library-cpp-parsers)
+add_library(parsers-unittests-proto)
 
 
-target_compile_options(library-cpp-parsers PRIVATE
-  -Wdeprecated-this-capture
-  -Wimplicit-fallthrough
-  -Wparentheses
-  -Wno-logical-op-parentheses
-  -Wno-bitwise-op-parentheses
-  -Wswitch
-  -Wreturn-type
+target_compile_options(parsers-unittests-proto PRIVATE
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 
-target_link_libraries(library-cpp-parsers PUBLIC
+target_link_libraries(parsers-unittests-proto PUBLIC
   linux-headers-generic::linux-headers-generic
   contrib-libs-cxxsupp
   yutil
-  library-cpp-computation
-  library-cpp-json
+  protobuf::libprotobuf
+  protobuf::libprotoc
 )
 
-target_sources(library-cpp-parsers PRIVATE
-  ${PROJECT_SOURCE_DIR}/yt/yt/flow/library/cpp/parsers/proto.cpp
-  ${PROJECT_SOURCE_DIR}/yt/yt/flow/library/cpp/parsers/tskv.cpp
-  ${PROJECT_SOURCE_DIR}/yt/yt/flow/library/cpp/parsers/json.cpp
+target_proto_messages(parsers-unittests-proto PRIVATE
+  ${PROJECT_SOURCE_DIR}/yt/yt/flow/library/cpp/parsers/unittests/proto/test_record.proto
 )
 
+target_sources(parsers-unittests-proto PRIVATE
+  ${PROJECT_BINARY_DIR}/yt/yt/flow/library/cpp/parsers/unittests/proto/test_record.pb.h
+)
+
+
+target_proto_outs(parsers-unittests-proto
+  --cpp_out=${PROJECT_BINARY_DIR}/
+)
+
+target_proto_addincls(parsers-unittests-proto
+  ./
+  ${PROJECT_SOURCE_DIR}/
+  ${PROJECT_BINARY_DIR}
+  ${PROJECT_SOURCE_DIR}
+  ${PROJECT_BINARY_DIR}
+  ${protobuf_INCLUDE_DIRS}
+)

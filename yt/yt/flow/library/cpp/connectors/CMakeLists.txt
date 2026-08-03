@@ -13,8 +13,8 @@
 # changes in this file.
 
 add_subdirectory(common)
-add_subdirectory(queue)
 add_subdirectory(random)
+add_subdirectory(queue)
 add_subdirectory(servicelog)
 add_subdirectory(sorted_dynamic_table)
 add_subdirectory(static_table)
