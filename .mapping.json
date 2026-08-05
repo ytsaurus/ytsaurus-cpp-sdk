@@ -651,6 +651,7 @@
   "yt/yt/client/hedging/unittests/CMakeLists.linux-aarch64.txt":"",
   "yt/yt/client/hedging/unittests/CMakeLists.linux-x86_64.txt":"",
   "yt/yt/client/hedging/unittests/CMakeLists.txt":"",
+  "yt/yt/client/hedging/unittests/mock/CMakeLists.txt":"",
   "yt/yt/client/logging/CMakeLists.txt":"",
   "yt/yt/client/query_client/CMakeLists.txt":"",
   "yt/yt/client/query_client/unittests/CMakeLists.linux-aarch64.txt":"",
