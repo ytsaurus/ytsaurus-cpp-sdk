@@ -778,6 +778,7 @@
   "yt/yt/flow/library/cpp/misc/benchmarks/CMakeLists.linux-x86_64.txt":"",
   "yt/yt/flow/library/cpp/misc/benchmarks/CMakeLists.txt":"",
   "yt/yt/flow/library/cpp/misc/proto/CMakeLists.txt":"",
+  "yt/yt/flow/library/cpp/misc/testing/CMakeLists.txt":"",
   "yt/yt/flow/library/cpp/misc/unittests/CMakeLists.linux-aarch64.txt":"",
   "yt/yt/flow/library/cpp/misc/unittests/CMakeLists.linux-x86_64.txt":"",
   "yt/yt/flow/library/cpp/misc/unittests/CMakeLists.txt":"",
