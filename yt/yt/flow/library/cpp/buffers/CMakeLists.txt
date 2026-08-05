@@ -12,25 +12,34 @@
 # Please refer to the build instructions in the repository for more information about manual
 # changes in this file.
 
-add_subdirectory(pipeline_helpers)
-add_subdirectory(common)
-add_subdirectory(client)
-add_subdirectory(serializer)
-add_subdirectory(delta_codecs)
-add_subdirectory(misc)
-add_subdirectory(file_storage)
-add_subdirectory(native_client)
-add_subdirectory(buffers)
-add_subdirectory(companion)
-add_subdirectory(computation)
-add_subdirectory(distributed_throttler)
-add_subdirectory(resources)
-add_subdirectory(tables)
-add_subdirectory(connectors)
-add_subdirectory(controller)
-add_subdirectory(multiplexer)
-add_subdirectory(parsers)
-add_subdirectory(process_function)
-add_subdirectory(vanilla)
-add_subdirectory(worker)
-add_subdirectory(runner)
+find_package(linux-headers-generic REQUIRED)
+
+add_subdirectory(unittests)
+
+add_library(library-cpp-buffers)
+
+
+target_compile_options(library-cpp-buffers PRIVATE
+  -Wdeprecated-this-capture
+  -Wimplicit-fallthrough
+  -Wparentheses
+  -Wno-logical-op-parentheses
+  -Wno-bitwise-op-parentheses
+  -Wswitch
+  -Wreturn-type
+  -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
+)
+
+target_link_libraries(library-cpp-buffers PUBLIC
+  linux-headers-generic::linux-headers-generic
+  contrib-libs-cxxsupp
+  yutil
+  yt-yt-core
+)
+
+target_sources(library-cpp-buffers PRIVATE
+  ${PROJECT_SOURCE_DIR}/yt/yt/flow/library/cpp/buffers/epoch_cycle_tracker.cpp
+  ${PROJECT_SOURCE_DIR}/yt/yt/flow/library/cpp/buffers/max_rate_estimator.cpp
+  ${PROJECT_SOURCE_DIR}/yt/yt/flow/library/cpp/buffers/offered_rate_estimator.cpp
+)
+
