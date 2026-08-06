@@ -6,10 +6,10 @@
  Below is a list of packages that need to be installed before building YTsaurus. 'How to Build' section contains step by step instructions to obtain these packages.
 
  - cmake 3.22+
- - clang-18
- - lld-18
- - lldb-18
- - conan 2.4.1
+ - clang-20
+ - lld-20
+ - lldb-20
+ - conan 2.28.1
  - git 2.20+
  - python 3.8+
  - pip3
@@ -38,8 +38,8 @@
 
     ```
     sudo apt-get install -y python3-pip ninja-build m4 cmake unzip
-    sudo apt-get install -y clang-18 lld-18 libc++1-18 libc++-18-dev libc++abi-18-dev g++-11
-    sudo python3 -m pip install PyYAML==6.0.1 conan==2.4.1 dacite
+    sudo apt-get install -y clang-20 lld-20 libc++1-20 libc++-20-dev libc++abi-20-dev g++-11
+    sudo python3 -m pip install PyYAML==6.0.1 conan==2.28.1 dacite
     ```
  1. Install protoc.
 
@@ -65,7 +65,7 @@
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_TOOLCHAIN_FILE=../ytsaurus-cpp-sdk/clang.toolchain \
         -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=../ytsaurus-cpp-sdk/cmake/conan_provider.cmake \
-        -DREQUIRED_LLVM_TOOLING_VERSION=18 \
+        -DREQUIRED_LLVM_TOOLING_VERSION=20 \
         -DCMAKE_CXX_FLAGS_INIT="-stdlib=libc++" \
         ../ytsaurus-cpp-sdk
     ```
@@ -104,7 +104,7 @@
          -DCMAKE_C_COMPILER_LAUNCHER=ccache \
          -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
          -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=/ytsaurus-cpp-sdk/cmake/conan_provider.cmake \
-         -DREQUIRED_LLVM_TOOLING_VERSION=18 \
+         -DREQUIRED_LLVM_TOOLING_VERSION=20 \
          -DCMAKE_CXX_FLAGS_INIT="-stdlib=libc++" \
          /ytsaurus-cpp-sdk
       ninja
