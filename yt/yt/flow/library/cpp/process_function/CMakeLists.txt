@@ -15,8 +15,8 @@
 find_package(linux-headers-generic REQUIRED)
 
 add_subdirectory(host)
-add_subdirectory(unittest)
 add_subdirectory(testing)
+add_subdirectory(unittest)
 add_subdirectory(benchmarks)
 
 add_library(library-cpp-process_function INTERFACE)
