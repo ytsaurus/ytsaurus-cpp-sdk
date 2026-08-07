@@ -1,0 +1,203 @@
+#pragma once
+
+#include "public.h"
+#include "config.h"
+#include "cri_api.h"
+
+#include <yt/yt/library/process/process.h>
+
+#include <yt/yt/core/ytree/yson_struct.h>
+
+namespace NYT::NContainers::NCri {
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct TCriDescriptor
+{
+    std::string Name;
+    std::string Id;
+};
+
+struct TCriImageDescriptor
+{
+    std::string Image;
+    std::string Id;
+};
+
+void FormatValue(TStringBuilderBase* builder, const TCriDescriptor& descriptor, TStringBuf spec);
+void FormatValue(TStringBuilderBase* builder, const TCriPodDescriptor& descriptor, TStringBuf spec);
+void FormatValue(TStringBuilderBase* builder, const TCriImageDescriptor& descriptor, TStringBuf spec);
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct TCriBindMount
+{
+    std::string ContainerPath;
+    std::string HostPath;
+    bool ReadOnly;
+};
+
+DEFINE_BIT_ENUM(ECriBindDevicePermissions,
+    ((Read)   (0x01))
+    ((Write)  (0x02))
+    ((Create) (0x04))
+);
+
+struct TCriBindDevice
+{
+    std::string ContainerPath;
+    std::string HostPath;
+
+    ECriBindDevicePermissions Permissions;
+};
+
+struct TCriCredentials
+{
+    std::optional<i64> Uid;
+    std::optional<i64> Gid;
+    std::vector<i64> Groups;
+};
+
+struct TCriContainerSpec
+    : public TRefCounted
+{
+    std::string Name;
+
+    THashMap<std::string, std::string> Labels;
+
+    TCriImageDescriptor Image;
+
+    bool ReadOnlyRootFS;
+
+    std::vector<TCriBindMount> BindMounts;
+
+    std::vector<TCriBindDevice> BindDevices;
+
+    TCriCredentials Credentials;
+
+    TCriContainerResources Resources;
+
+    //! Command to execute (i.e., entrypoint for docker).
+    std::vector<std::string> Command;
+
+    //! Arguments for the Command (i.e., command for docker).
+    std::vector<std::string> Arguments;
+
+    //! Current working directory of the command.
+    std::string WorkingDirectory;
+
+    //! Environment variable to set in the container.
+    THashMap<std::string, std::string> Environment;
+
+    //! Capabilities to add to the container.
+    std::vector<std::string> CapabilitiesToAdd;
+};
+
+DEFINE_REFCOUNTED_TYPE(TCriContainerSpec)
+
+////////////////////////////////////////////////////////////////////////////////
+
+//! Wrapper around CRI gRPC API
+//!
+//! @see yt/yt/contrib/cri-api/k8s.io/cri-api/pkg/apis/runtime/v1/api.proto
+//! @see https://github.com/kubernetes/cri-api
+struct ICriExecutor
+    : public TRefCounted
+{
+    //! Returns status of the CRI runtime.
+    //! @param verbose fill field "info" with runtime-specific debug.
+    virtual TFuture<TCriRuntimeApi::TRspStatusPtr> GetRuntimeStatus(bool verbose = false) = 0;
+
+    // PodSandbox
+
+    virtual std::string GetPodCgroup(std::string podName) const = 0;
+
+    virtual TFuture<TCriRuntimeApi::TRspListPodSandboxPtr> ListPodSandbox(
+        std::function<void(NProto::PodSandboxFilter&)> initFilter = nullptr) = 0;
+
+    virtual TFuture<TCriRuntimeApi::TRspListContainersPtr> ListContainers(
+        std::function<void(NProto::ContainerFilter&)> initFilter = nullptr) = 0;
+
+    virtual TFuture<void> ForEachPodSandbox(
+        const TCallback<void(TCriPodDescriptorPtr, const NProto::PodSandbox&)>& callback,
+        std::function<void(NProto::PodSandboxFilter&)> initFilter = nullptr) = 0;
+
+    virtual TFuture<void> ForEachContainer(
+        const TCallback<void(const TCriDescriptor&, const NProto::Container&)>& callback,
+        std::function<void(NProto::ContainerFilter&)> initFilter = nullptr) = 0;
+
+    //! Returns status of the pod.
+    //! @param verbose fill field "info" with runtime-specific debug.
+    virtual TFuture<TCriRuntimeApi::TRspPodSandboxStatusPtr> GetPodSandboxStatus(
+        const TCriPodDescriptorPtr& pod, bool verbose = false) = 0;
+
+    //! Returns status of the container.
+    //! @param verbose fill "info" with runtime-specific debug information.
+    virtual TFuture<TCriRuntimeApi::TRspContainerStatusPtr> GetContainerStatus(
+        const TCriDescriptor& ct, bool verbose = false) = 0;
+
+    virtual TFuture<TCriPodDescriptorPtr> RunPodSandbox(TCriPodSpecPtr podSpec) = 0;
+    virtual TFuture<void> StopPodSandbox(const TCriPodDescriptorPtr& pod) = 0;
+    virtual TFuture<void> RemovePodSandbox(const TCriPodDescriptorPtr& pod) = 0;
+    virtual TFuture<void> UpdatePodResources(
+        const TCriPodDescriptorPtr& pod,
+        const TCriContainerResources& resources) = 0;
+
+    //! Remove all pods and containers in namespace managed by executor.
+    virtual void CleanNamespace() = 0;
+
+    //! Remove all containers in one pod.
+    virtual void CleanPodSandbox(const TCriPodDescriptorPtr& pod) = 0;
+
+    virtual TFuture<TCriDescriptor> CreateContainer(
+        TCriContainerSpecPtr containerSpec,
+        const TCriPodDescriptorPtr& pod,
+        TCriPodSpecPtr podSpec) = 0;
+
+    virtual TFuture<void> StartContainer(const TCriDescriptor& ct) = 0;
+
+    //! Stops container if it's running.
+    //! @param timeout defines timeout for graceful stop,  timeout=0 - kill instantly.
+    virtual TFuture<void> StopContainer(
+        const TCriDescriptor& ct,
+        TDuration timeout = TDuration::Zero()) = 0;
+
+    virtual TFuture<void> RemoveContainer(const TCriDescriptor& ct) = 0;
+
+    virtual TFuture<void> UpdateContainerResources(
+        const TCriDescriptor& ct,
+        const TCriContainerResources& resources) = 0;
+
+    virtual TFuture<TCriImageApi::TRspListImagesPtr> ListImages(
+        std::function<void(NProto::ImageFilter&)> initFilter = nullptr) = 0;
+
+    //! Returns status of the image.
+    //! @param verbose fill field "info" with runtime-specific debug.
+    virtual TFuture<TCriImageApi::TRspImageStatusPtr> GetImageStatus(
+        const TCriImageDescriptor& image,
+        bool verbose = false) = 0;
+
+    virtual TFuture<TCriImageApi::TRspPullImagePtr> PullImage(
+        const TCriImageDescriptor& image,
+        TCriAuthConfigPtr authConfig = nullptr,
+        TCriPodSpecPtr podSpec = nullptr) = 0;
+
+    virtual TFuture<void> RemoveImage(const TCriImageDescriptor& image) = 0;
+
+    // FIXME(khlebnikov): temporary compat
+    virtual TProcessBasePtr CreateProcess(
+        const std::string& path,
+        TCriContainerSpecPtr containerSpec,
+        TCriPodDescriptorPtr pod,
+        TCriPodSpecPtr podSpec) = 0;
+};
+
+DEFINE_REFCOUNTED_TYPE(ICriExecutor)
+
+////////////////////////////////////////////////////////////////////////////////
+
+ICriExecutorPtr CreateCriExecutor(TCriExecutorConfigPtr config);
+
+////////////////////////////////////////////////////////////////////////////////
+
+} // namespace NYT::NContainers::NCri
