@@ -33,6 +33,7 @@ target_link_libraries(library-profiling-resource_tracker PUBLIC
   contrib-libs-cxxsupp
   yutil
   yt-library-profiling
+  yt-library-cgroup
   yt_proto-yt-core
 )
 
@@ -62,6 +63,7 @@ target_link_libraries(library-profiling-resource_tracker.global PUBLIC
   contrib-libs-cxxsupp
   yutil
   yt-library-profiling
+  yt-library-cgroup
   yt_proto-yt-core
 )
 
