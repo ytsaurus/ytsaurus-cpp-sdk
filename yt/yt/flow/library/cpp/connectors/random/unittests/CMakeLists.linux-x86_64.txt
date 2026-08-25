@@ -14,14 +14,14 @@
 
 find_package(linux-headers-generic REQUIRED)
 
-add_executable(yt-flow-library-cpp-connectors-servicelog-unittests)
+add_executable(yt-flow-library-cpp-connectors-random-unittests)
 
 
-set_property(TARGET yt-flow-library-cpp-connectors-servicelog-unittests PROPERTY OUTPUT_NAME
-  library-cpp-connectors-servicelog-unittests
+set_property(TARGET yt-flow-library-cpp-connectors-random-unittests PROPERTY OUTPUT_NAME
+  yt-flow-library-cpp-connectors-random-unittests
 )
 
-target_compile_options(yt-flow-library-cpp-connectors-servicelog-unittests PRIVATE
+target_compile_options(yt-flow-library-cpp-connectors-random-unittests PRIVATE
   -Wdeprecated-this-capture
   -Wimplicit-fallthrough
   -Wparentheses
@@ -32,26 +32,23 @@ target_compile_options(yt-flow-library-cpp-connectors-servicelog-unittests PRIVA
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 
-target_link_libraries(yt-flow-library-cpp-connectors-servicelog-unittests PUBLIC
+target_link_libraries(yt-flow-library-cpp-connectors-random-unittests PUBLIC
   linux-headers-generic::linux-headers-generic
   contrib-libs-cxxsupp
   yutil
   build-cow-on
+  library-cpp-cpuid_check
   cpp-testing-gtest
   cpp-testing-gtest_main
-  library-cpp-computation
-  cpp-connectors-servicelog
-  controller-unittests-mock
-  library-cpp-controller
-  client-unittests-mock
-  yt-core-test_framework
+  cpp-connectors-random
 )
 
-target_allocator(yt-flow-library-cpp-connectors-servicelog-unittests
-  system_allocator
+target_allocator(yt-flow-library-cpp-connectors-random-unittests
+  cpp-malloc-tcmalloc
+  libs-tcmalloc-no_percpu_cache
 )
 
-target_link_options(yt-flow-library-cpp-connectors-servicelog-unittests PRIVATE
+target_link_options(yt-flow-library-cpp-connectors-random-unittests PRIVATE
   -ldl
   -lrt
   -Wl,--no-as-needed
@@ -62,23 +59,21 @@ target_link_options(yt-flow-library-cpp-connectors-servicelog-unittests PRIVATE
   -lutil
 )
 
-target_sources(yt-flow-library-cpp-connectors-servicelog-unittests PRIVATE
-  ${PROJECT_SOURCE_DIR}/yt/yt/flow/library/cpp/connectors/servicelog/unittests/fetcher_ut.cpp
-  ${PROJECT_SOURCE_DIR}/yt/yt/flow/library/cpp/connectors/servicelog/unittests/joiner_ut.cpp
-  ${PROJECT_SOURCE_DIR}/yt/yt/flow/library/cpp/connectors/servicelog/unittests/registry_ut.cpp
+target_sources(yt-flow-library-cpp-connectors-random-unittests PRIVATE
+  ${PROJECT_SOURCE_DIR}/yt/yt/flow/library/cpp/connectors/random/unittests/registry_ut.cpp
 )
 
 
 add_test(
   NAME
-  library-cpp-connectors-servicelog-unittests
+  yt-flow-library-cpp-connectors-random-unittests
   COMMAND
-  library-cpp-connectors-servicelog-unittests
+  yt-flow-library-cpp-connectors-random-unittests
 )
 
 set_property(
   TEST
-  library-cpp-connectors-servicelog-unittests
+  yt-flow-library-cpp-connectors-random-unittests
   PROPERTY
   LABELS
   SMALL
@@ -86,16 +81,16 @@ set_property(
 
 set_property(
   TEST
-  library-cpp-connectors-servicelog-unittests
+  yt-flow-library-cpp-connectors-random-unittests
   PROPERTY
   ENVIRONMENT
 )
 
-vcs_info(yt-flow-library-cpp-connectors-servicelog-unittests)
+vcs_info(yt-flow-library-cpp-connectors-random-unittests)
 
 set_property(
   TEST
-  library-cpp-connectors-servicelog-unittests
+  yt-flow-library-cpp-connectors-random-unittests
   PROPERTY
   PROCESSORS
   1
