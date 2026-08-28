@@ -15,7 +15,7 @@
 find_package(linux-headers-generic REQUIRED)
 
 add_subdirectory(proto)
-add_subdirectory(unittest)
+add_subdirectory(unittests)
 add_subdirectory(server)
 
 add_library(library-cpp-companion)
