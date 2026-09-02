@@ -16,10 +16,10 @@ find_package(linux-headers-generic REQUIRED)
 
 add_subdirectory(unittests)
 
-add_library(library-cpp-file_sources)
+add_library(library-cpp-file_providers)
 
 
-target_compile_options(library-cpp-file_sources PRIVATE
+target_compile_options(library-cpp-file_providers PRIVATE
   -Wdeprecated-this-capture
   -Wimplicit-fallthrough
   -Wparentheses
@@ -30,7 +30,7 @@ target_compile_options(library-cpp-file_sources PRIVATE
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 
-target_link_libraries(library-cpp-file_sources PUBLIC
+target_link_libraries(library-cpp-file_providers PUBLIC
   linux-headers-generic::linux-headers-generic
   contrib-libs-cxxsupp
   yutil
@@ -41,16 +41,16 @@ target_link_libraries(library-cpp-file_sources PUBLIC
   cpp-yt-memory
 )
 
-target_sources(library-cpp-file_sources PRIVATE
-  ${PROJECT_SOURCE_DIR}/yt/yt/flow/library/cpp/file_sources/file_source_base.cpp
+target_sources(library-cpp-file_providers PRIVATE
+  ${PROJECT_SOURCE_DIR}/yt/yt/flow/library/cpp/file_providers/file_provider_base.cpp
 )
 
 
-add_global_library_for(library-cpp-file_sources.global
-  library-cpp-file_sources)
+add_global_library_for(library-cpp-file_providers.global
+  library-cpp-file_providers)
 
 
-target_compile_options(library-cpp-file_sources.global PRIVATE
+target_compile_options(library-cpp-file_providers.global PRIVATE
   -Wdeprecated-this-capture
   -Wimplicit-fallthrough
   -Wparentheses
@@ -61,7 +61,7 @@ target_compile_options(library-cpp-file_sources.global PRIVATE
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 
-target_link_libraries(library-cpp-file_sources.global PUBLIC
+target_link_libraries(library-cpp-file_providers.global PUBLIC
   linux-headers-generic::linux-headers-generic
   contrib-libs-cxxsupp
   yutil
@@ -72,9 +72,9 @@ target_link_libraries(library-cpp-file_sources.global PUBLIC
   cpp-yt-memory
 )
 
-target_sources(library-cpp-file_sources.global PRIVATE
-  ${PROJECT_SOURCE_DIR}/yt/yt/flow/library/cpp/file_sources/local_file_source.cpp
-  ${PROJECT_SOURCE_DIR}/yt/yt/flow/library/cpp/file_sources/yt_directory_last_file_source.cpp
-  ${PROJECT_SOURCE_DIR}/yt/yt/flow/library/cpp/file_sources/yt_file_source.cpp
+target_sources(library-cpp-file_providers.global PRIVATE
+  ${PROJECT_SOURCE_DIR}/yt/yt/flow/library/cpp/file_providers/local_file_provider.cpp
+  ${PROJECT_SOURCE_DIR}/yt/yt/flow/library/cpp/file_providers/yt_directory_last_file_provider.cpp
+  ${PROJECT_SOURCE_DIR}/yt/yt/flow/library/cpp/file_providers/yt_file_provider.cpp
 )
 
