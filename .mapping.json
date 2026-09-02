@@ -4,6 +4,7 @@
   ".github/workflows/on-push.yaml":"yt/opensource/repos/ytsaurus-cpp-sdk/github_toplevel/.github/workflows/on-push.yaml",
   ".github/workflows/pr-check-is-allowed.yaml":"yt/opensource/repos/ytsaurus-cpp-sdk/github_toplevel/.github/workflows/pr-check-is-allowed.yaml",
   ".github/workflows/run-check.yaml":"yt/opensource/repos/ytsaurus-cpp-sdk/github_toplevel/.github/workflows/run-check.yaml",
+  ".github/workflows/send_telegram_notification.yaml":"yt/opensource/repos/ytsaurus-cpp-sdk/github_toplevel/.github/workflows/send_telegram_notification.yaml",
   "AUTHORS":"yt/opensource/repos/ytsaurus-cpp-sdk/github_toplevel/AUTHORS",
   "BUILD.md":"yt/opensource/repos/ytsaurus-cpp-sdk/github_toplevel/BUILD.md",
   "CMakeLists.linux-aarch64.txt":"",
