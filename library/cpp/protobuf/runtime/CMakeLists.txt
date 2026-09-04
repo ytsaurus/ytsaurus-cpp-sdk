@@ -16,18 +16,24 @@ find_package(linux-headers-generic REQUIRED)
 
 find_package(Protobuf REQUIRED)
 
-add_library(cpp-protobuf-runtime INTERFACE)
+add_library(cpp-protobuf-runtime)
 
 
-target_compile_options(cpp-protobuf-runtime INTERFACE
+target_compile_options(cpp-protobuf-runtime PRIVATE
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 
-target_link_libraries(cpp-protobuf-runtime INTERFACE
+target_link_libraries(cpp-protobuf-runtime PUBLIC
   linux-headers-generic::linux-headers-generic
   contrib-libs-cxxsupp
   yutil
   protobuf::libprotobuf
   protobuf::libprotoc
+)
+
+target_sources(cpp-protobuf-runtime PRIVATE
+  ${PROJECT_SOURCE_DIR}/library/cpp/protobuf/runtime/escaping_arcadia.cpp
+  ${PROJECT_SOURCE_DIR}/library/cpp/protobuf/runtime/escaping.h
+  ${PROJECT_SOURCE_DIR}/library/cpp/protobuf/runtime/nprotobuf.h
 )
 
