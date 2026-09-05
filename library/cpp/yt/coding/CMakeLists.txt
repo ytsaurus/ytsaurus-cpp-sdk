@@ -35,5 +35,6 @@ target_link_libraries(cpp-yt-coding INTERFACE
   cpp-yt-assert
   cpp-yt-exception
   cpp-yt-memory
+  cpp-yt-mpl
 )
 
