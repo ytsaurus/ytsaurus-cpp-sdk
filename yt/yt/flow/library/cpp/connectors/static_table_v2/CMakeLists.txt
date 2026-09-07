@@ -34,6 +34,7 @@ target_link_libraries(cpp-connectors-static_table_v2 PUBLIC
   linux-headers-generic::linux-headers-generic
   contrib-libs-cxxsupp
   yutil
+  library-cpp-timezone_conversion
   library-cpp-common
   cpp-connectors-common
   library-cpp-resources
@@ -67,6 +68,7 @@ target_link_libraries(cpp-connectors-static_table_v2.global PUBLIC
   linux-headers-generic::linux-headers-generic
   contrib-libs-cxxsupp
   yutil
+  library-cpp-timezone_conversion
   library-cpp-common
   cpp-connectors-common
   library-cpp-resources
