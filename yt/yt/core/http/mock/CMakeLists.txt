@@ -14,12 +14,10 @@
 
 find_package(linux-headers-generic REQUIRED)
 
-add_subdirectory(mock)
-
-add_library(yt-core-http)
+add_library(core-http-mock)
 
 
-target_compile_options(yt-core-http PRIVATE
+target_compile_options(core-http-mock PRIVATE
   -Wdeprecated-this-capture
   -Wimplicit-fallthrough
   -Wparentheses
@@ -30,26 +28,16 @@ target_compile_options(yt-core-http PRIVATE
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 
-target_link_libraries(yt-core-http PUBLIC
+target_link_libraries(core-http-mock PUBLIC
   linux-headers-generic::linux-headers-generic
   contrib-libs-cxxsupp
   yutil
-  cpp-blockcodecs-core
-  yt-yt-core
-  contrib-deprecated-http-parser
+  cpp-testing-gtest
+  yt-core-http
 )
 
-target_sources(yt-core-http PRIVATE
-  ${PROJECT_SOURCE_DIR}/yt/yt/core/http/client.cpp
-  ${PROJECT_SOURCE_DIR}/yt/yt/core/http/compression.cpp
-  ${PROJECT_SOURCE_DIR}/yt/yt/core/http/config.cpp
-  ${PROJECT_SOURCE_DIR}/yt/yt/core/http/connection_pool.cpp
-  ${PROJECT_SOURCE_DIR}/yt/yt/core/http/connection_reuse_helpers.cpp
-  ${PROJECT_SOURCE_DIR}/yt/yt/core/http/helpers.cpp
-  ${PROJECT_SOURCE_DIR}/yt/yt/core/http/http.cpp
-  ${PROJECT_SOURCE_DIR}/yt/yt/core/http/retrying_client.cpp
-  ${PROJECT_SOURCE_DIR}/yt/yt/core/http/server.cpp
-  ${PROJECT_SOURCE_DIR}/yt/yt/core/http/stream.cpp
-  ${PROJECT_SOURCE_DIR}/yt/yt/core/http/compression_opensource.cpp
+target_sources(core-http-mock PRIVATE
+  ${PROJECT_SOURCE_DIR}/yt/yt/core/http/mock/client.cpp
+  ${PROJECT_SOURCE_DIR}/yt/yt/core/http/mock/http.cpp
 )
 

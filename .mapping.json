@@ -681,6 +681,7 @@
   "yt/yt/core/CMakeLists.linux-x86_64.txt":"",
   "yt/yt/core/CMakeLists.txt":"",
   "yt/yt/core/http/CMakeLists.txt":"",
+  "yt/yt/core/http/mock/CMakeLists.txt":"",
   "yt/yt/core/https/CMakeLists.txt":"",
   "yt/yt/core/misc/CMakeLists.txt":"",
   "yt/yt/core/misc/isa_crc64/CMakeLists.linux-aarch64.txt":"",
