@@ -36,6 +36,7 @@ target_link_libraries(cpp-connectors-sorted_dynamic_table PUBLIC
   yutil
   library-cpp-common
   cpp-connectors-common
+  library-cpp-misc
   library-cpp-resources
   yt-yt-core
   yt-yt-client
@@ -68,6 +69,7 @@ target_link_libraries(cpp-connectors-sorted_dynamic_table.global PUBLIC
   yutil
   library-cpp-common
   cpp-connectors-common
+  library-cpp-misc
   library-cpp-resources
   yt-yt-core
   yt-yt-client
