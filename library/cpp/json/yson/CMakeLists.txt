@@ -14,33 +14,23 @@
 
 find_package(linux-headers-generic REQUIRED)
 
-add_subdirectory(common)
-add_subdirectory(fast_sax)
-add_subdirectory(writer)
-add_subdirectory(yson)
-
-add_library(library-cpp-json)
+add_library(cpp-json-yson)
 
 
-target_compile_options(library-cpp-json PRIVATE
+target_compile_options(cpp-json-yson PRIVATE
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 
-target_link_libraries(library-cpp-json PUBLIC
+target_link_libraries(cpp-json-yson PUBLIC
   linux-headers-generic::linux-headers-generic
   contrib-libs-cxxsupp
   yutil
-  contrib-libs-rapidjson
-  cpp-json-common
-  cpp-json-fast_sax
-  cpp-json-writer
-  cpp-string_utils-relaxed_escaper
+  library-cpp-json
+  library-cpp-yson
+  cpp-yson-json
 )
 
-target_sources(library-cpp-json PRIVATE
-  ${PROJECT_SOURCE_DIR}/library/cpp/json/json_writer.cpp
-  ${PROJECT_SOURCE_DIR}/library/cpp/json/json_reader.cpp
-  ${PROJECT_SOURCE_DIR}/library/cpp/json/json_prettifier.cpp
-  ${PROJECT_SOURCE_DIR}/library/cpp/json/rapidjson_helpers.cpp
+target_sources(cpp-json-yson PRIVATE
+  ${PROJECT_SOURCE_DIR}/library/cpp/json/yson/json2yson.cpp
 )
 
