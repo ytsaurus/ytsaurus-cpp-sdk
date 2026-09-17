@@ -35,6 +35,7 @@ target_link_libraries(library-cpp-native_client PUBLIC
   contrib-libs-cxxsupp
   yutil
   library-cpp-client
+  library-cpp-pipeline_tables
   yt-yt-client
 )
 

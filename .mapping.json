@@ -828,6 +828,7 @@
   "yt/yt/flow/library/cpp/pipeline_helpers/unittests/CMakeLists.linux-aarch64.txt":"",
   "yt/yt/flow/library/cpp/pipeline_helpers/unittests/CMakeLists.linux-x86_64.txt":"",
   "yt/yt/flow/library/cpp/pipeline_helpers/unittests/CMakeLists.txt":"",
+  "yt/yt/flow/library/cpp/pipeline_tables/CMakeLists.txt":"",
   "yt/yt/flow/library/cpp/process_function/CMakeLists.txt":"",
   "yt/yt/flow/library/cpp/process_function/benchmarks/CMakeLists.linux-aarch64.txt":"",
   "yt/yt/flow/library/cpp/process_function/benchmarks/CMakeLists.linux-x86_64.txt":"",
