@@ -13,8 +13,8 @@
 # changes in this file.
 
 add_subdirectory(pipeline_helpers)
-add_subdirectory(common)
 add_subdirectory(client)
+add_subdirectory(common)
 add_subdirectory(serializer)
 add_subdirectory(delta_codecs)
 add_subdirectory(misc)
