@@ -14,10 +14,10 @@
 
 find_package(linux-headers-generic REQUIRED)
 
-add_library(yt-library-lock_election INTERFACE)
+add_library(yt-library-lock_election)
 
 
-target_compile_options(yt-library-lock_election INTERFACE
+target_compile_options(yt-library-lock_election PRIVATE
   -Wdeprecated-this-capture
   -Wimplicit-fallthrough
   -Wparentheses
@@ -28,10 +28,14 @@ target_compile_options(yt-library-lock_election INTERFACE
   -DNO_CUSTOM_CHAR_PTR_STD_COMPARATOR
 )
 
-target_link_libraries(yt-library-lock_election INTERFACE
+target_link_libraries(yt-library-lock_election PUBLIC
   linux-headers-generic::linux-headers-generic
   contrib-libs-cxxsupp
   yutil
   yt-yt-core
+)
+
+target_sources(yt-library-lock_election PRIVATE
+  ${PROJECT_SOURCE_DIR}/yt/yt/library/lock_election/config.cpp
 )
 
