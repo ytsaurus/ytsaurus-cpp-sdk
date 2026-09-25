@@ -1,6 +1,6 @@
 package NYT.NFlow.NProto;
 
-option go_package = "a.yandex-team.ru/yt/go/proto/flow/common";
+option go_package = "a.yandex-team.ru/yt/go/flow/proto/common";
 
 import "yt_proto/yt/core/misc/proto/guid.proto";
 
