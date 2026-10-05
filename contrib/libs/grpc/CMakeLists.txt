@@ -61,6 +61,7 @@ target_sources(contrib-libs-grpc PRIVATE
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/ext/filters/census/grpc_context.cc
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/ext/filters/channel_idle/channel_idle_filter.cc
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/ext/filters/channel_idle/idle_filter_state.cc
+  ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/ext/filters/channel_idle/legacy_channel_idle_filter.cc
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/ext/filters/client_channel/backend_metric.cc
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/ext/filters/client_channel/backup_poller.cc
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/ext/filters/client_channel/channel_connectivity.cc
@@ -95,7 +96,6 @@ target_sources(contrib-libs-grpc PRIVATE
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/ext/filters/client_channel/lb_policy/xds/cds.cc
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/ext/filters/client_channel/lb_policy/xds/xds_cluster_impl.cc
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/ext/filters/client_channel/lb_policy/xds/xds_cluster_manager.cc
-  ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/ext/filters/client_channel/lb_policy/xds/xds_cluster_resolver.cc
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/ext/filters/client_channel/lb_policy/xds/xds_override_host.cc
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/ext/filters/client_channel/lb_policy/xds/xds_wrr_locality.cc
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/ext/filters/client_channel/local_subchannel_pool.cc
@@ -114,7 +114,9 @@ target_sources(contrib-libs-grpc PRIVATE
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/ext/filters/client_channel/resolver/google_c2p/google_c2p_resolver.cc
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/ext/filters/client_channel/resolver/polling_resolver.cc
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/ext/filters/client_channel/resolver/sockaddr/sockaddr_resolver.cc
+  ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/ext/filters/client_channel/resolver/xds/xds_dependency_manager.cc
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/ext/filters/client_channel/resolver/xds/xds_resolver.cc
+  ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/ext/filters/client_channel/resolver/xds/xds_resolver_trace.cc
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/ext/filters/client_channel/retry_filter.cc
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/ext/filters/client_channel/retry_filter_legacy_call_data.cc
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/ext/filters/client_channel/retry_service_config.cc
@@ -130,6 +132,7 @@ target_sources(contrib-libs-grpc PRIVATE
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/ext/filters/http/client_authority_filter.cc
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/ext/filters/http/http_filters_plugin.cc
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/ext/filters/http/message_compress/compression_filter.cc
+  ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/ext/filters/http/message_compress/legacy_compression_filter.cc
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/ext/filters/http/server/http_server_filter.cc
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/ext/filters/message_size/message_size_filter.cc
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/ext/filters/rbac/rbac_filter.cc
@@ -164,6 +167,7 @@ target_sources(contrib-libs-grpc PRIVATE
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/ext/transport/chttp2/transport/chttp2_transport.cc
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/ext/transport/chttp2/transport/decode_huff.cc
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/ext/transport/chttp2/transport/flow_control.cc
+  ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/ext/transport/chttp2/transport/frame.cc
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/ext/transport/chttp2/transport/frame_data.cc
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/ext/transport/chttp2/transport/frame_goaway.cc
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/ext/transport/chttp2/transport/frame_ping.cc
@@ -272,6 +276,7 @@ target_sources(contrib-libs-grpc PRIVATE
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/ext/upb-gen/envoy/extensions/transport_sockets/tls/v3/secret.upb_minitable.c
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/ext/upb-gen/envoy/extensions/transport_sockets/tls/v3/tls.upb_minitable.c
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/ext/upb-gen/envoy/extensions/transport_sockets/tls/v3/tls_spiffe_validator_config.upb_minitable.c
+  ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/ext/upb-gen/envoy/extensions/upstreams/http/v3/http_protocol_options.upb_minitable.c
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/ext/upb-gen/envoy/service/discovery/v3/ads.upb_minitable.c
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/ext/upb-gen/envoy/service/discovery/v3/discovery.upb_minitable.c
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/ext/upb-gen/envoy/service/load_stats/v3/lrs.upb_minitable.c
@@ -430,6 +435,7 @@ target_sources(contrib-libs-grpc PRIVATE
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/ext/upbdefs-gen/envoy/extensions/transport_sockets/tls/v3/secret.upbdefs.c
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/ext/upbdefs-gen/envoy/extensions/transport_sockets/tls/v3/tls.upbdefs.c
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/ext/upbdefs-gen/envoy/extensions/transport_sockets/tls/v3/tls_spiffe_validator_config.upbdefs.c
+  ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/ext/upbdefs-gen/envoy/extensions/upstreams/http/v3/http_protocol_options.upbdefs.c
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/ext/upbdefs-gen/envoy/service/discovery/v3/ads.upbdefs.c
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/ext/upbdefs-gen/envoy/service/discovery/v3/discovery.upbdefs.c
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/ext/upbdefs-gen/envoy/service/load_stats/v3/lrs.upbdefs.c
@@ -568,12 +574,12 @@ target_sources(contrib-libs-grpc PRIVATE
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/lib/event_engine/default_event_engine_factory.cc
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/lib/event_engine/event_engine.cc
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/lib/event_engine/forkable.cc
-  ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/lib/event_engine/memory_allocator.cc
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/lib/event_engine/posix_engine/ev_epoll1_linux.cc
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/lib/event_engine/posix_engine/ev_poll_posix.cc
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/lib/event_engine/posix_engine/event_poller_posix_default.cc
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/lib/event_engine/posix_engine/internal_errqueue.cc
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/lib/event_engine/posix_engine/lockfree_event.cc
+  ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/lib/event_engine/posix_engine/native_posix_dns_resolver.cc
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/lib/event_engine/posix_engine/posix_endpoint.cc
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/lib/event_engine/posix_engine/posix_engine.cc
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/lib/event_engine/posix_engine/posix_engine_listener.cc
@@ -601,6 +607,7 @@ target_sources(contrib-libs-grpc PRIVATE
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/lib/event_engine/utils.cc
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/lib/event_engine/windows/grpc_polled_fd_windows.cc
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/lib/event_engine/windows/iocp.cc
+  ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/lib/event_engine/windows/native_windows_dns_resolver.cc
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/lib/event_engine/windows/win_socket.cc
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/lib/event_engine/windows/windows_endpoint.cc
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/lib/event_engine/windows/windows_engine.cc
@@ -824,6 +831,7 @@ target_sources(contrib-libs-grpc PRIVATE
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/lib/security/security_connector/ssl_utils.cc
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/lib/security/security_connector/tls/tls_security_connector.cc
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/lib/security/transport/client_auth_filter.cc
+  ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/lib/security/transport/legacy_server_auth_filter.cc
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/lib/security/transport/secure_endpoint.cc
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/lib/security/transport/security_handshaker.cc
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/lib/security/transport/server_auth_filter.cc
@@ -861,6 +869,7 @@ target_sources(contrib-libs-grpc PRIVATE
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/lib/surface/version.cc
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/lib/transport/batch_builder.cc
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/lib/transport/bdp_estimator.cc
+  ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/lib/transport/call_final_info.cc
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/lib/transport/connectivity_state.cc
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/lib/transport/error_utils.cc
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/lib/transport/handshaker.cc
@@ -868,7 +877,6 @@ target_sources(contrib-libs-grpc PRIVATE
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/lib/transport/http_connect_handshaker.cc
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/lib/transport/metadata_batch.cc
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/lib/transport/parsed_metadata.cc
-  ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/lib/transport/pid_controller.cc
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/lib/transport/status_conversion.cc
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/lib/transport/tcp_connect_handshaker.cc
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/lib/transport/timeout_encoding.cc
@@ -1614,6 +1622,14 @@ set_property(
 
 set_property(
   SOURCE
+  ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/ext/upb-gen/envoy/extensions/upstreams/http/v3/http_protocol_options.upb_minitable.c
+  APPEND
+  PROPERTY
+  COMPILE_OPTIONS
+)
+
+set_property(
+  SOURCE
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/ext/upb-gen/envoy/service/discovery/v3/ads.upb_minitable.c
   APPEND
   PROPERTY
@@ -2871,6 +2887,14 @@ set_property(
 set_property(
   SOURCE
   ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/ext/upbdefs-gen/envoy/extensions/transport_sockets/tls/v3/tls_spiffe_validator_config.upbdefs.c
+  APPEND
+  PROPERTY
+  COMPILE_OPTIONS
+)
+
+set_property(
+  SOURCE
+  ${PROJECT_SOURCE_DIR}/contrib/libs/grpc/src/core/ext/upbdefs-gen/envoy/extensions/upstreams/http/v3/http_protocol_options.upbdefs.c
   APPEND
   PROPERTY
   COMPILE_OPTIONS
