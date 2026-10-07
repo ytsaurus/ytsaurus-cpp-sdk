@@ -35,6 +35,7 @@ target_link_libraries(mapreduce-library-parallel_io PUBLIC
   linux-headers-generic::linux-headers-generic
   contrib-libs-cxxsupp
   yutil
+  cpp-mapreduce-common
   cpp-mapreduce-interface
   cpp-yt-memory
 )
