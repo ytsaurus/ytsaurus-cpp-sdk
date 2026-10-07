@@ -1,0 +1,64 @@
+name: C++ SDK documentation
+
+on:
+  push:
+    branches:
+      - main
+      - members/ilyaibraev/yt-24618-cpp-sdk-docs
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  docs:
+    name: Build and publish documentation
+    runs-on: ubuntu-latest
+    concurrency:
+      group: cpp-docs
+      queue: max
+      cancel-in-progress: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Doxygen
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends doxygen
+
+      - name: Generate documentation
+        run: |
+          python3 yt/cpp/mapreduce/doc
+          mkdir -p cpp-docs
+          tar -xzf c++_doc.tar.gz -C cpp-docs
+          test -s cpp-docs/c++/index.html
+
+      - name: Check branch revision
+        if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/members/ilyaibraev/yt-24618-cpp-sdk-docs' }}
+        id: revision
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { data: ref } = await github.rest.git.getRef({
+              ...context.repo,
+              ref: context.ref.slice('refs/'.length),
+            });
+            const current = ref.object.sha === context.sha;
+            core.setOutput('current', current);
+            if (!current) {
+              await core.summary
+                .addRaw('S3 publication skipped: this commit is no longer the head of this branch.')
+                .write();
+            }
+
+      - name: Upload HTML
+        if: ${{ steps.revision.outputs.current == 'true' }}
+        uses: yc-actions/yc-obj-storage-upload@v5
+        with:
+          yc-sa-json-credentials: ${{ secrets.YC_SA_JSON_CREDENTIALS }}
+          bucket: files.ytsaurus.tech
+          prefix: ytsaurus-cpp-sdk/doc/main/
+          root: cpp-docs/c++
+          include: '**/*'
+          fail-on-error: true
