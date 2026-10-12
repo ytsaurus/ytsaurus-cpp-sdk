@@ -34,6 +34,7 @@ target_link_libraries(library-cpp-computation PUBLIC
   linux-headers-generic::linux-headers-generic
   contrib-libs-cxxsupp
   yutil
+  contrib-libs-pdqsort
   cpp-containers-absl
   cpp-containers-insert_only_concurrent_cache
   library-cpp-iterator
@@ -101,6 +102,7 @@ target_link_libraries(library-cpp-computation.global PUBLIC
   linux-headers-generic::linux-headers-generic
   contrib-libs-cxxsupp
   yutil
+  contrib-libs-pdqsort
   cpp-containers-absl
   cpp-containers-insert_only_concurrent_cache
   library-cpp-iterator
