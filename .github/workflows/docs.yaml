@@ -34,21 +34,21 @@ jobs:
           tar -xzf c++_doc.tar.gz -C cpp-docs
           test -s cpp-docs/c++/index.html
 
-      - name: Check branch revision
-        if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/members/ilyaibraev/yt-24618-cpp-sdk-docs' }}
+      - name: Check main revision
+        if: ${{ github.ref == 'refs/heads/main' }}
         id: revision
         uses: actions/github-script@v8
         with:
           script: |
             const { data: ref } = await github.rest.git.getRef({
               ...context.repo,
-              ref: context.ref.slice('refs/'.length),
+              ref: 'heads/main',
             });
             const current = ref.object.sha === context.sha;
             core.setOutput('current', current);
             if (!current) {
               await core.summary
-                .addRaw('S3 publication skipped: this commit is no longer the head of this branch.')
+                .addRaw('S3 publication skipped: this commit is no longer the head of main.')
                 .write();
             }
 
@@ -57,8 +57,7 @@ jobs:
         uses: yc-actions/yc-obj-storage-upload@v5
         with:
           yc-sa-json-credentials: ${{ secrets.YC_SA_JSON_CREDENTIALS }}
-          bucket: files.ytsaurus.tech
-          prefix: ytsaurus-cpp-sdk/doc/main/
+          bucket: cppdoc.ytsaurus.tech
           root: cpp-docs/c++
           include: '**/*'
           fail-on-error: true
