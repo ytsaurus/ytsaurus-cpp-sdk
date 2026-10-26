@@ -76,7 +76,7 @@ See the [Doxygen command reference](http://www.doxygen.nl/manual/commands.html) 
 
 The `.github/workflows/docs.yaml` workflow in `ytsaurus/ytsaurus-cpp-sdk` builds documentation on every push to `main` and supports manual runs through `workflow_dispatch`.
 
-Only the current head of `main` is published at [cppdoc.ytsaurus.tech](https://cppdoc.ytsaurus.tech/).
+Documentation is published at [cppdoc.ytsaurus.tech](https://cppdoc.ytsaurus.tech/).
 
 # Editor configuration
 
