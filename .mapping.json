@@ -478,7 +478,6 @@
   "library/cpp/testing/hook/CMakeLists.txt":"",
   "library/cpp/threading/CMakeLists.txt":"",
   "library/cpp/threading/blocking_queue/CMakeLists.txt":"",
-  "library/cpp/threading/cron/CMakeLists.txt":"",
   "library/cpp/threading/future/CMakeLists.txt":"",
   "library/cpp/threading/hot_swap/CMakeLists.txt":"",
   "library/cpp/threading/skip_list/CMakeLists.txt":"",
