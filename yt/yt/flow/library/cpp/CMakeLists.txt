@@ -12,6 +12,7 @@
 # Please refer to the build instructions in the repository for more information about manual
 # changes in this file.
 
+add_subdirectory(source_read_delay)
 add_subdirectory(pipeline_helpers)
 add_subdirectory(client)
 add_subdirectory(common)

@@ -38,6 +38,7 @@ target_link_libraries(library-cpp-common PUBLIC
   linux-headers-generic::linux-headers-generic
   contrib-libs-cxxsupp
   yutil
+  library-cpp-source_read_delay
   library-cpp-client
   library-cpp-pipeline_tables
   library-cpp-serializer
