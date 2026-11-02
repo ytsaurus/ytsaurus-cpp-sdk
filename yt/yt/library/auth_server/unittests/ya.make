@@ -1,0 +1,43 @@
+GTEST(unittester-library-auth_server)
+
+EXPLICIT_DATA()
+
+SRCS(
+    auth_cache_ut.cpp
+    blackbox_ut.cpp
+    login_auth_ut.cpp
+    yc_auth_ut.cpp
+    mock_http_server.cpp
+    secret_vault_ut.cpp
+)
+
+IF (NOT OS_WINDOWS)
+    IF (NOT OPENSOURCE OR YT_CUSTOM_INTERNAL_BUILD)
+        SRCS(
+            ldap_ut.cpp
+        )
+    ENDIF()
+ENDIF()
+
+INCLUDE(${ARCADIA_ROOT}/yt/opensource.inc)
+
+PEERDIR(
+    yt/yt/build
+
+    yt/yt/core/test_framework
+
+    yt/yt/library/auth_server
+    yt/yt/library/tvm/service/mock
+
+    library/cpp/http/server
+)
+
+# Somehow tests in this suite work tens of seconds.
+
+SIZE(MEDIUM)
+
+FORK_TESTS()
+
+SPLIT_FACTOR(5)
+
+END()

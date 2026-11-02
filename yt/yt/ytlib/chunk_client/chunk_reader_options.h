@@ -1,0 +1,59 @@
+#pragma once
+
+#include "public.h"
+
+#include "chunk_reader_statistics.h"
+
+#include <yt/yt/ytlib/misc/public.h>
+
+#include <yt/yt/ytlib/node_tracker_client/public.h>
+
+#include <yt/yt/ytlib/table_client/public.h>
+
+#include <yt/yt/client/misc/workload.h>
+
+#include <yt/yt/core/rpc/public.h>
+
+namespace NYT::NChunkClient {
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct TClientChunkReadOptions
+{
+    TWorkloadDescriptor WorkloadDescriptor;
+    TReadSessionId ReadSessionId;
+    NRpc::EMultiplexingBand MultiplexingBand = NRpc::EMultiplexingBand::Heavy;
+    int MultiplexingParallelism = 1;
+    bool UseDedicatedAllocations = false;
+
+    TChunkReaderStatisticsPtr ChunkReaderStatistics = New<TChunkReaderStatistics>();
+    NTableClient::TKeyFilterStatisticsPtr KeyFilterStatistics;
+    TJobIoMeterPtr JobIoMeter;
+
+    // NB: If |HunkChunkReaderStatistics| is null and hunk chunk reading is
+    // performed, relevant statistics will be updated within
+    // |ChunkReaderStatistics|.
+    NTableClient::IHunkChunkReaderStatisticsPtr HunkChunkReaderStatistics;
+
+    // Unless null, |AdaptiveHedgingManager| determines hedging policy shared between various chunk readers.
+    IAdaptiveHedgingManagerPtr AdaptiveHedgingManager;
+
+    IMemoryUsageTrackerPtr MemoryUsageTracker;
+
+    NTableClient::IGranuleFilterPtr GranuleFilter;
+    // Only applicable to dynamic tables.
+    NTableClient::EInitialQueryKind InitialQueryKind = NTableClient::EInitialQueryKind::LookupRows;
+
+    //! Additional request data, e.g. NBD request id.
+    std::optional<ui64> Cookie;
+
+    //! Reuse the session invoker for decompression in wrapped unversioned readers.
+    bool ReuseSessionInvokerForDecompression = false;
+
+    void ResetStatistics();
+    void AddStatisticsFrom(const TClientChunkReadOptions& from) const;
+};
+
+////////////////////////////////////////////////////////////////////////////////
+
+} // namespace NYT::NChunkClient

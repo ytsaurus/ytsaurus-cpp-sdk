@@ -1,0 +1,132 @@
+#pragma once
+
+#include <yt/yt/client/node_tracker_client/public.h>
+
+#include <yt/yt/client/object_client/public.h>
+
+#include <yt/yt/client/sequoia_client/public.h>
+
+#include <yt/yt/client/table_client/public.h>
+
+#include <yt/yt/core/ypath/public.h>
+
+namespace NYT::NSequoiaClient {
+
+////////////////////////////////////////////////////////////////////////////////
+
+DEFINE_ENUM(ESequoiaTransactionType,
+    (CypressModification)
+    (CypressTransactionMirroring)
+    (ResponseKeeper)
+    (IncrementalHeartbeat)
+    (FullHeartbeat)
+    (FinalizeHeartbeatSession)
+    (ChunkLocationDisposal)
+    (ChunkConfirmation)
+    (DeadChunkReplicaRemoval)
+    (GroundUpdateQueueFlush)
+    (ObjectDestruction)
+    (GlobalRefresh)
+    (LocationRefresh)
+);
+
+DEFINE_ENUM(ESequoiaTable,
+    (PathToNodeId)
+    (NodeIdToPath)
+    (ChunkReplicas)
+    (LocationReplicas)
+    (UnapprovedChunkReplicas)
+    (ChildNodes)
+    (Transactions)
+    (TransactionDescendants)
+    (TransactionReplicas)
+    (DependentTransactions)
+    (DoomedTransactions)
+    (NodeForks)
+    (NodeSnapshots)
+    (PathForks)
+    (ChildForks)
+    (ResponseKeeper)
+    (ChunkRefreshQueue)
+    (Acls)
+);
+
+DEFINE_ENUM(EGroundUpdateQueue,
+    ((Sequoia)            (0))
+);
+
+////////////////////////////////////////////////////////////////////////////////
+
+namespace NRecords {
+
+struct TAcls;
+
+struct TPathToNodeId;
+struct TNodeIdToPath;
+struct TChildNode;
+
+struct TChunkReplicas;
+struct TLocationReplicas;
+struct TUnapprovedChunkReplicas;
+
+struct TTransaction;
+struct TTransactionDescendant;
+struct TTransactionReplica;
+struct TDependentTransaction;
+
+struct TNodeFork;
+struct TPathFork;
+struct TChildFork;
+struct TNodeSnapshot;
+
+struct TSequoiaResponseKeeper;
+
+} // namespace NRecords
+
+////////////////////////////////////////////////////////////////////////////////
+
+DECLARE_REFCOUNTED_STRUCT(ISequoiaConnection)
+DECLARE_REFCOUNTED_STRUCT(ISequoiaClient)
+DECLARE_REFCOUNTED_STRUCT(ISequoiaTransaction)
+
+////////////////////////////////////////////////////////////////////////////////
+
+YT_DEFINE_STRONG_TYPEDEF(TMangledSequoiaPath, std::string);
+//! A canonical absolute path. The canonical path format restricts the YPath grammar,
+//! allowing only a sequence of segments without additional YPath features.
+YT_DEFINE_STRONG_TYPEDEF(TRealPath, std::string);
+
+YT_DEFINE_STRONG_TYPEDEF(TRawYPath, std::string);
+
+//! The following classes are the wrappers for the canonical path representation.
+template <bool Absolute>
+class TBasicPathBuf;
+
+class TRelativePath;
+using TRelativePathBuf = TBasicPathBuf<false>;
+
+//! An absolute path is a canonical path that starts with a slash root designator.
+class TAbsolutePath;
+using TAbsolutePathBuf = TBasicPathBuf<true>;
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct TPrerequisiteRevision;
+struct TResolvedPrerequisiteRevision;
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct TSequoiaTransactionFeatures;
+struct TSequoiaTransactionOptions;
+
+////////////////////////////////////////////////////////////////////////////////
+
+DEFINE_STRING_SERIALIZABLE_ENUM(EForkKind,
+    ((Regular)      (0))
+    ((Tombstone)    (1))
+    ((Snapshot)     (2))
+);
+
+////////////////////////////////////////////////////////////////////////////////
+
+} // namespace NYT::NSequoiaClient

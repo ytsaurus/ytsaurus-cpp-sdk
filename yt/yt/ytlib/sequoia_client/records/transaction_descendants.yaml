@@ -1,0 +1,33 @@
+namespace: NYT::NSequoiaClient::NRecords
+
+types:
+  - table_name: transaction_descendants
+    table_group: transaction_tables
+    type_name: TTransactionDescendant
+    fields:
+      - cpp_name: TransactionIdHash
+        cpp_type: ui64
+        column_name: transaction_id_hash
+        column_type: Uint64
+        sort_order: Ascending
+        expression: farm_hash(transaction_id)
+
+      - cpp_name: TransactionId
+        cpp_type: NCypressClient::TTransactionId
+        column_name: transaction_id
+        column_type: String
+        sort_order: Ascending
+
+      - cpp_name: DescendantId
+        cpp_type: NCypressClient::TTransactionId
+        column_name: descendant_id
+        column_type: String
+        sort_order: Ascending
+
+      - cpp_name: Dummy
+        cpp_type: int
+        column_name: dummy
+        column_type: Int32
+
+    verbatim: |
+        static constexpr auto Table = ESequoiaTable::TransactionDescendants;

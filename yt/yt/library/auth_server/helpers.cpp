@@ -1,0 +1,354 @@
+#include "helpers.h"
+#include "config.h"
+#include "private.h"
+
+#include "cypress_user_manager.h"
+
+#include <yt/yt/library/re2/re2.h>
+
+#include <yt/yt/core/crypto/crypto.h>
+
+#include <yt/yt/core/ytree/fluent.h>
+
+#include <yt/yt_proto/yt/core/rpc/proto/rpc.pb.h>
+
+#include <library/cpp/string_utils/quote/quote.h>
+#include <library/cpp/string_utils/url/url.h>
+
+#include <util/string/split.h>
+
+namespace NYT::NAuth {
+
+using namespace NConcurrency;
+using namespace NCrypto;
+using namespace NLogging;
+using namespace NYson;
+using namespace NYTree;
+using namespace NNet;
+using namespace NRpc::NProto;
+
+////////////////////////////////////////////////////////////////////////////////
+
+std::string GetCryptoHash(TStringBuf secret)
+{
+    return NCrypto::TSha1Hasher()
+        .Append(secret)
+        .GetHexDigestLowerCase();
+}
+
+std::string FormatUserIP(const TNetworkAddress& address)
+{
+    if (!address.IsIP()) {
+        // Sometimes userIP is missing (e.g. user is connecting
+        // from job using unix socket), but it is required by
+        // Blackbox. Put placeholder in place of a real IP.
+        static const std::string LocalUserIP = "127.0.0.1";
+        return LocalUserIP;
+    }
+    return ToString(
+        address,
+        TNetworkAddressFormatOptions{
+            .IncludePort = false,
+            .IncludeTcpProtocol = false,
+        });
+}
+
+std::string GetBlackboxCacheKeyFactorFromUserIP(
+    EBlackboxCacheKeyMode mode,
+    const TNetworkAddress& address)
+{
+    if (mode == EBlackboxCacheKeyMode::Credentials) {
+        return {};
+    }
+
+    if (mode == EBlackboxCacheKeyMode::CredentialsAndUserAddressProjectId &&
+        address.IsIP6() &&
+        address.ToIP6Address().IsMtn())
+    {
+        return Format("project_id=%v", TMtnAddress(address.ToIP6Address()).GetProjectId());
+    }
+
+    return Format(
+        "ip=%v",
+        ToString(address, TNetworkAddressFormatOptions{
+            .IncludePort = false,
+            .IncludeTcpProtocol = false,
+        }));
+}
+
+std::string GetLoginForTvmId(TTvmId tvmId)
+{
+    return Format("tvm:%v", tvmId);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+static const THashSet<std::string> PrivateUrlParams{
+    "userip",
+    "oauth_token",
+    "sessionid",
+    "sslsessionid",
+    "user_ticket",
+    "sessguard",
+};
+
+void TSafeUrlBuilder::AppendString(TStringBuf str)
+{
+    RealUrl_.AppendString(str);
+    SafeUrl_.AppendString(str);
+}
+
+void TSafeUrlBuilder::AppendChar(char ch)
+{
+    RealUrl_.AppendChar(ch);
+    SafeUrl_.AppendChar(ch);
+}
+
+void TSafeUrlBuilder::AppendParam(TStringBuf key, TStringBuf value)
+{
+    auto size = key.length() + 4 + CgiEscapeBufLen(value.length());
+
+    char* realBegin = RealUrl_.Preallocate(size);
+    char* realIt = realBegin;
+    memcpy(realIt, key.data(), key.length());
+    realIt += key.length();
+    *realIt = '=';
+    realIt += 1;
+    auto realEnd = CGIEscape(realIt, value.data(), value.length());
+    RealUrl_.Advance(realEnd - realBegin);
+
+    char* safeBegin = SafeUrl_.Preallocate(size);
+    char* safeEnd = safeBegin;
+    if (PrivateUrlParams.contains(key)) {
+        memcpy(safeEnd, realBegin, realIt - realBegin);
+        safeEnd += realIt - realBegin;
+        memcpy(safeEnd, "***", 3);
+        safeEnd += 3;
+    } else {
+        memcpy(safeEnd, realBegin, realEnd - realBegin);
+        safeEnd += realEnd - realBegin;
+    }
+    SafeUrl_.Advance(safeEnd - safeBegin);
+}
+
+std::string TSafeUrlBuilder::FlushRealUrl()
+{
+    return RealUrl_.Flush();
+}
+
+std::string TSafeUrlBuilder::FlushSafeUrl()
+{
+    return SafeUrl_.Flush();
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+THashedCredentials HashCredentials(const NRpc::NProto::TCredentialsExt& credentialsExt)
+{
+    THashedCredentials result;
+    if (credentialsExt.has_token()) {
+        result.TokenHash = GetCryptoHash(credentialsExt.token());
+    }
+    return result;
+}
+
+void Serialize(const THashedCredentials& hashedCredentials, IYsonConsumer* consumer)
+{
+    BuildYsonFluently(consumer)
+        .BeginMap()
+            .OptionalItem("token_hash", hashedCredentials.TokenHash)
+        .EndMap();
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+std::string SignCsrfToken(const std::string& userId, const std::string& key, TInstant now)
+{
+    auto msg = userId + ":" + ToString(now.TimeT());
+    return CreateSha256Hmac(key, msg) + ":" + ToString(now.TimeT());
+}
+
+TError CheckCsrfToken(
+    const std::string& csrfToken,
+    const std::string& userId,
+    const std::string& key,
+    TInstant expirationTime)
+{
+    std::vector<std::string> parts;
+    StringSplitter(csrfToken).Split(':').AddTo(&parts);
+    if (parts.size() != 2) {
+        return TError("Malformed CSRF token");
+    }
+
+    auto signTime = TInstant::Seconds(FromString<time_t>(parts[1]));
+    if (signTime < expirationTime) {
+        return TError(NRpc::EErrorCode::InvalidCsrfToken, "CSRF token expired")
+            .With("sign_time", signTime);
+    }
+
+    auto msg = userId + ":" + ToString(signTime.TimeT());
+    auto expectedToken = CreateSha256Hmac(key, msg);
+    if (!ConstantTimeCompare(expectedToken, parts[0])) {
+        return TError(NRpc::EErrorCode::InvalidCsrfToken, "Invalid CSFR token signature")
+            .With("provided_signature", parts[0])
+            .With("user_fingerprint", msg);
+    }
+
+    return {};
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+std::string ApplyStringReplacement(const std::string& input, const TStringReplacementConfigPtr& replacement, const TLogger& logger)
+{
+    const auto& Logger = logger;
+
+    auto output = input;
+
+    // Config validation guarantees that exactly one of the transformation types is requested.
+
+    int regexReplacementCount = 0;
+    if (replacement->MatchPattern) {
+        regexReplacementCount = RE2::GlobalReplace(
+            &output,
+            *replacement->MatchPattern,
+            replacement->Replacement);
+    }
+
+    if (replacement->ToLower || replacement->ToUpper) {
+        std::transform(output.cbegin(), output.cend(), output.begin(), [&replacement] (auto c) {
+            return replacement->ToLower ? std::tolower(c) : std::toupper(c);
+        });
+    }
+
+    YT_TLOG_DEBUG("Login transformation for OAuth user info applied")
+        .WithFormat("Login", "%v -> %v", input, output)
+        .With("RegexReplacementCount", regexReplacementCount);
+
+    return output;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+TError EnsureUserExists(
+    bool createIfNotExists,
+    const ICypressUserManagerPtr& userManager,
+    const std::string& name,
+    const std::vector<std::string>& tags)
+{
+    const auto& Logger = AuthLogger;
+
+    YT_TLOG_DEBUG("Checking if user exists")
+        .With("Name", name);
+    auto result = WaitFor(userManager->CheckUserExists(name));
+    if (!result.IsOK()) {
+        auto error = TError("Failed to verify if user exists")
+            .With("name", name)
+            .With(std::move(result));
+        YT_TLOG_WARNING("Failed to check user existence")
+            .With(error);
+        return error;
+    }
+
+    if (result.Value()) {
+        YT_TLOG_DEBUG("User exists")
+            .With("Name", name);
+        return TError();
+    }
+
+    YT_TLOG_DEBUG("User does not exist")
+        .With("Name", name);
+    if (!createIfNotExists) {
+        auto error = TError(NRpc::EErrorCode::InvalidCredentials, "User does not exist")
+            .With("name", name);
+        return error;
+    }
+
+    YT_TLOG_DEBUG("Creating user")
+        .With("Name", name)
+        .With("Tags", tags);
+
+    auto userOrError = WaitFor(userManager->CreateUser(name, tags));
+    if (userOrError.IsOK()) {
+        YT_TLOG_DEBUG("User created")
+            .With("Name", name);
+        return TError();
+    }
+
+    static constexpr auto Message = "Failed to create user"_sb;
+    auto error = TError(Message)
+        .With("name", name)
+        .With(std::move(userOrError));
+    YT_TLOG_WARNING(Message)
+        .With(error);
+    return error;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+bool TryAddUserInGroups(
+    const ICypressUserManagerPtr& userManager,
+    const std::string& name,
+    const std::vector<std::string>& groups)
+{
+    const auto& Logger = AuthLogger;
+
+    if (groups.empty()) {
+        YT_TLOG_TRACE("Empty set of groups is provided")
+            .With("Name", name)
+            .With("Groups", groups);
+        return true;
+    }
+
+    YT_TLOG_TRACE("Checking if user is a member of the groups")
+        .With("Name", name)
+        .With("Groups", groups);
+    auto result = WaitFor(userManager->GetUserGroups(name));
+    if (!result.IsOK()) {
+        YT_TLOG_WARNING("Failed to get user groups")
+            .With("Name", name)
+            .With(result);
+        return false;
+    }
+
+    auto userGroups = result.Value();
+
+    YT_TLOG_TRACE("Listing user groups")
+        .With("Name", name)
+        .With("Groups", userGroups);
+
+    auto userGroupsSet = std::unordered_set<std::string>(userGroups.begin(), userGroups.end());
+    bool userAddedToAllGroups = true;
+    for (const auto& group : groups) {
+        if (userGroupsSet.contains(group)) {
+            continue;
+        }
+
+        YT_TLOG_DEBUG("User is not a member of the group")
+            .With("Name", name)
+            .With("Group", group);
+
+        auto result = WaitFor(userManager->AddUserToGroup(name, group));
+
+        userGroupsSet.insert(group);
+
+        if (result.IsOK()) {
+            YT_TLOG_DEBUG("User added into the group")
+                .With("Name", name)
+                .With("Group", group);
+        } else {
+            YT_TLOG_WARNING("Failed to add user into the group")
+                .With("Name", name)
+                .With("Group", group)
+                .With(result);
+            userAddedToAllGroups = false;
+        }
+    }
+
+    return userAddedToAllGroups;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+} // namespace NYT::NAuth
+

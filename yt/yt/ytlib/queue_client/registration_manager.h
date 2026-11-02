@@ -1,0 +1,91 @@
+#pragma once
+
+#include "public.h"
+#include "dynamic_state.h"
+
+#include <yt/yt/ytlib/api/native/public.h>
+
+#include <yt/yt/client/ypath/rich.h>
+
+#include <yt/yt/core/ytree/fluent.h>
+
+namespace NYT::NQueueClient {
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct TQueueConsumerRegistrationManagerProfilingCounters
+{
+    explicit TQueueConsumerRegistrationManagerProfilingCounters(const NProfiling::TProfiler& profiler);
+
+    NProfiling::TCounter ListAllRegistrationsRequestCount;
+
+    //! Counter for resolve replica calls made specifically for actual replicated table replica,
+    //! i.e. "upstream_replica_id" is not null.
+    NProfiling::TCounter ResolveReplicatedTableReplicaRequestCount;
+    //! Counter for failed resolve replica calls made specifically for actual replicated table replica,
+    //! i.e. "upstream_replica_id" is not null.
+    NProfiling::TCounter ResolveReplicatedTableReplicaFailedRequestCount;
+};
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct IQueueConsumerRegistrationManager
+    : public TRefCounted
+{
+    virtual void StartSync() = 0;
+    virtual void StopSync() = 0;
+
+    //! Contains path resolution context for better error messages.
+    struct TGetRegistrationResult
+    {
+        std::optional<TConsumerRegistrationTableRow> Registration;
+        NYPath::TRichYPath ResolvedQueue;
+        NYPath::TRichYPath ResolvedConsumer;
+    };
+
+    // NB: May return stale results in regard to the other methods in this class.
+    // NB: If cache bypass is enabled, this call will always refresh the cache itself.
+    virtual TGetRegistrationResult GetRegistrationOrThrow(
+        NYPath::TRichYPath queue,
+        NYPath::TRichYPath consumer) = 0;
+
+    // NB: May return stale results in regard to the other methods in this class.
+    // NB: If cache bypass is enabled, this call will always refresh the cache itself.
+    virtual std::vector<TConsumerRegistrationTableRow> ListRegistrations(
+        std::optional<NYPath::TRichYPath> queue,
+        std::optional<NYPath::TRichYPath> consumer) = 0;
+
+    // NB: Using the registration cache immediately after this call may return stale results.
+    virtual void RegisterQueueConsumer(
+        NYPath::TRichYPath queue,
+        NYPath::TRichYPath consumer,
+        bool vital,
+        const std::optional<std::vector<int>>& partitions = {}) = 0;
+
+    // NB: Using the registration cache immediately after this call may return stale results.
+    virtual void UnregisterQueueConsumer(
+        NYPath::TRichYPath queue,
+        NYPath::TRichYPath consumer) = 0;
+
+    virtual void Clear() = 0;
+
+    //! Exports information about current applied config and cached registrations.
+    // NB: If cache bypass is enabled, this call will always refresh the cache itself.
+    virtual void BuildOrchid(NYTree::TFluentAny fluent) = 0;
+};
+
+DEFINE_REFCOUNTED_TYPE(IQueueConsumerRegistrationManager)
+
+////////////////////////////////////////////////////////////////////////////////
+
+IQueueConsumerRegistrationManagerPtr CreateQueueConsumerRegistrationManager(
+    TQueueConsumerRegistrationManagerConfigPtr config,
+    TWeakPtr<NApi::NNative::IConnection> connection,
+    std::optional<std::string> clusterName,
+    IInvokerPtr invoker,
+    NProfiling::TProfiler profiler,
+    NLogging::TLogger logger);
+
+////////////////////////////////////////////////////////////////////////////////
+
+} // namespace NYT::NQueueClient

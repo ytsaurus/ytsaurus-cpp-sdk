@@ -1,0 +1,322 @@
+#include <yt/yt/core/test_framework/framework.h>
+
+#include "column_format_ut.h"
+
+#include <yt/yt/ytlib/table_chunk_format/floating_point_column_writer.h>
+#include <yt/yt/ytlib/table_chunk_format/floating_point_column_reader.h>
+
+#include <yt/yt/ytlib/table_chunk_format/helpers.h>
+
+namespace NYT::NTableClient {
+namespace {
+
+using namespace NTableChunkFormat;
+
+////////////////////////////////////////////////////////////////////////////////
+
+class TVersionedFloatingPointColumnTest
+    : public TVersionedColumnTestBase
+    , public ::testing::WithParamInterface<ESimpleLogicalValueType>
+{
+protected:
+    static constexpr TTimestamp Timestamp(ui64 delta = 0)
+    {
+        return TTimestamp(1000000 + delta);
+    }
+
+    struct TValue
+    {
+        std::optional<double> Data;
+        TTimestamp Timestamp;
+    };
+
+    TVersionedFloatingPointColumnTest()
+        : TVersionedColumnTestBase(NoAggregateSchema)
+    { }
+
+    TVersionedValue MakeValue(const TValue& value) const
+    {
+        if (value.Data) {
+            return MakeVersionedDoubleValue(
+                *value.Data,
+                value.Timestamp,
+                ColumnId);
+        } else {
+            return MakeVersionedSentinelValue(
+                EValueType::Null,
+                value.Timestamp,
+                ColumnId);
+        }
+    }
+
+    TVersionedRow CreateRow(const std::vector<TValue>& values) const
+    {
+        std::vector<TVersionedValue> versionedValues;
+        for (const auto& value : values) {
+            versionedValues.push_back(MakeValue(value));
+        }
+        return CreateRowWithValues(versionedValues);
+    }
+
+    void AppendExtremeRow(std::vector<TVersionedRow>* rows)
+    {
+        rows->push_back(CreateRow({
+            {std::numeric_limits<double>::max(), Timestamp()},
+            {std::numeric_limits<double>::min(), Timestamp(1)},
+            {std::nullopt, Timestamp(2)}}));
+    }
+
+    std::vector<TVersionedRow> CreateDirectDense()
+    {
+        std::vector<TVersionedRow> rows;
+
+        for (int i = 0; i < 100 * 100; ++i) {
+            rows.push_back(CreateRow({
+                {i * 3.25 , Timestamp(i * 10)},
+                {i * 10 * 3.25, Timestamp((i + 2) * 10)}}));
+        }
+        rows.push_back(CreateRowWithValues({}));
+        AppendExtremeRow(&rows);
+        return rows;
+    }
+
+    std::vector<TVersionedRow> CreateDirectSparse()
+    {
+        std::vector<TVersionedRow> rows;
+        for (int i = 0; i < 1000; ++i) {
+            rows.push_back(CreateRow({
+                {i * 3.25, Timestamp(i * 10)},
+                {i * 10 * 3.25, Timestamp((i + 2) * 10)}}));
+
+            for (int j = 0; j < 10; ++j) {
+                rows.push_back(CreateRowWithValues({}));
+            }
+        }
+        AppendExtremeRow(&rows);
+        return rows;
+    }
+
+    std::vector<TVersionedRow> GetOriginalRows()
+    {
+        std::vector<TVersionedRow> expected;
+        AppendVector(&expected, CreateDirectDense());
+        AppendVector(&expected, CreateDirectSparse());
+        return expected;
+    }
+
+    void Write(IValueColumnWriter* columnWriter) override
+    {
+        WriteSegment(columnWriter, CreateDirectDense());
+        WriteSegment(columnWriter, CreateDirectSparse());
+    }
+
+    void DoReadValues(TTimestamp timestamp, int padding = 500)
+    {
+        auto originalRows = GetOriginalRows();
+        Validate(originalRows, padding, originalRows.size() - padding, timestamp);
+    }
+
+    std::unique_ptr<IVersionedColumnReader> DoCreateColumnReader() override
+    {
+        auto doCreate = [&] (auto factory) {
+            return factory(
+                ColumnMeta_,
+                ColumnId,
+                ColumnSchema_);
+        };
+        switch (GetParam()) {
+            case ESimpleLogicalValueType::Float:
+            case ESimpleLogicalValueType::Double:
+                return doCreate(CreateVersionedDoubleColumnReader);
+            default:
+                YT_ABORT();
+        }
+    }
+
+    std::unique_ptr<IValueColumnWriter> CreateColumnWriter(
+        TDataBlockWriter* blockWriter,
+        IMemoryUsageTrackerPtr memoryTracker) override
+    {
+        auto doCreate = [&] (auto factory) {
+            return factory(
+                ColumnId,
+                ColumnSchema_,
+                blockWriter,
+                std::move(memoryTracker),
+                DefaultMaxSegmentValueCount);
+        };
+        switch (GetParam()) {
+            case ESimpleLogicalValueType::Float:
+            case ESimpleLogicalValueType::Double:
+                return doCreate(CreateVersionedDoubleColumnWriter);
+            default:
+                YT_ABORT();
+        }
+    }
+};
+
+TEST_P(TVersionedFloatingPointColumnTest, ReadValues)
+{
+    DoReadValues(Timestamp(80000));
+}
+
+TEST_P(TVersionedFloatingPointColumnTest, ReadValuesMinTimestamp)
+{
+    DoReadValues(MinTimestamp);
+}
+
+TEST_P(TVersionedFloatingPointColumnTest, ReadValuesMaxTimestamp)
+{
+    DoReadValues(MaxTimestamp);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    TVersionedFloatingPointColumnTest,
+    TVersionedFloatingPointColumnTest,
+    ::testing::Values(
+        ESimpleLogicalValueType::Float,
+        ESimpleLogicalValueType::Double));
+
+////////////////////////////////////////////////////////////////////////////////
+
+class TUnversionedFloatingPointSegmentTest
+    : public TUnversionedColumnTestBase<double>
+    , public ::testing::WithParamInterface<ESimpleLogicalValueType>
+{
+protected:
+    std::optional<double> DecodeValueFromColumn(
+        const IUnversionedColumnarRowBatch::TColumn* column,
+        i64 index) override
+    {
+        index -= column->StartIndex;
+
+        ResolveRleEncoding(column, index);
+
+        if (column->NullBitmap && GetBit(*column->NullBitmap, index)) {
+            return std::nullopt;
+        }
+
+        switch (GetParam()) {
+            case ESimpleLogicalValueType::Float:
+                return static_cast<double>(DecodeFloatingPointFromColumn<float>(*column, index));
+            case ESimpleLogicalValueType::Double:
+                return DecodeFloatingPointFromColumn<double>(*column, index);
+            default:
+                YT_ABORT();
+        }
+    }
+
+    void Write(IValueColumnWriter* columnWriter) override
+    {
+        // Segment 1 - 5 values.
+        WriteSegment(columnWriter, {std::nullopt, 1.0, 2.0, 3.0, 4.0});
+        // Segment 2 - 1 value.
+        WriteSegment(columnWriter, {5.0});
+        // Segment 3 - 8 values.
+        WriteSegment(columnWriter, {6.0, 7.0, 8.0, 9.0, std::nan("0x100"), std::nan("0x0"), std::nan("0x10"), std::nan("0x0")});
+    }
+
+    std::unique_ptr<IUnversionedColumnReader> DoCreateColumnReader() override
+    {
+        auto doCreate = [&] (auto factory) {
+            return factory(
+                ColumnMeta_,
+                ColumnIndex,
+                ColumnId,
+                ESortOrder::Ascending,
+                TColumnSchema());
+        };
+        switch (GetParam()) {
+            case ESimpleLogicalValueType::Float:
+                return doCreate(CreateUnversionedFloatingPointColumnReader<float>);
+            case ESimpleLogicalValueType::Double:
+                return doCreate(CreateUnversionedFloatingPointColumnReader<double>);
+            default:
+                YT_ABORT();
+        }
+    }
+
+    std::unique_ptr<IValueColumnWriter> CreateColumnWriter(
+        TDataBlockWriter* blockWriter,
+        IMemoryUsageTrackerPtr memoryTracker) override
+    {
+        auto doCreate = [&] (auto factory) {
+            return factory(
+                ColumnIndex,
+                blockWriter,
+                std::move(memoryTracker),
+                DefaultMaxSegmentValueCount);
+        };
+        switch (GetParam()) {
+            case ESimpleLogicalValueType::Float:
+                return doCreate(CreateUnversionedFloatingPointColumnWriter<float>);
+            case ESimpleLogicalValueType::Double:
+                return doCreate(CreateUnversionedFloatingPointColumnWriter<double>);
+            default:
+                YT_ABORT();
+        }
+    }
+};
+
+////////////////////////////////////////////////////////////////////////////////
+
+TEST_P(TUnversionedFloatingPointSegmentTest, GetEqualRange)
+{
+    auto reader = CreateColumnReader();
+    EXPECT_EQ(std::pair(8L, 8L), reader->GetEqualRange(MakeValue(7.5), 7, 8));
+    EXPECT_EQ(std::pair(0L, 0L), reader->GetEqualRange(MakeValue(std::nullopt), 0, 0));
+    EXPECT_EQ(std::pair(8L, 8L), reader->GetEqualRange(MakeValue(7.5), 2, 9));
+}
+
+TEST_P(TUnversionedFloatingPointSegmentTest, GetEqualRangeWithNaNs)
+{
+    auto reader = CreateColumnReader();
+
+    EXPECT_EQ(std::pair(0L, 1L), reader->GetEqualRange(MakeValue(std::nullopt), 0, 14));
+    EXPECT_EQ(std::pair(8L, 8L), reader->GetEqualRange(MakeValue(7.5), 0, 14));
+    EXPECT_EQ(std::pair(9L, 10L), reader->GetEqualRange(MakeValue(9), 0, 14));
+
+    auto absentNaN = MakeValue(std::nan("0x7"));
+    auto presentNaN = MakeValue(std::nan("0x0"));
+    for (auto nan : {absentNaN, presentNaN}) {
+        for (auto lowerLimit : {0, 10}) {
+            EXPECT_EQ(std::pair(10L, 14L), reader->GetEqualRange(nan, lowerLimit, 14));
+        }
+    }
+}
+
+TEST_P(TUnversionedFloatingPointSegmentTest, ReadValues)
+{
+    auto actual = AllocateRows(3);
+
+    // Test null rows.
+    actual.push_back(TMutableVersionedRow());
+
+    auto reader = CreateColumnReader();
+    reader->SkipToRowIndex(3);
+    reader->ReadValues(TMutableRange<TMutableVersionedRow>(actual.data(), actual.size()));
+
+    for (int i = 0; i < 3; ++i) {
+        EXPECT_EQ(0, CompareRowValues(MakeValue(3.0 + i), actual[i].Keys()[0]));
+    }
+}
+
+TEST_P(TUnversionedFloatingPointSegmentTest, ReadNull)
+{
+    auto reader = CreateColumnReader();
+    auto rows = AllocateRows(3);
+    reader->ReadValues(TMutableRange<TMutableVersionedRow>(rows.data(), rows.size()));
+    EXPECT_EQ(MakeValue(std::nullopt), rows.front().Keys()[0]);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    TUnversionedFloatingPointSegmentTest,
+    TUnversionedFloatingPointSegmentTest,
+    ::testing::Values(
+        ESimpleLogicalValueType::Float,
+        ESimpleLogicalValueType::Double));
+
+////////////////////////////////////////////////////////////////////////////////
+
+} // namespace
+} // namespace NYT::NTableClient

@@ -14,6 +14,8 @@
 
 find_package(linux-headers-generic REQUIRED)
 
+add_subdirectory(impl)
+
 add_library(yt-library-erasure)
 
 

@@ -1,0 +1,104 @@
+#pragma once
+
+#include "public.h"
+
+#include <yt/yt/ytlib/api/native/public.h>
+
+#include <yt/yt/ytlib/object_client/public.h>
+
+#include <yt/yt/core/ytree/yson_struct.h>
+
+namespace NYT::NCellMasterClient {
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct TCellDirectoryConfig
+    : public virtual NYTree::TYsonStruct
+{
+    NApi::NNative::TMasterConnectionConfigPtr PrimaryMaster;
+    std::vector<NApi::NNative::TMasterConnectionConfigPtr> SecondaryMasters;
+    NApi::NNative::TMasterCacheConnectionConfigPtr MasterCache;
+
+    NObjectClient::TCachingObjectServiceConfigPtr CachingObjectService;
+
+    // COMPAT(cherepashka)
+    bool EnableHiveCellDirectoryReconfigurationOnNewMasterCells;
+    // COMPAT(cherepashka)
+    bool EnableHiveCellDirectoryReconfigurationOnChangedMasterCells;
+
+    REGISTER_YSON_STRUCT(TCellDirectoryConfig);
+
+    static void Register(TRegistrar registrar);
+};
+
+DEFINE_REFCOUNTED_TYPE(TCellDirectoryConfig)
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct TTestConfig
+    : public NYTree::TYsonStruct
+{
+    bool DuplicateDirectoryUpdate;
+
+    REGISTER_YSON_STRUCT(TTestConfig);
+
+    static void Register(TRegistrar registrar);
+};
+
+DEFINE_REFCOUNTED_TYPE(TTestConfig)
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct TCellDirectorySynchronizerConfig
+    : public NYTree::TYsonStruct
+{
+    //! Interval between subsequent directory updates.
+    std::optional<TDuration> SyncPeriod;
+
+    //! Delay before the next directory update in case the last one was unsuccessful.
+    //! Usually should be (significantly) less than #SyncPeriod.
+    //! If null, #SyncPeriod is used instead.
+    std::optional<TDuration> RetryPeriod;
+
+    TDuration ExpireAfterSuccessfulUpdateTime;
+    TDuration ExpireAfterFailedUpdateTime;
+
+    // NB: Section for testing purposes.
+    TTestConfigPtr Testing;
+
+    REGISTER_YSON_STRUCT(TCellDirectorySynchronizerConfig);
+
+    static void Register(TRegistrar registrar);
+};
+
+DEFINE_REFCOUNTED_TYPE(TCellDirectorySynchronizerConfig)
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct TCellDirectorySynchronizerOverrideDynamicConfig
+    : public NYTree::TYsonStruct
+{
+    //! Interval between subsequent directory updates.
+    std::optional<TDuration> SyncPeriod;
+
+    //! Delay before the next directory update in case the last one was unsuccessful.
+    //! Usually should be (significantly) less than #SyncPeriod.
+    //! If null, #SyncPeriod is used instead.
+    std::optional<TDuration> RetryPeriod;
+
+    std::optional<TDuration> ExpireAfterSuccessfulUpdateTime;
+    std::optional<TDuration> ExpireAfterFailedUpdateTime;
+
+    // NB: Section for testing purposes.
+    std::optional<TTestConfigPtr> Testing;
+
+    REGISTER_YSON_STRUCT(TCellDirectorySynchronizerOverrideDynamicConfig);
+
+    static void Register(TRegistrar registrar);
+};
+
+DEFINE_REFCOUNTED_TYPE(TCellDirectorySynchronizerOverrideDynamicConfig)
+
+////////////////////////////////////////////////////////////////////////////////
+
+} // namespace NYT::NCellMasterClient

@@ -1,0 +1,95 @@
+#include "tvm_bridge_service.h"
+
+#include "private.h"
+#include "tvm_bridge_service_proxy.h"
+
+#include <yt/yt/ytlib/auth/proto/tvm_bridge_service.pb.h>
+
+#include <yt/yt/library/tvm/service/tvm_service.h>
+
+#include <yt/yt/core/rpc/service_detail.h>
+
+namespace NYT::NAuth {
+
+using namespace NRpc;
+
+////////////////////////////////////////////////////////////////////////////////
+
+class TTvmBridgeService
+    : public TServiceBase
+{
+public:
+    TTvmBridgeService(
+        IDynamicTvmServicePtr tvmService,
+        IInvokerPtr invoker,
+        IAuthenticatorPtr authenticator)
+        : TServiceBase(
+            std::move(invoker),
+            TTvmBridgeServiceProxy::GetDescriptor(),
+            TvmBridgeLogger(),
+            TServiceOptions{
+                .Authenticator = std::move(authenticator),
+            })
+        , TvmService_(std::move(tvmService))
+    {
+        YT_VERIFY(TvmService_);
+
+        RegisterMethod(RPC_SERVICE_METHOD_DESC(FetchTickets)
+            .SetCancelable(true));
+    }
+
+private:
+    IDynamicTvmServicePtr TvmService_;
+
+    DECLARE_RPC_SERVICE_METHOD(NProto, FetchTickets)
+    {
+        auto destinations = FromProto<std::vector<ui32>>(request->destinations());
+
+        context->AnnotateRequest()
+            .With("Source", request->source())
+            .With("Destinations", MakeShrunkFormattableView(destinations, TDefaultFormatter(), /*limit*/ 10));
+
+        if (FromProto<TTvmId>(request->source()) != TvmService_->GetSelfTvmIdOrThrow()) {
+            THROW_ERROR_EXCEPTION("Cannot fetch tickets for provided source")
+                .With("source", request->source());
+        }
+
+        for (const auto& destination : request->destinations()) {
+            auto* result = response->add_results();
+            result->set_destination(destination);
+            try {
+                auto ticket = TvmService_->GetServiceTicket(FromProto<TTvmId>(destination));
+                *result->mutable_ticket() = std::move(ticket);
+            } catch (const TErrorException& ex) {
+                YT_TLOG_INFO("Could not fetch service ticket")
+                    .With("Source", request->source())
+                    .With("Destination", destination);
+                ToProto(
+                    result->mutable_error(),
+                    TError("Could not fetch service ticket")
+                        .With(ex)
+                        .With("source", request->source())
+                        .With("destination", destination));
+            }
+        }
+
+        context->Reply();
+    }
+};
+
+////////////////////////////////////////////////////////////////////////////////
+
+IServicePtr CreateTvmBridgeService(
+    IDynamicTvmServicePtr tvmService,
+    IInvokerPtr invoker,
+    IAuthenticatorPtr authenticator)
+{
+    return New<TTvmBridgeService>(
+        std::move(tvmService),
+        std::move(invoker),
+        std::move(authenticator));
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+} // namespace NYT::NAuth

@@ -1,0 +1,70 @@
+#pragma once
+
+#include <yt/yt/core/misc/public.h>
+
+#include <library/cpp/http/server/http.h>
+
+#include <library/cpp/testing/common/network.h>
+
+#include <library/cpp/yt/system/spin_lock.h>
+
+namespace NYT::NTests {
+
+////////////////////////////////////////////////////////////////////////////////
+
+std::string HttpResponse(int code, TStringBuf body);
+
+std::string CollectMessages(const TError& error);
+
+////////////////////////////////////////////////////////////////////////////////
+
+class TMockHttpServer
+{
+public:
+    using TCallback = std::function<void(TClientRequest*)>;
+
+    void SetCallback(TCallback callback);
+
+    void Start();
+    void Stop();
+
+    bool IsStarted() const;
+
+    std::string GetHost() const;
+    int GetPort() const;
+
+private:
+    class THttpServerImpl
+        : public THttpServer::ICallBack
+    {
+    public:
+        TCallback GetCallback();
+        void SetCallback(TCallback callback);
+        TClientRequest* CreateClient() override;
+
+    private:
+        class TRequest
+            : public TClientRequest
+        {
+        public:
+            explicit TRequest(THttpServerImpl* owner);
+            bool Reply(void* opaque) override;
+
+        private:
+            THttpServerImpl* const Owner_;
+        };
+
+        YT_DECLARE_SPIN_LOCK(TSpinLock, Lock_);
+        TCallback Callback_;
+    };
+
+    TCallback Callback_;
+    NTesting::TPortHolder Port_;
+
+    std::unique_ptr<THttpServerImpl> ServerImpl_;
+    std::unique_ptr<THttpServer> Server_;
+};
+
+////////////////////////////////////////////////////////////////////////////////
+
+} // namespace NYT::NTests

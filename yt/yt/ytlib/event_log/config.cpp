@@ -1,0 +1,15 @@
+#include "config.h"
+
+namespace NYT::NEventLog {
+
+////////////////////////////////////////////////////////////////////////////////
+
+void TStaticTableEventLogManagerConfig::Register(TRegistrar registrar)
+{
+    registrar.Parameter("path", &TThis::Path)
+        .Default();
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+} // namespace NYT::NEventLog

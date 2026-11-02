@@ -1,0 +1,194 @@
+#ifndef AUTH_CACHE_INL_H_
+#error "Direct inclusion of this file is not allowed, include auth_cache.h"
+// For the sake of sane code completion.
+#include "auth_cache.h"
+#endif
+
+#include "config.h"
+#include "private.h"
+
+#include <yt/yt/core/concurrency/propagating_storage.h>
+
+#include <yt/yt/core/profiling/timing.h>
+
+#include <yt/yt/core/misc/jitter.h>
+
+#include <utility>
+
+namespace NYT::NAuth {
+
+////////////////////////////////////////////////////////////////////////////////
+
+template <class TKey, class TValue, class TContext>
+TAuthCache<TKey, TValue, TContext>::TEntry::TEntry(const TKey& key, const TContext& context)
+    : Key(key)
+    , Context(context)
+    , LastAccessTime(GetCpuInstant())
+    , LastUpdateTime(GetCpuInstant())
+{ }
+
+////////////////////////////////////////////////////////////////////////////////
+
+template <class TKey, class TValue, class TContext>
+TAuthCache<TKey, TValue, TContext>::TAuthCache(
+    TAuthCacheConfigPtr config,
+    NProfiling::TProfiler profiler)
+    : Config_(std::move(config))
+    , Profiler_(std::move(profiler))
+{ }
+
+
+template <class TKey, class TValue, class TContext>
+TFuture<TValue> TAuthCache<TKey, TValue, TContext>::Get(const TKey& key, const TContext& context)
+{
+    TEntryPtr entry;
+    {
+        auto guard = ReaderGuard(SpinLock_);
+        auto it = Cache_.find(key);
+        if (it != Cache_.end()) {
+            entry = it->second;
+        }
+    }
+
+    auto now = NProfiling::GetCpuInstant();
+
+    if (entry) {
+        auto guard = Guard(entry->Lock);
+        auto future = entry->Future;
+
+        entry->Context = context;
+        entry->LastAccessTime = now;
+
+        if (entry->IsOutdated(Config_->CacheTtl, Config_->ErrorTtl) && !entry->Updating) {
+            entry->LastUpdateTime = now;
+            entry->Updating = true;
+
+            auto context = entry->Context;
+            guard.Release();
+
+            RefreshEntry(entry, context);
+        }
+
+        return future;
+    }
+
+    entry = New<TEntry>(key, context);
+    entry->Promise = NewPromise<TValue>();
+    entry->Future = entry->Promise.ToFuture();
+    entry->LastUpdateTime = now;
+
+    bool inserted = false;
+
+    {
+        auto writerGuard = WriterGuard(SpinLock_);
+        auto it = Cache_.find(key);
+        if (it == Cache_.end()) {
+            inserted = true;
+            Cache_[key] = entry;
+        } else {
+            entry = it->second;
+        }
+    }
+
+    if (inserted) {
+        ScheduleErase(entry);
+        entry->Promise.SetFrom(DoGet(entry->Key, entry->Context).ToUncancelable());
+    }
+
+    auto guard = Guard(entry->Lock);
+    return entry->Future;
+}
+
+template <class TKey, class TValue, class TContext>
+void TAuthCache<TKey, TValue, TContext>::Clear()
+{
+    THashMap<TKey, TEntryPtr> cache;
+    {
+        auto guard = WriterGuard(SpinLock_);
+        cache = std::exchange(Cache_, {});
+    }
+}
+
+template <class TKey, class TValue, class TContext>
+void TAuthCache<TKey, TValue, TContext>::RefreshEntry(const TEntryPtr& entry, const TContext& context)
+{
+    // Refresh can outlive the request and must not share its mutable trace context.
+    NConcurrency::TNullPropagatingStorageGuard storageGuard;
+
+    DoGet(entry->Key, context)
+        .Subscribe(BIND_NO_PROPAGATE([entry] (const TErrorOr<TValue>& valueOrError) {
+            auto transientError = !valueOrError.IsOK() && !valueOrError.FindMatching(NRpc::EErrorCode::InvalidCredentials);
+
+            auto guard = Guard(entry->Lock);
+            entry->Updating = false;
+
+            if (transientError) {
+                const auto& Logger = AuthLogger;
+                YT_TLOG_DEBUG("Skipping transient error while updating authentication cache entry")
+                    .With(valueOrError);
+                return;
+            }
+
+            entry->Future = MakeFuture(valueOrError);
+        }));
+}
+
+template <class TKey, class TValue, class TContext>
+void TAuthCache<TKey, TValue, TContext>::ScheduleErase(const TEntryPtr& entry)
+{
+    auto delay = ApplyJitter(
+        Config_->OptimisticCacheTtl,
+        Config_->OptimisticCacheTtlJitter,
+        // Returns a uniform random number in [-1.0, 0).
+        [] { return RandomNumber<double>() - 1.0; });
+
+    entry->EraseCookie = NConcurrency::TDelayedExecutor::Submit(
+        BIND_NO_PROPAGATE(&TAuthCache::TryErase, MakeWeak(this), MakeWeak(entry)),
+        delay);
+}
+
+template <class TKey, class TValue, class TContext>
+void TAuthCache<TKey, TValue, TContext>::TryErase(const TWeakPtr<TEntry>& weakEntry)
+{
+    auto entry = weakEntry.Lock();
+    if (!entry) {
+        return;
+    }
+
+    auto guard = Guard(entry->Lock);
+    if (entry->IsExpired(Config_->OptimisticCacheTtl)) {
+        auto writerGuard = WriterGuard(SpinLock_);
+        auto it = Cache_.find(entry->Key);
+        if (it != Cache_.end() && it->second == entry) {
+            Cache_.erase(it);
+        }
+    } else {
+        ScheduleErase(entry);
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+template <class TKey, class TValue, class TContext>
+bool TAuthCache<TKey, TValue, TContext>::TEntry::IsOutdated(TDuration ttl, TDuration errorTtl)
+{
+    auto now = NProfiling::GetCpuInstant();
+
+    auto value = Future.TryGet();
+    if (value && !value->IsOK()) {
+        return now > LastUpdateTime + NProfiling::DurationToCpuDuration(errorTtl);
+    } else {
+        return now > LastUpdateTime + NProfiling::DurationToCpuDuration(ttl);
+    }
+}
+
+template <class TKey, class TValue, class TContext>
+bool TAuthCache<TKey, TValue, TContext>::TEntry::IsExpired(TDuration ttl)
+{
+    auto now = NProfiling::GetCpuInstant();
+    return now > LastAccessTime + NProfiling::DurationToCpuDuration(ttl);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+} // namespace NYT::NAuth

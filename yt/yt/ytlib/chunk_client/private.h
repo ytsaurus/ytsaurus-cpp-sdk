@@ -1,0 +1,22 @@
+#pragma once
+
+#include "public.h"
+
+#include <yt/yt/core/logging/log.h>
+
+#include <yt/yt/client/chunk_client/private.h>
+
+namespace NYT::NChunkClient {
+
+////////////////////////////////////////////////////////////////////////////////
+
+YT_DEFINE_LEAKY_GLOBAL(const NLogging::TLogger, ReaderMemoryManagerLogger, "ReaderMemoryManager");
+
+//! A suffix to distinguish chunk meta files.
+inline const std::string ChunkMetaSuffix(".meta");
+
+inline const std::string OffshoreDataGatewayAddress("offshore-gateway-address");
+
+////////////////////////////////////////////////////////////////////////////////
+
+} // namespace NYT::NChunkClient

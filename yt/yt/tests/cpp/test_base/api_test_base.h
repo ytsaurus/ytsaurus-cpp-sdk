@@ -1,0 +1,117 @@
+#pragma once
+
+#include <yt/yt/ytlib/api/connection.h>
+
+#include <yt/yt/core/rpc/public.h>
+
+#include <yt/yt/core/test_framework/framework.h>
+
+#include <yt/yt/core/yson/string.h>
+
+#include <library/cpp/yt/memory/shared_range.h>
+
+namespace NYT {
+namespace NCppTests {
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct TWaitUntilOptions
+{
+    TDuration Timeout = TDuration::Seconds(30);
+    TDuration SleepBackoff = TDuration::MilliSeconds(500);
+    bool IgnoreExceptions = false;
+};
+
+void WaitUntil(
+    std::function<bool()> predicate,
+    TStringBuf errorMessage,
+    TWaitUntilOptions options = {});
+
+////////////////////////////////////////////////////////////////////////////////
+
+class TApiTestBase
+    : public ::testing::Test
+{
+protected:
+    static NApi::IConnectionPtr Connection_;
+    static NApi::IClientPtr Client_;
+    static std::string ClusterName_;
+
+    static void SetUpTestCase();
+
+    static void TearDownTestCase();
+
+    static NApi::IClientPtr CreateClient(const std::string& userName);
+
+    static void WaitUntilEqual(const NYPath::TYPath& path, TStringBuf expected);
+
+    static void AbortCypressTransactions();
+};
+
+////////////////////////////////////////////////////////////////////////////////
+
+class TDynamicTablesTestBase
+    : public TApiTestBase
+{
+public:
+    static void TearDownTestCase();
+
+protected:
+    static NYPath::TYPath Table_;
+
+    static void SetUpTestCase();
+
+    static void CreateTable(
+        const NYPath::TYPath& tablePath,
+        const NYson::TYsonString& schema,
+        bool mount = true);
+
+    static void SyncMountTable(const NYPath::TYPath& path);
+    static void SyncFreezeTable(const NYPath::TYPath& path);
+    static void SyncUnfreezeTable(const NYPath::TYPath& path);
+
+    static void SyncUnmountTable(const NYPath::TYPath& path);
+
+    static void SyncFlushTable(const NYPath::TYPath& path);
+
+    static std::tuple<TSharedRange<NTableClient::TUnversionedRow>, NTableClient::TNameTablePtr> PrepareUnversionedRow(
+        const std::vector<std::string>& names,
+        TStringBuf rowString);
+
+    static void WriteUnversionedRow(
+        const std::vector<std::string>& names,
+        TStringBuf rowString,
+        const NApi::IClientPtr& client = Client_);
+
+    static void WriteRows(
+        NTableClient::TNameTablePtr nameTable,
+        TSharedRange<NTableClient::TUnversionedRow> rows,
+        const NApi::IClientPtr& client = Client_);
+
+    static std::tuple<TSharedRange<NTableClient::TVersionedRow>, NTableClient::TNameTablePtr> PrepareVersionedRow(
+        const std::vector<std::string>& names,
+        TStringBuf keyYson,
+        TStringBuf valueYson);
+
+    static void WriteVersionedRow(
+        const std::vector<std::string>& names,
+        TStringBuf keyYson,
+        TStringBuf valueYson,
+        const NApi::IClientPtr& client = Client_);
+
+    static void WriteRows(
+        NTableClient::TNameTablePtr nameTable,
+        TSharedRange<NTableClient::TVersionedRow> rows,
+        const NApi::IClientPtr& client = Client_);
+
+private:
+    static void RemoveSystemObjects(const NYPath::TYPath& path);
+
+    static void RemoveTabletCells(
+        std::function<bool(TStringBuf)> filter = [] (TStringBuf) { return true; });
+};
+
+////////////////////////////////////////////////////////////////////////////////
+
+} // namespace NCppTests
+} // namespace NYT

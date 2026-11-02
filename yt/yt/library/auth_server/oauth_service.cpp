@@ -1,0 +1,205 @@
+#include "oauth_service.h"
+
+#include "config.h"
+#include "private.h"
+#include "helpers.h"
+
+#include <yt/yt/core/http/client.h>
+#include <yt/yt/core/http/helpers.h>
+#include <yt/yt/core/http/http.h>
+#include <yt/yt/core/http/retrying_client.h>
+
+#include <yt/yt/core/https/client.h>
+#include <yt/yt/core/https/config.h>
+
+#include <yt/yt/core/ytree/convert.h>
+
+#include <yt/yt/core/concurrency/delayed_executor.h>
+#include <yt/yt/core/concurrency/poller.h>
+
+#include <yt/yt/core/json/json_parser.h>
+
+#include <yt/yt/core/profiling/timing.h>
+
+#include <yt/yt/core/rpc/dispatcher.h>
+
+namespace NYT::NAuth {
+
+using namespace NConcurrency;
+using namespace NHttp;
+using namespace NYTree;
+using namespace NYson;
+
+////////////////////////////////////////////////////////////////////////////////
+
+constinit const auto Logger = AuthLogger;
+
+////////////////////////////////////////////////////////////////////////////////
+
+class TOAuthService
+    : public IOAuthService
+{
+public:
+    TOAuthService(
+        TOAuthServiceConfigPtr config,
+        IPollerPtr poller,
+        NProfiling::TProfiler profiler)
+        : Config_(std::move(config))
+        , HttpClient_(
+            CreateRetryingClient(
+                Config_->RetryingClient,
+                Config_->Secure
+                    ? NHttps::CreateClient(Config_->HttpClient, poller)
+                    : NHttp::CreateClient(Config_->HttpClient, poller),
+                poller->GetInvoker()))
+        , OAuthCalls_(profiler.Counter("/oauth_calls"))
+        , OAuthCallErrors_(profiler.Counter("/oauth_call_errors"))
+        , OAuthCallTime_(profiler.Timer("/oauth_call_time"))
+    { }
+
+    TFuture<TOAuthUserInfoResult> GetUserInfo(const std::string& accessToken) override
+    {
+        return BIND(&TOAuthService::DoGetUserInfo, MakeStrong(this), accessToken)
+            .AsyncVia(NRpc::TDispatcher::Get()->GetLightInvoker())
+            .Run();
+    }
+
+private:
+    const TOAuthServiceConfigPtr Config_;
+    const NHttp::IRetryingClientPtr HttpClient_;
+
+    NProfiling::TCounter OAuthCalls_;
+    NProfiling::TCounter OAuthCallErrors_;
+    NProfiling::TEventTimer OAuthCallTime_;
+
+    static NJson::TJsonFormatConfigPtr MakeJsonFormatConfig()
+    {
+        auto config = New<NJson::TJsonFormatConfig>();
+        // Additional string conversion is not necessary in this case.
+        config->EncodeUtf8 = false;
+        return config;
+    }
+
+    TOAuthUserInfoResult DoGetUserInfo(const std::string& accessToken)
+    {
+        OAuthCalls_.Increment();
+
+        auto callId = TGuid::Create();
+        auto httpHeaders = New<THeaders>();
+        httpHeaders->Add("Authorization", Format("%v %v", Config_->AuthorizationHeaderPrefix, accessToken));
+
+        static const auto retryChecker = BIND([] (const TError& error) {
+            return !error.FindMatching(NRpc::EErrorCode::InvalidCredentials).has_value();
+        });
+        auto jsonResponseChecker = CreateJsonResponseChecker(
+            MakeJsonFormatConfig(),
+            BIND(&TOAuthService::DoCheckUserInfoResponse, MakeStrong(this)),
+            retryChecker);
+
+        const auto url = Format("%v://%v:%v/%v",
+            Config_->Secure ? "https" : "http",
+            Config_->Host,
+            Config_->Port,
+            Config_->UserInfoEndpoint);
+
+        YT_TLOG_DEBUG("Calling OAuth get user info")
+            .With("Url", NHttp::SanitizeUrl(url))
+            .With("CallId", callId);
+
+        auto result = [&] {
+            NProfiling::TWallTimer timer;
+            auto result = WaitFor(HttpClient_->Get(jsonResponseChecker, url, httpHeaders));
+            OAuthCallTime_.Record(timer.GetElapsedTime());
+            return result;
+        }();
+
+        if (!result.IsOK()) {
+            OAuthCallErrors_.Increment();
+            static constexpr auto Message = "OAuth call failed"_sb;
+            YT_TLOG_WARNING(Message)
+                .With("CallId", callId)
+                .With(result);
+            THROW_ERROR_EXCEPTION(NRpc::EErrorCode::InvalidCredentials, Message)
+                .With(result)
+                .With("call_id", callId);
+        }
+
+        const auto& formattedResponse = jsonResponseChecker->GetFormattedResponse()->AsMap();
+        auto login = formattedResponse->GetChildValueOrThrow<std::string>(Config_->UserInfoLoginField);
+        for (const auto& transformation : Config_->LoginTransformations) {
+            login = ApplyStringReplacement(login, transformation, Logger());
+        }
+        auto userInfo = TOAuthUserInfoResult{
+            .Login = std::move(login),
+        };
+
+        if (Config_->UserInfoSubjectField) {
+            userInfo.Subject = formattedResponse->GetChildValueOrThrow<std::string>(*Config_->UserInfoSubjectField);
+        }
+
+        YT_TLOG_DEBUG("OAuth user info obtained")
+            .With("Login", userInfo.Login)
+            .With("Subject", userInfo.Subject);
+
+        return userInfo;
+    }
+
+    TError DoCheckUserInfoResponse(const IResponsePtr& rsp, const NYTree::INodePtr& rspNode) const
+    {
+        const auto statusCode = rsp->GetStatusCode();
+        if (statusCode != EStatusCode::OK) {
+            auto error = TError("OAuth response has non-ok status code: %v", static_cast<int>(rsp->GetStatusCode()));
+            if (statusCode == EStatusCode::BadRequest || statusCode == EStatusCode::Unauthorized || statusCode == EStatusCode::Forbidden) {
+                error.SetCode(NRpc::EErrorCode::InvalidCredentials);
+            }
+
+            if (rspNode->GetType() == ENodeType::Map && Config_->UserInfoErrorField) {
+                auto errorNode = rspNode->AsMap()->FindChild(*Config_->UserInfoErrorField);
+                error = error
+                    .With("error_field_message", ConvertToYsonString(errorNode))
+                    .With("error_field", *Config_->UserInfoErrorField);
+            }
+
+            return error;
+        }
+
+        if (rspNode->GetType() != ENodeType::Map) {
+            return TError("OAuth response content has unexpected node type")
+                .With("expected_result_type", ENodeType::Map)
+                .With("actual_result_type", rspNode->GetType());
+        }
+
+        auto loginNode = rspNode->AsMap()->FindChild(Config_->UserInfoLoginField);
+        if (!loginNode || loginNode->GetType() != ENodeType::String) {
+            return TError("OAuth response content has no login field or login node type is unexpected")
+                .With("login_field", Config_->UserInfoLoginField);
+        }
+
+        if (Config_->UserInfoSubjectField) {
+            auto subjectNode = rspNode->AsMap()->FindChild(*Config_->UserInfoSubjectField);
+            if (!subjectNode || subjectNode->GetType() != ENodeType::String) {
+                return TError("OAuth response content has no subject field or subject node type is unexpected")
+                    .With("subject_field", Config_->UserInfoSubjectField);
+            }
+        }
+
+        return {};
+    }
+};
+
+////////////////////////////////////////////////////////////////////////////////
+
+IOAuthServicePtr CreateOAuthService(
+    TOAuthServiceConfigPtr config,
+    NConcurrency::IPollerPtr poller,
+    NProfiling::TProfiler profiler)
+{
+    return New<TOAuthService>(
+        std::move(config),
+        std::move(poller),
+        std::move(profiler));
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+} // namespace NYT::NAuth
