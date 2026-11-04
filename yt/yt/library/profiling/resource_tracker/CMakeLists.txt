@@ -35,6 +35,7 @@ target_link_libraries(library-profiling-resource_tracker PUBLIC
   yt-library-profiling
   yt-library-cgroup
   yt_proto-yt-core
+  cpp-containers-absl
 )
 
 target_sources(library-profiling-resource_tracker PRIVATE
@@ -65,6 +66,7 @@ target_link_libraries(library-profiling-resource_tracker.global PUBLIC
   yt-library-profiling
   yt-library-cgroup
   yt_proto-yt-core
+  cpp-containers-absl
 )
 
 target_sources(library-profiling-resource_tracker.global PRIVATE
