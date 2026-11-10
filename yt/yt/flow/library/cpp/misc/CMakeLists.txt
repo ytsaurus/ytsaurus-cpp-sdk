@@ -39,6 +39,7 @@ target_link_libraries(library-cpp-misc PUBLIC
   yutil
   contrib-libs-eigen
   contrib-libs-openssl
+  contrib-libs-pdqsort
   library-cpp-build_info
   cpp-yt-error
   cpp-yt-memory
@@ -101,6 +102,7 @@ target_link_libraries(library-cpp-misc.global PUBLIC
   yutil
   contrib-libs-eigen
   contrib-libs-openssl
+  contrib-libs-pdqsort
   library-cpp-build_info
   cpp-yt-error
   cpp-yt-memory
