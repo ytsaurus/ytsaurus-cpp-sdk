@@ -38,6 +38,7 @@ target_link_libraries(library-profiling-solomon PUBLIC
   yt-yt-core
   yt-core-http
   library-cpp-cgiparam
+  cpp-containers-absl
   cpp-monlib-metrics
   monlib-encode-prometheus
   monlib-encode-spack
@@ -104,6 +105,7 @@ target_link_libraries(library-profiling-solomon.global PUBLIC
   yt-yt-core
   yt-core-http
   library-cpp-cgiparam
+  cpp-containers-absl
   cpp-monlib-metrics
   monlib-encode-prometheus
   monlib-encode-spack
