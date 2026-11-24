@@ -13,3 +13,5 @@
 # changes in this file.
 
 add_subdirectory(library)
+add_subdirectory(extensions)
+add_subdirectory(tests)

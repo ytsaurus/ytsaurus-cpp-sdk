@@ -1,0 +1,29 @@
+syntax = "proto3";
+option cc_enable_arenas = true;
+
+package Ydb.Bridge;
+
+option java_package = "com.yandex.ydb.bridge.proto";
+
+import "contrib/ydb/public/api/protos/annotations/validation.proto";
+
+// Describes the state of a single pile within the cluster
+message PileState {
+    // State of a pile
+    enum State {
+        UNSPECIFIED = 0;
+        PRIMARY = 1; // pile is primary
+        PROMOTED = 2; // pile is being promoted to primary
+        SYNCHRONIZED = 3; // fully synchronized with primary, may be promoted
+        NOT_SYNCHRONIZED = 4; // not synchronized with primary, cannot be promoted
+        SUSPENDED = 5;    // pile is gracefully taken down, preparing to be disconnected
+        DISCONNECTED = 6; // disconnected from the cluster (no connectivity to other piles)
+        INACTIVE = 7; // listed in the cluster config, but not added to the cluster yet (or already removed from it)
+        HOT_STANDBY = 8; // receives best-effort writes outside quorums; must rejoin before promotion
+    }
+
+    // The name of the pile
+    string pile_name = 1 [(length).le = 128];
+    // The operational state of the pile
+    State state = 2;
+}
