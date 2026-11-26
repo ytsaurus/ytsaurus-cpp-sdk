@@ -27,6 +27,7 @@ target_link_libraries(blockcodecs-codecs-zstd INTERFACE
   yutil
   contrib-libs-zstd
   cpp-blockcodecs-core
+  cpp-streams-zstd
 )
 
 
@@ -44,6 +45,7 @@ target_link_libraries(blockcodecs-codecs-zstd.global PUBLIC
   yutil
   contrib-libs-zstd
   cpp-blockcodecs-core
+  cpp-streams-zstd
 )
 
 target_sources(blockcodecs-codecs-zstd.global PRIVATE
