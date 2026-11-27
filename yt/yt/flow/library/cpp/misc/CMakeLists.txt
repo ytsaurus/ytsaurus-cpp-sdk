@@ -16,8 +16,8 @@ find_package(linux-headers-generic REQUIRED)
 
 add_subdirectory(proto)
 add_subdirectory(unittests)
-add_subdirectory(benchmarks)
 add_subdirectory(testing)
+add_subdirectory(benchmarks)
 
 add_library(library-cpp-misc)
 
@@ -58,6 +58,7 @@ target_sources(library-cpp-misc PRIVATE
   ${PROJECT_SOURCE_DIR}/yt/yt/flow/library/cpp/misc/decayed_sum.cpp
   ${PROJECT_SOURCE_DIR}/yt/yt/flow/library/cpp/misc/debug_build_warning.cpp
   ${PROJECT_SOURCE_DIR}/yt/yt/flow/library/cpp/misc/destruction_context.cpp
+  ${PROJECT_SOURCE_DIR}/yt/yt/flow/library/cpp/misc/deploy_info.cpp
   ${PROJECT_SOURCE_DIR}/yt/yt/flow/library/cpp/misc/deploy_url_provider.cpp
   ${PROJECT_SOURCE_DIR}/yt/yt/flow/library/cpp/misc/identifier.cpp
   ${PROJECT_SOURCE_DIR}/yt/yt/flow/library/cpp/misc/crash_recorder.cpp
